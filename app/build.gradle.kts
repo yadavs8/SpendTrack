@@ -26,7 +26,21 @@ android {
         }
     }
 
+    signingConfigs {
+        // Shared debug key (committed on purpose) so APKs built on CI and on any PC can update each other
+        // on the phone. It is a public debug key: never use it for a Play Store release.
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("debug")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
