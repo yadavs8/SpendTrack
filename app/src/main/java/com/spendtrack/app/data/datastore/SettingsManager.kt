@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -26,6 +27,7 @@ class SettingsManager(private val context: Context) {
         val KEY_DARK_MODE = stringPreferencesKey("dark_mode") // "SYSTEM", "LIGHT", "DARK"
         val KEY_CONFIRMATION_NOTIFS = booleanPreferencesKey("confirmation_notifications")
         val KEY_ONBOARDING_DONE = booleanPreferencesKey("onboarding_done")
+        val KEY_LAST_SMS_SYNC_TIME = longPreferencesKey("last_sms_sync_time")
         val KEY_FALSE_DETECTION_CLEANUP_VERSION = intPreferencesKey("false_detection_cleanup_version")
 
         val DEFAULT_MONITORED_APPS = setOf(
@@ -114,6 +116,14 @@ class SettingsManager(private val context: Context) {
 
     suspend fun setFalseDetectionCleanupVersion(version: Int) {
         context.dataStore.edit { it[KEY_FALSE_DETECTION_CLEANUP_VERSION] = version }
+    }
+
+    val lastSmsSyncTime: Flow<Long> = context.dataStore.data.map { prefs ->
+        prefs[KEY_LAST_SMS_SYNC_TIME] ?: 0L
+    }
+
+    suspend fun setLastSmsSyncTime(time: Long) {
+        context.dataStore.edit { it[KEY_LAST_SMS_SYNC_TIME] = time }
     }
 
     suspend fun setOnboardingDone(done: Boolean) {

@@ -38,6 +38,7 @@ import com.spendtrack.app.ui.screens.settings.SettingsViewModel
 import com.spendtrack.app.ui.screens.transactions.TransactionsScreen
 import com.spendtrack.app.ui.screens.transactions.TransactionsViewModel
 import com.spendtrack.app.ui.theme.SpendTrackTheme
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class MainActivity : FragmentActivity() {
@@ -178,9 +179,14 @@ fun MainApp() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
-        // Sync historical bank SMS on startup if SMS permission is available
+        // Pick up bank SMS received since the last sync (e.g. while the app was killed)
         if (androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED) {
-            com.spendtrack.app.core.sync.SmsInboxSyncer.syncPastBankSms(context.applicationContext)
+            val syncStartedAt = System.currentTimeMillis()
+            com.spendtrack.app.core.sync.SmsInboxSyncer.syncPastBankSms(
+                context.applicationContext,
+                sinceMillis = settingsManager.lastSmsSyncTime.first()
+            )
+            settingsManager.setLastSmsSyncTime(syncStartedAt)
         }
     }
 

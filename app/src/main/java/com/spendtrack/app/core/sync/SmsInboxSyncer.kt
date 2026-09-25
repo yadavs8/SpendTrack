@@ -15,7 +15,15 @@ object SmsInboxSyncer {
         val importedCount: Int
     )
 
-    suspend fun syncPastBankSms(context: Context, maxMessagesToScan: Int = 200): SyncResult = withContext(Dispatchers.IO) {
+    /**
+     * @param sinceMillis only SMS received after this time are scanned. The automatic startup sync
+     * passes the previous sync time so entries the user deleted are not re-imported on every launch.
+     */
+    suspend fun syncPastBankSms(
+        context: Context,
+        maxMessagesToScan: Int = 200,
+        sinceMillis: Long = 0L
+    ): SyncResult = withContext(Dispatchers.IO) {
         ServiceLocator.init(context.applicationContext)
 
         var scanned = 0
@@ -32,8 +40,8 @@ object SmsInboxSyncer {
             val cursor = contentResolver.query(
                 Telephony.Sms.Inbox.CONTENT_URI,
                 projection,
-                null,
-                null,
+                "${Telephony.Sms.DATE} > ?",
+                arrayOf(sinceMillis.toString()),
                 "${Telephony.Sms.DATE} DESC"
             )
 
@@ -57,6 +65,9 @@ object SmsInboxSyncer {
                         sourcePackage = null,
                         timestamp = timestamp
                     ) ?: continue
+
+                    // Idempotent: the same SMS may already be stored by SmsReceiver or an earlier sync
+                    if (ServiceLocator.transactionRepository.isAlreadyRecorded(parsed)) continue
 
                     val result = ServiceLocator.transactionRepository.ingestTransaction(parsed)
                     if (result is com.spendtrack.app.core.deduplication.DeduplicationEngine.DeduplicationResult.NewTransaction) {

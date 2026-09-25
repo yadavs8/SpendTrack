@@ -297,6 +297,12 @@ class TransactionRepository(
         transactionDao.insertTransactions(demoList)
     }
 
+    /** True when this exact message (same amount and text) has already been stored. */
+    suspend fun isAlreadyRecorded(parsed: ParsedTransaction): Boolean {
+        val raw = parsed.rawText ?: return false
+        return transactionDao.countByAmountAndText(parsed.amount, raw) > 0
+    }
+
     /**
      * Removes auto-detected entries whose original message fails the current [TransactionFilter]
      * (OTPs, offers, reminders, requests, failed payments, incoming money). Manually added,
