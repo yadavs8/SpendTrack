@@ -1,6 +1,7 @@
 package com.spendtrack.app.core.security
 
 import android.content.Context
+import android.os.Build
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.core.content.ContextCompat
@@ -8,8 +9,14 @@ import androidx.fragment.app.FragmentActivity
 
 object BiometricAuthManager {
 
-    private const val AUTHENTICATORS = 
-        BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+    // BIOMETRIC_STRONG | DEVICE_CREDENTIAL is rejected by BiometricPrompt on API 28-29, so older
+    // devices fall back to BIOMETRIC_WEAK | DEVICE_CREDENTIAL.
+    private val AUTHENTICATORS =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        } else {
+            BiometricManager.Authenticators.BIOMETRIC_WEAK or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        }
 
     fun canAuthenticate(context: Context): Boolean {
         val biometricManager = BiometricManager.from(context)

@@ -64,6 +64,12 @@ object MerchantNormalizer {
         "PAYTM" to "Paytm"
     )
 
+    // Short brand keys must be whole words so "OLA" doesn't match "COLA"/"SOLANKI" and "CRED" doesn't match "CREDIT"
+    private val KNOWN_MERCHANT_REGEXES: List<Pair<Regex, String>> = KNOWN_MERCHANTS.map { (key, name) ->
+        val end = if (key.length <= 4) "(?![A-Z0-9])" else ""
+        Regex("(?<![A-Z0-9])" + Regex.escape(key) + end) to name
+    }
+
     fun normalize(rawMerchant: String?, vpa: String? = null): String {
         if (rawMerchant.isNullOrBlank() && vpa.isNullOrBlank()) {
             return "Unknown Merchant"
@@ -91,8 +97,8 @@ object MerchantNormalizer {
 
         // 4. Check known merchant mappings
         val upperInput = input.uppercase(Locale.ROOT)
-        for ((key, normalizedName) in KNOWN_MERCHANTS) {
-            if (upperInput.contains(key)) {
+        for ((key, normalizedName) in KNOWN_MERCHANT_REGEXES) {
+            if (key.containsMatchIn(upperInput)) {
                 return normalizedName
             }
         }

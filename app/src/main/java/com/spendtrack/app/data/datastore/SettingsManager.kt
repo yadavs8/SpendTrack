@@ -24,14 +24,19 @@ class SettingsManager(private val context: Context) {
         val KEY_BIOMETRIC_LOCK = booleanPreferencesKey("biometric_lock")
         val KEY_DARK_MODE = stringPreferencesKey("dark_mode") // "SYSTEM", "LIGHT", "DARK"
         val KEY_CONFIRMATION_NOTIFS = booleanPreferencesKey("confirmation_notifications")
+        val KEY_ONBOARDING_DONE = booleanPreferencesKey("onboarding_done")
 
         val DEFAULT_MONITORED_APPS = setOf(
             "com.google.android.apps.nbu.paisa.user", // Google Pay
             "com.phonepe.app",                       // PhonePe
             "net.one97.paytm",                       // Paytm
             "in.org.npci.upiapp",                    // BHIM
-            "com.dreamplug.androidapp"               // CRED
+            "com.dreamplug.androidapp",              // CRED
+            "com.naviapp"                            // Navi
         )
+
+        /** UPI apps listed in Settings > Monitored UPI Apps; the listener honours their on/off switch. */
+        val TOGGLEABLE_UPI_APPS = DEFAULT_MONITORED_APPS
     }
 
     val monitoredAppsFlow: Flow<Set<String>> = context.dataStore.data.map { prefs ->
@@ -60,6 +65,10 @@ class SettingsManager(private val context: Context) {
 
     val showConfirmationNotifs: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[KEY_CONFIRMATION_NOTIFS] ?: true
+    }
+
+    val isOnboardingDone: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_ONBOARDING_DONE] ?: false
     }
 
     val darkModeFlow: Flow<String> = context.dataStore.data.map { prefs ->
@@ -99,6 +108,10 @@ class SettingsManager(private val context: Context) {
 
     suspend fun setConfirmationNotifs(enabled: Boolean) {
         context.dataStore.edit { it[KEY_CONFIRMATION_NOTIFS] = enabled }
+    }
+
+    suspend fun setOnboardingDone(done: Boolean) {
+        context.dataStore.edit { it[KEY_ONBOARDING_DONE] = done }
     }
 
     suspend fun setDarkMode(mode: String) {

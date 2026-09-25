@@ -115,6 +115,12 @@ fun AddExpenseDialog(
                             .clickable { categoryDropdownExpanded = true },
                         shape = RoundedCornerShape(12.dp)
                     )
+                    // A read-only text field still consumes taps, so catch them with an overlay
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .clickable { categoryDropdownExpanded = true }
+                    )
 
                     DropdownMenu(
                         expanded = categoryDropdownExpanded,

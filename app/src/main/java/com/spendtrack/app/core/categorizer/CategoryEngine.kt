@@ -25,7 +25,7 @@ class CategoryEngine(
         "cat_shopping" to listOf(
             "amazon", "flipkart", "myntra", "ajio", "meesho", "nykaa", "tata cliq",
             "zara", "h&m", "retail", "mall", "store", "mart", "clothing", "electronics",
-            "croma", "reliance digital", "decathlon", "lifestyle", "shoppers stop", "pantaloons"
+            "dmart", "croma", "reliance digital", "decathlon", "lifestyle", "shoppers stop", "pantaloons"
         ),
         "cat_bills" to listOf(
             "electricity", "bescom", "cesc", "water", "piped gas", "lpg", "cylinder",
@@ -61,6 +61,15 @@ class CategoryEngine(
         )
     )
 
+    // Keywords must start at a word boundary, and short ones (<= 3 chars) must be whole words,
+    // so "tea" doesn't match "steam", "emi" doesn't match "premium" and "vi" doesn't match "david".
+    private val KEYWORD_REGEXES: List<Pair<String, List<Regex>>> = KEYWORD_MAP.map { (catId, keywords) ->
+        catId to keywords.map { keyword ->
+            val end = if (keyword.length <= 3) "(?![a-z0-9])" else ""
+            Regex("(?<![a-z0-9])" + Regex.escape(keyword) + end)
+        }
+    }
+
     data class CategoryResult(
         val categoryId: String,
         val categoryName: String,
@@ -83,9 +92,9 @@ class CategoryEngine(
         val searchString = (merchantName + " " + (merchantVpa ?: "")).lowercase(Locale.ROOT)
 
         // 2. Check keyword dictionary
-        for ((catId, keywords) in KEYWORD_MAP) {
+        for ((catId, keywords) in KEYWORD_REGEXES) {
             for (keyword in keywords) {
-                if (searchString.contains(keyword)) {
+                if (keyword.containsMatchIn(searchString)) {
                     val cat = categoryDao.getCategoryById(catId)
                     return CategoryResult(
                         categoryId = catId,

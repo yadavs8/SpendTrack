@@ -32,6 +32,16 @@ class DeduplicationEngine(
         )
 
         for (candidate in candidates) {
+            // UPI apps frequently re-post or update the same notification; that is not a new payment
+            val isSameMessageRepost = !parsed.rawText.isNullOrBlank() &&
+                    candidate.description == parsed.rawText &&
+                    candidate.sourcePackage == parsed.sourcePackage &&
+                    candidate.amount == parsed.amount &&
+                    abs(candidate.dateTime - parsed.dateTime) <= timeWindowMillis
+            if (isSameMessageRepost) {
+                return DeduplicationResult.MergedWithExisting(candidate)
+            }
+
             val isExactRefMatch = !parsed.upiReference.isNullOrBlank() &&
                     candidate.upiReference == parsed.upiReference
 

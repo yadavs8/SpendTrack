@@ -28,4 +28,11 @@ class MerchantNormalizerTest {
     fun normalize_fallbackToVpa_extractsMerchantFromVpa() {
         assertEquals("Ramesh Stores", MerchantNormalizer.normalize(null, "ramesh.stores@oksbi"))
     }
+
+    @Test
+    fun normalize_shortBrandKeys_matchWholeWordsOnly() {
+        assertEquals("Ola", MerchantNormalizer.normalize("OLA CABS"))
+        assertEquals("Coca Cola Store", MerchantNormalizer.normalize("COCA COLA STORE"))
+        assertEquals("Solanki Traders", MerchantNormalizer.normalize("SOLANKI TRADERS"))
+    }
 }

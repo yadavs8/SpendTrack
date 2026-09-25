@@ -15,8 +15,11 @@ class RulePackEngine(
     private val templateRuleDao: TemplateRuleDao
 ) {
     private val loadedRules = mutableListOf<ParserRule>()
+    @Volatile
     private var isLoaded = false
 
+    // Notifications are parsed concurrently on Dispatchers.IO, so loading must not race
+    @Synchronized
     fun loadDefaultRules() {
         if (isLoaded) return
         try {
@@ -44,6 +47,13 @@ class RulePackEngine(
 
         val fullText = "${title ?: ""} ${text ?: ""}".trim()
         if (fullText.isBlank()) return null
+
+        // Failed payments, requests and incoming money must never be recorded, whichever parser matches
+        if (TransactionParser.shouldIgnore(fullText)) return null
+        // Refunds are typed by the heuristic parser; debit-shaped rules would record them as expenses
+        if (TransactionParser.isRefund(fullText)) {
+            return TransactionParser.parse(title, text, sourcePackage, timestamp)
+        }
 
         val senderOrPkg = sourcePackage ?: title ?: ""
 
@@ -82,12 +92,12 @@ class RulePackEngine(
 
         // 2. Check JSON Rule Pack
         for (rule in loadedRules) {
-            // Match package if specified
-            if (rule.appPackage != null && sourcePackage != null && rule.appPackage != sourcePackage) {
+            // App-specific rules only apply to that app's notifications (never to SMS)
+            if (rule.appPackage != null && rule.appPackage != sourcePackage) {
                 continue
             }
-            // Match sender regex if specified
-            if (rule.senderRegex != null && title != null && !rule.senderRegex.matches(title)) {
+            // Sender-specific rules only apply when the sender matches
+            if (rule.senderRegex != null && (title == null || !rule.senderRegex.matches(title))) {
                 continue
             }
 

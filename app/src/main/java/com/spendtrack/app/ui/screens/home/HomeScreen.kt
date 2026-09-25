@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CreditCard
@@ -58,6 +59,7 @@ import androidx.compose.ui.unit.sp
 import com.spendtrack.app.core.model.PaymentMethod
 import com.spendtrack.app.data.database.entity.TransactionEntity
 import com.spendtrack.app.ui.screens.add.AddExpenseDialog
+import com.spendtrack.app.ui.screens.transactions.TeachFormatDialog
 import com.spendtrack.app.ui.theme.AmberYellow
 import com.spendtrack.app.ui.theme.CoralRed
 import com.spendtrack.app.ui.theme.EmeraldGreen
@@ -75,6 +77,7 @@ fun HomeScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
+    var teachTransaction by remember { mutableStateOf<TransactionEntity?>(null) }
 
     val currencyFormat = remember {
         NumberFormat.getCurrencyInstance(Locale("en", "IN")).apply {
@@ -386,6 +389,12 @@ fun HomeScreen(
                                 )
                             }
                             Row {
+                                // Only notification-sourced items keep the app package that templates are keyed on
+                                if (txn.sourcePackage != null && !txn.description.isNullOrBlank()) {
+                                    IconButton(onClick = { teachTransaction = txn }) {
+                                        Icon(Icons.Default.AutoFixHigh, contentDescription = "Teach this format", tint = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
                                 IconButton(onClick = { viewModel.confirmTransaction(txn) }) {
                                     Icon(Icons.Default.Check, contentDescription = "Confirm", tint = EmeraldGreen)
                                 }
@@ -563,6 +572,18 @@ fun HomeScreen(
                 }
             }
         }
+    }
+
+    teachTransaction?.let { txn ->
+        TeachFormatDialog(
+            senderOrPackage = txn.sourcePackage ?: "",
+            rawText = txn.description ?: "",
+            onDismiss = { teachTransaction = null },
+            onSaveTemplate = { rule, amount, merchant ->
+                viewModel.teachFormat(txn, rule, amount, merchant)
+                teachTransaction = null
+            }
+        )
     }
 
     if (showAddDialog) {

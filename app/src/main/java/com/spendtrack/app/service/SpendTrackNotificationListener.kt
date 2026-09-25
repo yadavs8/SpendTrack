@@ -1,5 +1,6 @@
 package com.spendtrack.app.service
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
@@ -11,6 +12,8 @@ import com.spendtrack.app.R
 import com.spendtrack.app.core.deduplication.DeduplicationEngine
 import com.spendtrack.app.core.logger.SafeLogger
 import com.spendtrack.app.core.parser.TransactionParser
+import com.spendtrack.app.core.utils.CurrencyUtils
+import com.spendtrack.app.data.datastore.SettingsManager
 import com.spendtrack.app.data.di.ServiceLocator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -39,7 +42,11 @@ class SpendTrackNotificationListener : NotificationListenerService() {
         if (sbn == null) return
 
         val packageName = sbn.packageName
-        val extras = sbn.notification?.extras ?: return
+        if (packageName == applicationContext.packageName) return
+        val notification = sbn.notification ?: return
+        // Group summaries repeat the text of their child notifications and would be recorded twice
+        if (notification.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
+        val extras = notification.extras ?: return
 
         // Extract text fields
         val title = extras.getCharSequence("android.title")?.toString()
@@ -47,15 +54,21 @@ class SpendTrackNotificationListener : NotificationListenerService() {
         val bigText = extras.getCharSequence("android.bigText")?.toString()
         val subText = extras.getCharSequence("android.subText")?.toString()
 
-        val fullText = listOfNotNull(text, bigText, subText).joinToString(" ")
+        // bigText is the expanded form of text, so joining both would duplicate the message
+        val fullText = listOfNotNull(bigText ?: text, subText).joinToString(" ")
 
         serviceScope.launch {
             try {
                 // Check if package is monitored
+                // UPI apps the user can toggle in Settings are only monitored while switched on
                 val monitoredApps = ServiceLocator.settingsManager.monitoredAppsFlow.first()
-                val isMonitored = monitoredApps.contains(packageName) ||
-                        TransactionParser.MONITORED_UPI_PACKAGES.contains(packageName) ||
-                        packageName.contains("bank", ignoreCase = true)
+                val isToggleableApp = packageName in SettingsManager.TOGGLEABLE_UPI_APPS
+                val isMonitored = if (isToggleableApp) {
+                    monitoredApps.contains(packageName)
+                } else {
+                    TransactionParser.MONITORED_UPI_PACKAGES.contains(packageName) ||
+                            packageName.contains("bank", ignoreCase = true)
+                }
 
                 if (!isMonitored) return@launch
 
@@ -77,7 +90,7 @@ class SpendTrackNotificationListener : NotificationListenerService() {
                         is DeduplicationEngine.DeduplicationResult.NewTransaction -> {
                             val txn = result.transaction
                             showExpenseNotification(
-                                "Expense recorded: ₹${txn.amount.toInt()} at ${txn.merchantName}",
+                                "Expense recorded: ${CurrencyUtils.formatRupees(txn.amount, showDecimals = true)} at ${txn.merchantName}",
                                 "Method: ${txn.paymentMethod.displayName}"
                             )
                         }

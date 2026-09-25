@@ -16,9 +16,10 @@ class MerchantRuleRepository(
         categoryName: String,
         confidence: Float = 1.0f
     ) {
-        val existing = merchantRuleDao.findMatchingRule(merchantPattern)
+        // REPLACE on the unique merchantPattern index updates an existing rule for the same merchant.
+        // Don't reuse the id of a substring match (e.g. "Ola" for "Ola Cabs"): that would overwrite a different rule.
         val entity = MerchantRuleEntity(
-            id = existing?.id ?: UUID.randomUUID().toString(),
+            id = UUID.randomUUID().toString(),
             merchantPattern = merchantPattern.trim(),
             categoryId = categoryId,
             categoryName = categoryName,

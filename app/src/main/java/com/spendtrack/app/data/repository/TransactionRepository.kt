@@ -23,6 +23,7 @@ class TransactionRepository(
 ) {
 
     val allExpenses: Flow<List<TransactionEntity>> = transactionDao.getAllExpenses()
+    val allTransactions: Flow<List<TransactionEntity>> = transactionDao.getAllTransactions()
     val needsReviewExpenses: Flow<List<TransactionEntity>> = transactionDao.getNeedsReviewTransactions()
 
     fun getExpensesForRange(startTime: Long, endTime: Long): Flow<List<TransactionEntity>> =
@@ -138,6 +139,8 @@ class TransactionRepository(
     suspend fun excludeTransaction(transaction: TransactionEntity, isExcluded: Boolean) {
         val updated = transaction.copy(
             isExcluded = isExcluded,
+            // Including a refund/transfer again must turn it back into an expense, or totals still skip it
+            transactionType = if (isExcluded) transaction.transactionType else TransactionType.EXPENSE,
             updatedAt = System.currentTimeMillis()
         )
         transactionDao.updateTransaction(updated)

@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -38,6 +39,8 @@ import com.spendtrack.app.ui.screens.settings.SettingsViewModel
 import com.spendtrack.app.ui.screens.transactions.TransactionsScreen
 import com.spendtrack.app.ui.screens.transactions.TransactionsViewModel
 import com.spendtrack.app.ui.theme.SpendTrackTheme
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
 class MainActivity : FragmentActivity() {
 
@@ -51,31 +54,36 @@ class MainActivity : FragmentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    val isBiometricEnabled by ServiceLocator.settingsManager.isBiometricEnabled
-                        .collectAsState(initial = false)
-                    var isUnlocked by remember { mutableStateOf(false) }
+                    // null until DataStore has been read, so we never flash the app before the lock
+                    val biometricFlow = remember {
+                        ServiceLocator.settingsManager.isBiometricEnabled.map<Boolean, Boolean?> { it }
+                    }
+                    val isBiometricEnabled by biometricFlow.collectAsState(initial = null)
+                    var isUnlocked by rememberSaveable { mutableStateOf(false) }
+                    var lockError by remember { mutableStateOf<String?>(null) }
 
-                    LaunchedEffect(isBiometricEnabled) {
-                        if (!isBiometricEnabled) {
+                    val unlock: () -> Unit = {
+                        if (BiometricAuthManager.canAuthenticate(this@MainActivity)) {
+                            lockError = null
+                            BiometricAuthManager.authenticate(
+                                activity = this@MainActivity,
+                                onSuccess = { isUnlocked = true },
+                                onError = { lockError = it }
+                            )
+                        } else {
+                            // Screen lock was removed from the device; don't lock the user out of their data
                             isUnlocked = true
                         }
                     }
 
-                    if (isBiometricEnabled && !isUnlocked) {
-                        LaunchedEffect(Unit) {
-                            BiometricAuthManager.authenticate(
-                                activity = this@MainActivity,
-                                onSuccess = { isUnlocked = true }
-                            )
-                        }
+                    if (isBiometricEnabled == null) {
+                        Box(modifier = Modifier.fillMaxSize())
+                    } else if (isBiometricEnabled == true && !isUnlocked) {
+                        LaunchedEffect(Unit) { unlock() }
 
                         LockScreen(
-                            onUnlockClick = {
-                                BiometricAuthManager.authenticate(
-                                    activity = this@MainActivity,
-                                    onSuccess = { isUnlocked = true }
-                                )
-                            }
+                            errorMessage = lockError,
+                            onUnlockClick = unlock
                         )
                     } else {
                         MainApp()
@@ -87,7 +95,7 @@ class MainActivity : FragmentActivity() {
 }
 
 @Composable
-fun LockScreen(onUnlockClick: () -> Unit) {
+fun LockScreen(errorMessage: String? = null, onUnlockClick: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -123,6 +131,15 @@ fun LockScreen(onUnlockClick: () -> Unit) {
             color = MaterialTheme.colorScheme.outline,
             textAlign = TextAlign.Center
         )
+        if (errorMessage != null) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = errorMessage,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                textAlign = TextAlign.Center
+            )
+        }
         Spacer(modifier = Modifier.height(32.dp))
         Button(
             onClick = onUnlockClick,
@@ -138,11 +155,24 @@ fun LockScreen(onUnlockClick: () -> Unit) {
 
 @Composable
 fun MainApp() {
-    var isOnboarded by remember { mutableStateOf(false) }
+    val settingsManager = ServiceLocator.settingsManager
+    val scope = rememberCoroutineScope()
+    // null until DataStore has been read, so onboarding doesn't flash for returning users
+    val onboardingFlow = remember { settingsManager.isOnboardingDone.map<Boolean, Boolean?> { it } }
+    val isOnboarded by onboardingFlow.collectAsState(initial = null)
 
-    if (!isOnboarded) {
-        OnboardingScreen(onFinished = { isOnboarded = true })
-        return
+    when (isOnboarded) {
+        null -> {
+            Box(modifier = Modifier.fillMaxSize())
+            return
+        }
+        false -> {
+            OnboardingScreen(onFinished = {
+                scope.launch { settingsManager.setOnboardingDone(true) }
+            })
+            return
+        }
+        true -> Unit
     }
 
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Home) }

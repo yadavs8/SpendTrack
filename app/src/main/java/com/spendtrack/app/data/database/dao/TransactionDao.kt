@@ -33,6 +33,10 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE isExcluded = 0 AND transactionType = 'EXPENSE' ORDER BY dateTime DESC")
     fun getAllExpenses(): Flow<List<TransactionEntity>>
 
+    // Includes excluded, refunded and transfer rows so the user can review and undo them
+    @Query("SELECT * FROM transactions ORDER BY dateTime DESC")
+    fun getAllTransactions(): Flow<List<TransactionEntity>>
+
     @Query("SELECT * FROM transactions WHERE isExcluded = 0 AND transactionType = 'EXPENSE' AND dateTime BETWEEN :startTime AND :endTime ORDER BY dateTime DESC")
     fun getExpensesForRange(startTime: Long, endTime: Long): Flow<List<TransactionEntity>>
 
