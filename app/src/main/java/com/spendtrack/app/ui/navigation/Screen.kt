@@ -14,6 +14,6 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     object Settings : Screen("settings", "Settings", Icons.Default.Settings)
 
     companion object {
-        val items = listOf(Home, Transactions, Analytics, Settings)
+        val items get() = listOf(Home, Transactions, Analytics, Settings)
     }
 }
