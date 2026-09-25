@@ -1,0 +1,70 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "id": "gpay_debit",
+      "name": "Google Pay Debit",
+      "package": "com.google.android.apps.nbu.paisa.user",
+      "regex": "(?i)(?:paid|sent)\\s*(?:Rs\\.?|INR|₹)?\\s*([0-9,]+(?:\\.[0-9]{1,2})?)\\s*(?:to\\s+([^.\\n]+?))?(?:\\s*(?:using|via|on|Ref|ref|UTR|utr)\\s*([0-9a-zA-Z]+))?",
+      "amountGroup": 1,
+      "merchantGroup": 2,
+      "refGroup": 3,
+      "method": "UPI",
+      "type": "EXPENSE"
+    },
+    {
+      "id": "phonepe_debit",
+      "name": "PhonePe Debit",
+      "package": "com.phonepe.app",
+      "regex": "(?i)Paid\\s*(?:Rs\\.?|INR|₹)?\\s*([0-9,]+(?:\\.[0-9]{1,2})?)\\s*to\\s+([^.\\n]+?)(?:\\s*from\\s+.*?(?:A/c|acct)?\\s*([0-9]{3,4}))?(?:.*?Txn(?:\\s*ID)?[:\\s]*([0-9a-zA-Z]+))?",
+      "amountGroup": 1,
+      "merchantGroup": 2,
+      "accountGroup": 3,
+      "refGroup": 4,
+      "method": "UPI",
+      "type": "EXPENSE"
+    },
+    {
+      "id": "paytm_debit",
+      "name": "Paytm Debit",
+      "package": "net.one97.paytm",
+      "regex": "(?i)(?:Rs\\.?|INR|₹)\\s*([0-9,]+(?:\\.[0-9]{1,2})?)\\s*(?:debited|paid).*?(?:to|at)\\s+([^.\\n]+?)(?:\\s*Ref[:\\s]*([0-9a-zA-Z]+))?",
+      "amountGroup": 1,
+      "merchantGroup": 2,
+      "refGroup": 3,
+      "method": "UPI",
+      "type": "EXPENSE"
+    },
+    {
+      "id": "bank_sms_debit_vpa",
+      "name": "Bank SMS Debit to VPA",
+      "senderRegex": "(?i).*(?:HDFC|SBI|ICICI|AXIS|KOTAK|PNB|BOB|CANARA|INDUS).*",
+      "regex": "(?i)(?:A/c|Account|Acct)\\s*(?:no\\.?)?\\s*[*xX]*(\\d{3,4})\\s*(?:is\\s*)?debited\\s*(?:by|with)?\\s*(?:Rs\\.?|INR|₹)?\\s*([0-9,]+(?:\\.[0-9]{1,2})?).*?(?:to|VPA|at)\\s+([a-zA-Z0-9.\\-_@\\s]+?)(?:\\s+(?:on|dated|ref|utr|rrn)|$|\\.)",
+      "accountGroup": 1,
+      "amountGroup": 2,
+      "merchantGroup": 3,
+      "method": "UPI",
+      "type": "EXPENSE"
+    },
+    {
+      "id": "bank_sms_card_debit",
+      "name": "Credit/Debit Card Spend",
+      "senderRegex": "(?i).*(?:HDFC|SBI|ICICI|AXIS|KOTAK|RBL).*",
+      "regex": "(?i)(?:Spent|Purchase\\s*of)\\s*(?:Rs\\.?|INR|₹)?\\s*([0-9,]+(?:\\.[0-9]{1,2})?)\\s*(?:on|using)\\s*(?:your\\s*)?(?:Credit|Debit)?\\s*Card\\s*(?:ending\\s*in\\s*|[*xX]*)?(\\d{3,4})\\s*(?:at|for)\\s+([^.\\n]+)",
+      "amountGroup": 1,
+      "accountGroup": 2,
+      "merchantGroup": 3,
+      "method": "CREDIT_CARD",
+      "type": "EXPENSE"
+    },
+    {
+      "id": "credit_card_bill_payment",
+      "name": "Credit Card Bill Payment",
+      "regex": "(?i)(?:payment\\s*of|paid)\\s*(?:Rs\\.?|INR|₹)?\\s*([0-9,]+(?:\\.[0-9]{1,2})?).*?(?:towards|for)?\\s*(?:credit\\s*card\\s*bill|card\\s*ending\\s*in\\s*\\d{3,4}|CRED)",
+      "amountGroup": 1,
+      "merchantGroup": 0,
+      "method": "UPI",
+      "type": "INTERNAL_TRANSFER"
+    }
+  ]
+}
