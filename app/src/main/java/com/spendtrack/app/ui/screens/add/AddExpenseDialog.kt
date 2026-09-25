@@ -55,6 +55,13 @@ fun AddExpenseDialog(
     var selectedCategoryName by remember { mutableStateOf(categories.firstOrNull()?.name ?: "Food & Dining") }
     var selectedMethod by remember { mutableStateOf(PaymentMethod.CASH) }
     var categoryDropdownExpanded by remember { mutableStateOf(false) }
+    var attemptedSave by remember { mutableStateOf(false) }
+
+    val parsedAmount = amountText.toDoubleOrNull()
+    val isAmountValid = parsedAmount != null && parsedAmount > 0
+    val isMerchantValid = merchantText.isNotBlank()
+    val amountError = attemptedSave && !isAmountValid
+    val merchantError = attemptedSave && !isMerchantValid
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -82,7 +89,11 @@ fun AddExpenseDialog(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
-                    singleLine = true
+                    singleLine = true,
+                    isError = amountError,
+                    supportingText = if (amountError) {
+                        { Text("Enter a valid amount greater than 0") }
+                    } else null
                 )
 
                 // Merchant Input
@@ -93,7 +104,11 @@ fun AddExpenseDialog(
                     placeholder = { Text("e.g. Swiggy, Chai Point, Grocery") },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
-                    singleLine = true
+                    singleLine = true,
+                    isError = merchantError,
+                    supportingText = if (merchantError) {
+                        { Text("Merchant name is required") }
+                    } else null
                 )
 
                 // Category Selector
@@ -167,18 +182,17 @@ fun AddExpenseDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    val amount = amountText.toDoubleOrNull()
-                    if (amount != null && amount > 0 && merchantText.isNotBlank()) {
+                    attemptedSave = true
+                    if (isAmountValid && isMerchantValid) {
                         onSave(
-                            amount,
+                            parsedAmount!!,
                             merchantText.trim(),
                             selectedCategory,
                             selectedMethod,
                             notesText.trim().ifEmpty { null }
                         )
                     }
-                },
-                enabled = amountText.toDoubleOrNull() != null && amountText.toDoubleOrNull()!! > 0 && merchantText.isNotBlank()
+                }
             ) {
                 Text("Save Expense")
             }

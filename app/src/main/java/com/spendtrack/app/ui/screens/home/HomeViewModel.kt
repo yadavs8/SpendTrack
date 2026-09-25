@@ -6,11 +6,13 @@ import com.spendtrack.app.core.model.PaymentMethod
 import com.spendtrack.app.data.database.dao.CategorySpend
 import com.spendtrack.app.data.database.entity.CategoryEntity
 import com.spendtrack.app.data.database.entity.TransactionEntity
+import com.spendtrack.app.core.logger.SafeLogger
 import com.spendtrack.app.data.di.ServiceLocator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -118,6 +120,8 @@ class HomeViewModel : ViewModel() {
                     needsReviewCount = reviewList.size,
                     needsReviewList = reviewList
                 )
+            }.catch { e ->
+                SafeLogger.e("Error loading home screen data", e)
             }.collect { state ->
                 _uiState.value = state
             }
@@ -151,6 +155,12 @@ class HomeViewModel : ViewModel() {
     fun deleteTransaction(transaction: TransactionEntity) {
         viewModelScope.launch {
             repository.deleteTransaction(transaction)
+        }
+    }
+
+    fun restoreTransaction(transaction: TransactionEntity) {
+        viewModelScope.launch {
+            repository.restoreTransaction(transaction)
         }
     }
 }

@@ -71,6 +71,7 @@ fun TransactionDetailDialog(
     }
     var selectedMethod by remember { mutableStateOf(transaction.paymentMethod) }
     var categoryDropdownExpanded by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
 
     val dateTimeFormat = remember { SimpleDateFormat("dd MMMM yyyy, hh:mm a", Locale.getDefault()) }
 
@@ -225,7 +226,7 @@ fun TransactionDetailDialog(
                     }
 
                     OutlinedButton(
-                        onClick = onDelete,
+                        onClick = { showDeleteConfirm = true },
                         colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = CoralRed)
                     ) {
                         Icon(Icons.Default.Delete, contentDescription = "Delete", modifier = Modifier.padding(end = 4.dp))
@@ -237,9 +238,12 @@ fun TransactionDetailDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    val amount = amountText.toDoubleOrNull() ?: transaction.amount
-                    onSave(selectedCatId, selectedCatName, merchantText, amount, selectedMethod)
-                }
+                    val amount = amountText.toDoubleOrNull()
+                    if (amount != null && amount > 0) {
+                        onSave(selectedCatId, selectedCatName, merchantText, amount, selectedMethod)
+                    }
+                },
+                enabled = amountText.toDoubleOrNull()?.let { it > 0 } == true
             ) {
                 Text("Save")
             }
@@ -250,4 +254,28 @@ fun TransactionDetailDialog(
             }
         }
     )
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete transaction?") },
+            text = { Text("This will permanently remove this ${transaction.amount.let { "₹${it.toInt()}" }} transaction. This cannot be undone.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteConfirm = false
+                        onDelete()
+                    },
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = CoralRed)
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 }

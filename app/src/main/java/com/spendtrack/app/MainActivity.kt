@@ -38,6 +38,8 @@ import com.spendtrack.app.ui.screens.settings.SettingsViewModel
 import com.spendtrack.app.ui.screens.transactions.TransactionsScreen
 import com.spendtrack.app.ui.screens.transactions.TransactionsViewModel
 import com.spendtrack.app.ui.theme.SpendTrackTheme
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
 class MainActivity : FragmentActivity() {
 
@@ -46,7 +48,10 @@ class MainActivity : FragmentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            SpendTrackTheme {
+            val darkMode by ServiceLocator.settingsManager.darkModeFlow
+                .collectAsState(initial = "SYSTEM")
+
+            SpendTrackTheme(darkMode = darkMode) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -54,6 +59,10 @@ class MainActivity : FragmentActivity() {
                     val isBiometricEnabled by ServiceLocator.settingsManager.isBiometricEnabled
                         .collectAsState(initial = false)
                     var isUnlocked by remember { mutableStateOf(false) }
+
+                    val isOnboardingComplete by ServiceLocator.settingsManager.isOnboardingComplete
+                        .map<Boolean, Boolean?> { it }
+                        .collectAsState(initial = null)
 
                     LaunchedEffect(isBiometricEnabled) {
                         if (!isBiometricEnabled) {
@@ -77,8 +86,11 @@ class MainActivity : FragmentActivity() {
                                 )
                             }
                         )
+                    } else if (isOnboardingComplete == null) {
+                        // Still loading persisted settings; avoid flashing onboarding/home.
+                        Box(modifier = Modifier.fillMaxSize())
                     } else {
-                        MainApp()
+                        MainApp(isOnboardingComplete = isOnboardingComplete == true)
                     }
                 }
             }
@@ -137,11 +149,17 @@ fun LockScreen(onUnlockClick: () -> Unit) {
 }
 
 @Composable
-fun MainApp() {
-    var isOnboarded by remember { mutableStateOf(false) }
+fun MainApp(isOnboardingComplete: Boolean) {
+    var isOnboarded by remember { mutableStateOf(isOnboardingComplete) }
+    val coroutineScope = rememberCoroutineScope()
 
     if (!isOnboarded) {
-        OnboardingScreen(onFinished = { isOnboarded = true })
+        OnboardingScreen(onFinished = {
+            isOnboarded = true
+            coroutineScope.launch {
+                ServiceLocator.settingsManager.setOnboardingComplete(true)
+            }
+        })
         return
     }
 
