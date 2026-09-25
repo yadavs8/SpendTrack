@@ -221,6 +221,35 @@ fun SettingsScreen(
 
                         HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
+                        // Sync Past SMS History Button
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Sync SMS History", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    "Scan past bank SMS in your inbox for missed transactions.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    viewModel.syncSmsHistory(context) { result ->
+                                        coroutineScope.launch {
+                                            snackbarHostState.showSnackbar("Scanned ${result.scannedCount} SMS. Imported ${result.importedCount} new bank transactions.")
+                                        }
+                                    }
+                                }
+                            ) {
+                                Text("Sync Now")
+                            }
+                        }
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
                         // Confirmation Notifications Toggle
                         Row(
                             modifier = Modifier.fillMaxWidth(),

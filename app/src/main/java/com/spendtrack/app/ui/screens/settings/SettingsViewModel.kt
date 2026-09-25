@@ -189,4 +189,11 @@ class SettingsViewModel : ViewModel() {
             onComplete(result)
         }
     }
+
+    fun syncSmsHistory(context: Context, onComplete: (com.spendtrack.app.core.sync.SmsInboxSyncer.SyncResult) -> Unit) {
+        viewModelScope.launch {
+            val result = com.spendtrack.app.core.sync.SmsInboxSyncer.syncPastBankSms(context)
+            onComplete(result)
+        }
+    }
 }

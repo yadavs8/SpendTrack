@@ -172,9 +172,15 @@ fun MainApp() {
         contract = ActivityResultContracts.RequestPermission()
     ) { _ -> }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
+
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        // Sync historical bank SMS on startup if SMS permission is available
+        if (androidx.core.content.ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED) {
+            com.spendtrack.app.core.sync.SmsInboxSyncer.syncPastBankSms(context.applicationContext)
         }
     }
 

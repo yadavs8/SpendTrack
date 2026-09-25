@@ -167,6 +167,7 @@ class SpendTrackNotificationListener : NotificationListenerService() {
         private const val DUPLICATE_WINDOW_MS = 10 * 60 * 1000L
 
         private val KNOWN_BANK_PACKAGES = setOf(
+            "com.google.android.gm",           // Gmail (Bank email alerts)
             "com.snapwork.hdfc",               // HDFC Bank
             "com.sbi.lotusintouch",            // SBI YONO
             "com.sbi.upi",                     // BHIM SBI Pay
