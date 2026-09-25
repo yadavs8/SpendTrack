@@ -1,0 +1,62 @@
+name: Build APK
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-36 build-tools;36.0.0 platform-tools"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit tests
+        run: ./gradlew --no-configuration-cache testPlayDebugUnitTest
+
+      - name: Build debug APKs
+        run: ./gradlew --no-configuration-cache assemblePlayDebug assembleSideloadDebug
+
+      - name: Collect APKs
+        run: |
+          mkdir -p out
+          cp app/build/outputs/apk/sideload/debug/*.apk out/SpendTrack-sideload.apk
+          cp app/build/outputs/apk/play/debug/*.apk out/SpendTrack-play.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SpendTrack-apks
+          path: out/*.apk
+
+      # Phone-friendly download: a pre-release named "latest-build" always holds the newest APKs
+      - name: Publish latest-build pre-release
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest-build --cleanup-tag --yes --repo "$GITHUB_REPOSITORY" || true
+          gh release create latest-build out/*.apk \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --prerelease \
+            --title "Latest build (${GITHUB_REF_NAME})" \
+            --notes "Built from ${GITHUB_REF_NAME} @ ${GITHUB_SHA::7}. Install SpendTrack-sideload.apk on your phone (includes SMS detection)."

@@ -7,10 +7,15 @@ import com.spendtrack.app.data.database.dao.PaymentMethodSpend
 import com.spendtrack.app.data.database.entity.CategoryEntity
 import com.spendtrack.app.data.database.entity.TransactionEntity
 import com.spendtrack.app.data.di.ServiceLocator
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.launch
 import java.util.Calendar
 
@@ -45,11 +50,28 @@ class AnalyticsViewModel : ViewModel() {
     private val _uiState = MutableStateFlow(AnalyticsUiState())
     val uiState: StateFlow<AnalyticsUiState> = _uiState.asStateFlow()
 
+    private data class MonthPeriods(
+        val currentMonthStart: Long,
+        val currentMonthName: String,
+        val prevMonthStart: Long,
+        val prevMonthName: String,
+        val dayOfMonth: Int,
+        val last7DaysStart: Long
+    )
+
+    // Re-emits when the day rolls over so the month window and daily average stay current
+    private val periodsFlow = flow {
+        while (true) {
+            emit(currentPeriods())
+            delay(60_000L)
+        }
+    }.distinctUntilChanged()
+
     init {
         loadAnalytics()
     }
 
-    private fun loadAnalytics() {
+    private fun currentPeriods(): MonthPeriods {
         val cal = Calendar.getInstance()
 
         // Current Month range
@@ -62,71 +84,95 @@ class AnalyticsViewModel : ViewModel() {
         val currentMonthName = java.text.SimpleDateFormat("MMMM yyyy", java.util.Locale.getDefault()).format(cal.time)
 
         val dayOfMonth = Calendar.getInstance().get(Calendar.DAY_OF_MONTH)
-        val now = System.currentTimeMillis()
 
         // Previous Month range
         cal.add(Calendar.MONTH, -1)
         val prevMonthStart = cal.timeInMillis
         val prevMonthName = java.text.SimpleDateFormat("MMMM yyyy", java.util.Locale.getDefault()).format(cal.time)
-        val prevMonthEnd = currentMonthStart - 1
 
+        val last7DaysStart = Calendar.getInstance().apply {
+            add(Calendar.DAY_OF_YEAR, -6)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+
+        return MonthPeriods(currentMonthStart, currentMonthName, prevMonthStart, prevMonthName, dayOfMonth, last7DaysStart)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun loadAnalytics() {
         val settingsManager = ServiceLocator.settingsManager
+        // Open-ended so transactions recorded after this screen opened are still counted
+        val end = Long.MAX_VALUE
 
         viewModelScope.launch {
-            combine(
-                repository.getExpensesForRange(currentMonthStart, now),
-                repository.getTotalSpentForRange(currentMonthStart, now),
-                repository.getCategorySpends(currentMonthStart, now),
-                repository.getPaymentMethodSpends(currentMonthStart, now),
-                categoryRepo.allCategories,
-                repository.getTotalSpentForRange(prevMonthStart, prevMonthEnd),
-                settingsManager.monthlyBudgetFlow
-            ) { values ->
-                @Suppress("UNCHECKED_CAST")
-                val currentTxns = values[0] as List<TransactionEntity>
-                val currentTotal = values[1] as? Double ?: 0.0
-                @Suppress("UNCHECKED_CAST")
-                val catSpends = values[2] as List<CategorySpend>
-                @Suppress("UNCHECKED_CAST")
-                val methodSpends = values[3] as List<PaymentMethodSpend>
-                @Suppress("UNCHECKED_CAST")
-                val allCats = values[4] as List<CategoryEntity>
-                val prevTotal = values[5] as? Double ?: 0.0
-                val budget = values[6] as? Double ?: 0.0
+            periodsFlow.flatMapLatest { periods ->
+                val currentMonthStart = periods.currentMonthStart
+                val prevMonthEnd = currentMonthStart - 1
+                val dayOfMonth = periods.dayOfMonth
+                val currentMonthName = periods.currentMonthName
+                val prevMonthName = periods.prevMonthName
+                combine(
+                    repository.getExpensesForRange(currentMonthStart, end),
+                    repository.getTotalSpentForRange(currentMonthStart, end),
+                    repository.getCategorySpends(currentMonthStart, end),
+                    repository.getPaymentMethodSpends(currentMonthStart, end),
+                    categoryRepo.allCategories,
+                    repository.getTotalSpentForRange(periods.prevMonthStart, prevMonthEnd),
+                    settingsManager.monthlyBudgetFlow,
+                    // The last 7 days can reach back into the previous month
+                    repository.getExpensesForRange(periods.last7DaysStart, end)
+                ) { values ->
+                    @Suppress("UNCHECKED_CAST")
+                    val currentTxns = values[0] as List<TransactionEntity>
+                    val currentTotal = values[1] as? Double ?: 0.0
+                    @Suppress("UNCHECKED_CAST")
+                    val catSpends = values[2] as List<CategorySpend>
+                    @Suppress("UNCHECKED_CAST")
+                    val methodSpends = values[3] as List<PaymentMethodSpend>
+                    @Suppress("UNCHECKED_CAST")
+                    val allCats = values[4] as List<CategoryEntity>
+                    val prevTotal = values[5] as? Double ?: 0.0
+                    val budget = values[6] as? Double ?: 0.0
+                    @Suppress("UNCHECKED_CAST")
+                    val last7DaysTxns = values[7] as List<TransactionEntity>
 
-                val catMap = allCats.associateBy { it.id }
-                val dailyAvg = if (dayOfMonth > 0) currentTotal / dayOfMonth else 0.0
-                val largest = currentTxns.maxByOrNull { it.amount }
+                    val catMap = allCats.associateBy { it.id }
+                    val dailyAvg = if (dayOfMonth > 0) currentTotal / dayOfMonth else 0.0
+                    val largest = currentTxns.maxByOrNull { it.amount }
 
-                // Top merchant
-                val merchantMap = currentTxns.groupBy { it.merchantName ?: "Unknown" }
-                    .mapValues { entry -> entry.value.sumOf { it.amount } }
-                val topEntry = merchantMap.maxByOrNull { it.value }
+                    // Top merchant
+                    val merchantMap = currentTxns.groupBy { it.merchantName ?: "Unknown" }
+                        .mapValues { entry -> entry.value.sumOf { it.amount } }
+                    val topEntry = merchantMap.maxByOrNull { it.value }
 
-                val comparison = MonthComparison(
-                    currentMonthName = currentMonthName,
-                    currentMonthTotal = currentTotal,
-                    previousMonthName = prevMonthName,
-                    previousMonthTotal = prevTotal,
-                    difference = currentTotal - prevTotal
-                )
+                    val comparison = MonthComparison(
+                        currentMonthName = currentMonthName,
+                        currentMonthTotal = currentTotal,
+                        previousMonthName = prevMonthName,
+                        previousMonthTotal = prevTotal,
+                        difference = currentTotal - prevTotal
+                    )
 
-                val sevenDays = calculate7DaysSpend(currentTxns)
+                    val sevenDays = calculate7DaysSpend(last7DaysTxns)
 
-                AnalyticsUiState(
-                    totalSpendThisMonth = currentTotal,
-                    dailyAverage = dailyAvg,
-                    transactionCount = currentTxns.size,
-                    largestTransaction = largest,
-                    topMerchant = topEntry?.key,
-                    topMerchantSpend = topEntry?.value ?: 0.0,
-                    categorySpends = catSpends,
-                    paymentMethodSpends = methodSpends,
-                    categories = catMap,
-                    monthComparison = comparison,
-                    last7DaysSpend = sevenDays,
-                    monthlyBudget = budget
-                )
+                    AnalyticsUiState(
+                        totalSpendThisMonth = currentTotal,
+                        dailyAverage = dailyAvg,
+                        transactionCount = currentTxns.size,
+                        largestTransaction = largest,
+                        topMerchant = topEntry?.key,
+                        topMerchantSpend = topEntry?.value ?: 0.0,
+                        categorySpends = catSpends,
+                        paymentMethodSpends = methodSpends,
+                        categories = catMap,
+                        monthComparison = comparison,
+                        last7DaysSpend = sevenDays,
+                        monthlyBudget = budget
+                    )
+                }
             }.collect { state ->
                 _uiState.value = state
             }

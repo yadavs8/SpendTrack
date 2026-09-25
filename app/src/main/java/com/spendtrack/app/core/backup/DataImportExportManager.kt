@@ -13,6 +13,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.InputStream
+import java.text.ParsePosition
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -104,6 +105,8 @@ class DataImportExportManager(
         val creditIdx = header.indexOfFirst { it.contains("credit") || it.contains("deposit") }
         val amountIdx = header.indexOfFirst { it.contains("amount") }
         val refIdx = header.indexOfFirst { it.contains("ref") || it.contains("utr") || it.contains("chq") }
+        val timeIdx = header.indexOfFirst { it == "time" }
+        val typeIdx = header.indexOfFirst { it == "transaction type" }
 
         var imported = 0
         var skipped = 0
@@ -114,6 +117,13 @@ class DataImportExportManager(
             if (line.isBlank()) continue
             try {
                 val cols = parseCsvLine(line)
+
+                // SpendTrack's own export also contains refunds, income and transfers
+                val type = if (typeIdx != -1 && typeIdx < cols.size) cols[typeIdx].trim() else ""
+                if (type.isNotEmpty() && !type.equals(TransactionType.EXPENSE.name, ignoreCase = true)) {
+                    skipped++
+                    continue
+                }
 
                 // Check debit vs credit
                 var debitAmount: Double? = null
@@ -141,13 +151,19 @@ class DataImportExportManager(
                 val desc = if (descIdx != -1 && descIdx < cols.size) cols[descIdx] else "Statement Import"
                 val normalizedMerchant = MerchantNormalizer.normalize(desc)
                 val catResult = categoryEngine.resolveCategory(normalizedMerchant)
-                val ref = if (refIdx != -1 && refIdx < cols.size) cols[refIdx] else null
+                val dateTime = if (dateIdx != -1 && dateIdx < cols.size) {
+                    val time = if (timeIdx != -1 && timeIdx < cols.size) cols[timeIdx] else null
+                    parseDateTime(cols[dateIdx], time)
+                } else {
+                    null
+                }
 
                 transactionRepository.addManualExpense(
                     amount = finalAmount,
                     merchantName = normalizedMerchant,
                     categoryId = catResult.categoryId,
                     paymentMethod = PaymentMethod.UPI,
+                    dateTime = dateTime ?: System.currentTimeMillis(),
                     description = desc
                 )
                 imported++
@@ -162,6 +178,35 @@ class DataImportExportManager(
             skippedCredits = skipped,
             failedRows = failed
         )
+    }
+
+    // Formats used by SpendTrack's export and common Indian bank statements (day before month)
+    private val IMPORT_DATE_PATTERNS = listOf(
+        "yyyy-MM-dd", "dd/MM/yyyy", "dd-MM-yyyy", "dd.MM.yyyy", "dd/MM/yy", "dd-MM-yy",
+        "dd-MMM-yyyy", "dd-MMM-yy", "dd MMM yyyy", "dd MMM yy", "dd/MMM/yyyy"
+    )
+
+    private fun parseDateTime(rawDate: String, rawTime: String?): Long? {
+        val date = rawDate.trim()
+        if (date.isEmpty()) return null
+        val time = rawTime?.trim()?.takeIf { Regex("""\d{1,2}:\d{2}(:\d{2})?""").matches(it) }
+        val timePattern = when {
+            time == null -> null
+            time.count { it == ':' } == 2 -> "HH:mm:ss"
+            else -> "HH:mm"
+        }
+        val input = if (time != null) "$date $time" else date
+        for (pattern in IMPORT_DATE_PATTERNS) {
+            val format = SimpleDateFormat(
+                if (timePattern != null) "$pattern $timePattern" else pattern,
+                Locale.ENGLISH
+            ).apply { isLenient = false }
+            // Require the whole string to match; SimpleDateFormat otherwise accepts a prefix
+            val position = ParsePosition(0)
+            val parsed = format.parse(input, position)
+            if (parsed != null && position.index == input.length) return parsed.time
+        }
+        return null
     }
 
     private fun cleanAmount(raw: String): Double? {

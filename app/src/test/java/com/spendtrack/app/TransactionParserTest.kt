@@ -130,4 +130,57 @@ class TransactionParserTest {
         assertEquals(50000.0, TransactionParser.extractAmount("Spent INR 50,000 on purchase")!!, 0.01)
         assertEquals(40.0, TransactionParser.extractAmount("Paid ₹40 to Chaiwala")!!, 0.01)
     }
+
+    @Test
+    fun parse_iciciDebitNamingCreditedPayee_isExpense() {
+        val title = "ICICIB"
+        val text = "ICICI Bank Acct XX123 debited for Rs 500.00 on 12-Sep-26; SWIGGY credited. UPI:625412345678. Call 18002662 for dispute."
+        val result = TransactionParser.parse(title, text)
+
+        assertNotNull("Debits that name the credited payee must be recorded", result)
+        assertEquals(TransactionType.EXPENSE, result!!.transactionType)
+        assertEquals(500.0, result.amount, 0.01)
+        assertEquals("SWIGGY", result.merchantRaw)
+    }
+
+    @Test
+    fun parse_cardSpendMentioningCreditLimit_isExpense() {
+        val title = "KOTAKB"
+        val text = "Rs.1,250.00 spent on Kotak Card x4321 at DMART on 12-Sep-26. Avl credit limit Rs.48,750.00"
+        val result = TransactionParser.parse(title, text)
+
+        assertNotNull(result)
+        assertEquals(TransactionType.EXPENSE, result!!.transactionType)
+        assertEquals(1250.0, result.amount, 0.01)
+    }
+
+    @Test
+    fun parse_sbiUpiDebitWithoutCurrencySymbol_isExpense() {
+        val title = "SBIUPI"
+        val text = "Dear UPI user A/C X1234 debited by 20.0 on date 12Sep26 trf to Swiggy Refno 625412345678. If not u? call 1800111109. -SBI"
+        val result = TransactionParser.parse(title, text)
+
+        assertNotNull(result)
+        assertEquals(20.0, result!!.amount, 0.01)
+        assertEquals("Swiggy", result.merchantRaw)
+    }
+
+    @Test
+    fun parse_moneyReceivedOnUpiApp_isIgnored() {
+        val result = TransactionParser.parse("Rahul Sharma", "Rahul Sharma paid you ₹500", "com.google.android.apps.nbu.paisa.user")
+
+        assertNull("Incoming UPI payments must not be recorded as expenses", result)
+    }
+
+    @Test
+    fun parse_paymentRequest_isIgnored() {
+        val result = TransactionParser.parse("PhonePe", "Rahul has requested ₹500 from you. Pay now", "com.phonepe.app")
+
+        assertNull("Payment requests are not payments", result)
+    }
+
+    @Test
+    fun shouldIgnore_plainCredit_isTrue() {
+        assertTrue(TransactionParser.shouldIgnore("Your A/c XX1234 is credited with Rs 5,000"))
+    }
 }

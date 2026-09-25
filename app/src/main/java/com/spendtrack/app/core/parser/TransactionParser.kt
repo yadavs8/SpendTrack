@@ -10,7 +10,8 @@ object TransactionParser {
 
     // Regex for amounts: supports ₹, Rs, Rs., INR with optional commas and decimals
     private val AMOUNT_REGEX = Regex(
-        """(?i)(?:Rs\.?|INR|₹)\s*([0-9]{1,3}(?:,[0-9]{2,3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)"""
+        // Lookbehind stops the case-insensitive "rs" inside words ("Orders 2") being read as a currency
+        """(?i)(?<![a-z])(?:Rs\.?|INR|₹)\s*([0-9]{1,3}(?:,[0-9]{2,3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)"""
     )
     private val AMOUNT_FALLBACK_REGEX = Regex(
         """(?i)(?:debited\s*(?:by|with)?|spent|paid)\s*(?:Rs\.?|INR|₹)?\s*([0-9]{1,3}(?:,[0-9]{2,3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)"""
@@ -31,6 +32,8 @@ object TransactionParser {
 
     // Patterns for merchant extraction
     private val MERCHANT_PATTERNS = listOf(
+        // ICICI style: "Acct XX123 debited for Rs 500.00 on 12-Sep-24; SWIGGY credited."
+        Regex("""(?i);\s*([a-zA-Z0-9\s&.\-_]+?)\s+credited"""),
         Regex("""(?i)(?:paid\s*to|sent\s*to|transfer\s*to|to\s*VPA|to)\s+([a-zA-Z0-9\s&.\-_]+?)(?:\s+(?:on|via|using|ref|utr|through|from|for|dated|\.|$))"""),
         Regex("""(?i)(?:at|for|towards)\s+([a-zA-Z0-9\s&.\-_]+?)(?:\s+(?:on|via|using|ref|utr|from|\.|$))"""),
         Regex("""(?i)(?:Info[:\s/]+UPI/)([^/]+)""")
@@ -38,7 +41,18 @@ object TransactionParser {
 
     // Keywords signaling incoming / credit transactions (MUST IGNORE)
     private val CREDIT_KEYWORDS = listOf(
-        "credited", "credit", "received", "salary", "cashback", "deposited", "added to account"
+        "credited", "credit", "received", "salary", "cashback", "deposited", "added to account",
+        "paid you", "sent you"
+    )
+
+    // "credit"/"credited" also appear in genuine debit alerts ("...; SWIGGY credited",
+    // "Avl credit limit"), so they are ignored only when there is no explicit debit wording.
+    private val WEAK_CREDIT_KEYWORDS = setOf("credited", "credit")
+    private val EXPLICIT_DEBIT_KEYWORDS = listOf("debited", "spent", "withdrawn")
+
+    // Payment requests and reminders mention an amount but no money has moved yet
+    private val REQUEST_KEYWORDS = listOf(
+        "requested", "request from", "collect request", "payment request"
     )
 
     // Keywords signaling refunds
@@ -81,32 +95,10 @@ object TransactionParser {
 
         val lowerContent = fullContent.lowercase(Locale.ROOT)
 
-        // 1. Check for Failed / Declined payments -> DO NOT RECORD
-        for (failedKey in FAILED_KEYWORDS) {
-            if (lowerContent.contains(failedKey)) {
-                return null
-            }
-        }
+        // 1-3. Failed payments, payment requests and incoming money are never recorded
+        if (shouldIgnore(fullContent)) return null
 
-        // 2. Check for Refunds
-        var isRefund = false
-        for (refundKey in REFUND_KEYWORDS) {
-            if (lowerContent.contains(refundKey)) {
-                isRefund = true
-                break
-            }
-        }
-
-        // 3. Check for Credits / Income -> MUST BE IGNORED unless it's a refund
-        if (!isRefund) {
-            // "credit card" is an instrument or bill payment, not incoming money!
-            val contentWithoutCard = lowerContent.replace("credit card", "cc")
-            for (creditKey in CREDIT_KEYWORDS) {
-                if (contentWithoutCard.contains(creditKey)) {
-                    return null
-                }
-            }
-        }
+        val isRefund = isRefund(fullContent)
 
         // 4. Check for Internal Transfers & Credit Card Bill Payments
         var isInternalTransfer = false
@@ -204,6 +196,31 @@ object TransactionParser {
         )
     }
 
+    /** Refund / reversal wording. */
+    fun isRefund(content: String): Boolean {
+        val lower = content.lowercase(Locale.ROOT)
+        return REFUND_KEYWORDS.any { lower.contains(it) }
+    }
+
+    /**
+     * True for messages that must never become a transaction: failed/declined payments,
+     * payment requests, and incoming money (unless it is a refund, which is tracked separately).
+     */
+    fun shouldIgnore(content: String): Boolean {
+        val lower = content.lowercase(Locale.ROOT)
+
+        if (FAILED_KEYWORDS.any { lower.contains(it) }) return true
+        if (REQUEST_KEYWORDS.any { lower.contains(it) }) return true
+        if (isRefund(content)) return false
+
+        // "credit card" is an instrument or bill payment, not incoming money!
+        val contentWithoutCard = lower.replace("credit card", "cc")
+        val hasExplicitDebit = EXPLICIT_DEBIT_KEYWORDS.any { contentWithoutCard.contains(it) }
+        return CREDIT_KEYWORDS.any { key ->
+            contentWithoutCard.contains(key) && !(hasExplicitDebit && key in WEAK_CREDIT_KEYWORDS)
+        }
+    }
+
     fun extractAmount(text: String): Double? {
         val match = AMOUNT_REGEX.find(text) ?: AMOUNT_FALLBACK_REGEX.find(text)
         if (match != null) {
@@ -218,7 +235,7 @@ object TransactionParser {
             val match = pattern.find(text)
             if (match != null) {
                 val candidate = match.groupValues[1].trim()
-                if (candidate.isNotBlank() && candidate.length > 1 && !candidate.equals("vpa", ignoreCase = true)) {
+                if (candidate.length > 1 && !candidate.equals("vpa", ignoreCase = true) && !looksLikeAmount(candidate)) {
                     return candidate
                 }
             }
@@ -231,4 +248,9 @@ object TransactionParser {
 
         return null
     }
+
+    // Rejects captures like "Rs 500.00" from "debited for Rs 500.00 on ..."
+    private fun looksLikeAmount(candidate: String): Boolean =
+        !candidate.any { it.isLetter() } ||
+            Regex("""(?i)^(?:rs\.?|inr)\s*[0-9]""").containsMatchIn(candidate)
 }

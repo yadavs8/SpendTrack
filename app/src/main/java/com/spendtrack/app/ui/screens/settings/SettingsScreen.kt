@@ -1,7 +1,9 @@
 package com.spendtrack.app.ui.screens.settings
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -61,6 +63,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import com.spendtrack.app.BuildConfig
+import com.spendtrack.app.core.security.BiometricAuthManager
 import com.spendtrack.app.ui.theme.CoralRed
 import com.spendtrack.app.ui.theme.EmeraldGreen
 import kotlinx.coroutines.launch
@@ -90,6 +97,28 @@ fun SettingsScreen(
         "com.dreamplug.androidapp" to "CRED",
         "com.naviapp" to "Navi UPI"
     )
+
+    var isListenerEnabled by remember { mutableStateOf(false) }
+    LifecycleResumeEffect(Unit) {
+        // Re-check whenever the user comes back from the system settings screen
+        isListenerEnabled = NotificationManagerCompat.getEnabledListenerPackages(context)
+            .contains(context.packageName)
+        onPauseOrDispose { }
+    }
+
+    // SMS fallback is only shipped in the sideload flavor, and RECEIVE_SMS is a runtime permission
+    val isSmsSupported = BuildConfig.FLAVOR == "sideload"
+    val smsPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        val granted = grants[Manifest.permission.RECEIVE_SMS] == true
+        viewModel.toggleSms(granted)
+        if (!granted) {
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar("SMS permission is required for SMS fallback detection.")
+            }
+        }
+    }
 
     // File launcher for CSV import
     val importFileLauncher = rememberLauncherForActivityResult(
@@ -159,9 +188,10 @@ fun SettingsScreen(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text("Notification Access", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                                 Text(
-                                    "Required to detect real-time UPI debits automatically.",
+                                    if (isListenerEnabled) "Enabled. UPI debits are detected automatically."
+                                    else "Off. Turn it on so UPI debits are detected automatically.",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.outline
+                                    color = if (isListenerEnabled) EmeraldGreen else CoralRed
                                 )
                             }
                             Button(
@@ -174,26 +204,39 @@ fun SettingsScreen(
                             }
                         }
 
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-
                         // SMS Detection Toggle
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("SMS Fallback Detection", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                                Text(
-                                    "Parse bank debit SMS when notifications are delayed.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.outline
+                        if (isSmsSupported) {
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("SMS Fallback Detection", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        "Parse bank debit SMS when notifications are delayed.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.outline
+                                    )
+                                }
+                                Switch(
+                                    checked = uiState.isSmsEnabled,
+                                    onCheckedChange = { enable ->
+                                        val hasPermission = ContextCompat.checkSelfPermission(
+                                            context, Manifest.permission.RECEIVE_SMS
+                                        ) == PackageManager.PERMISSION_GRANTED
+                                        if (enable && !hasPermission) {
+                                            smsPermissionLauncher.launch(
+                                                arrayOf(Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS)
+                                            )
+                                        } else {
+                                            viewModel.toggleSms(enable)
+                                        }
+                                    }
                                 )
                             }
-                            Switch(
-                                checked = uiState.isSmsEnabled,
-                                onCheckedChange = { viewModel.toggleSms(it) }
-                            )
                         }
 
                         HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
@@ -251,7 +294,15 @@ fun SettingsScreen(
                             }
                             Switch(
                                 checked = uiState.isBiometricEnabled,
-                                onCheckedChange = { viewModel.toggleBiometric(it) }
+                                onCheckedChange = { enable ->
+                                    if (enable && !BiometricAuthManager.canAuthenticate(context)) {
+                                        coroutineScope.launch {
+                                            snackbarHostState.showSnackbar("Set up a screen lock or fingerprint on your phone first.")
+                                        }
+                                    } else {
+                                        viewModel.toggleBiometric(enable)
+                                    }
+                                }
                             )
                         }
                     }

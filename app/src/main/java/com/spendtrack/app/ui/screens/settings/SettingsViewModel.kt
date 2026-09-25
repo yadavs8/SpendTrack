@@ -6,11 +6,13 @@ import androidx.lifecycle.viewModelScope
 import com.spendtrack.app.core.backup.DataImportExportManager
 import com.spendtrack.app.data.database.entity.MerchantRuleEntity
 import com.spendtrack.app.data.di.ServiceLocator
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.InputStream
 
 data class SettingsUiState(
@@ -161,8 +163,9 @@ class SettingsViewModel : ViewModel() {
 
     fun exportCsvFile(context: Context, onReady: (android.net.Uri) -> Unit) {
         viewModelScope.launch {
-            val txns = transactionRepo.getAllTransactionsSync()
-            val uri = importExportManager.exportCsvToFile(context, txns)
+            val uri = withContext(Dispatchers.IO) {
+                importExportManager.exportCsvToFile(context, transactionRepo.getAllTransactionsSync())
+            }
             onReady(uri)
         }
     }
@@ -177,15 +180,18 @@ class SettingsViewModel : ViewModel() {
 
     fun exportJsonFile(context: Context, onReady: (android.net.Uri) -> Unit) {
         viewModelScope.launch {
-            val txns = transactionRepo.getAllTransactionsSync()
-            val uri = importExportManager.exportJsonToFile(context, txns)
+            val uri = withContext(Dispatchers.IO) {
+                importExportManager.exportJsonToFile(context, transactionRepo.getAllTransactionsSync())
+            }
             onReady(uri)
         }
     }
 
     fun importCsv(stream: InputStream, onComplete: (DataImportExportManager.ImportResult) -> Unit) {
         viewModelScope.launch {
-            val result = importExportManager.importFromCsv(stream)
+            val result = withContext(Dispatchers.IO) {
+                stream.use { importExportManager.importFromCsv(it) }
+            }
             onComplete(result)
         }
     }

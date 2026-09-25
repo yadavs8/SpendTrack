@@ -129,6 +129,12 @@ fun TransactionDetailDialog(
                             .clickable { categoryDropdownExpanded = true },
                         shape = RoundedCornerShape(12.dp)
                     )
+                    // A read-only text field still consumes taps, so catch them with an overlay
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .clickable { categoryDropdownExpanded = true }
+                    )
 
                     DropdownMenu(
                         expanded = categoryDropdownExpanded,
@@ -237,7 +243,7 @@ fun TransactionDetailDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    val amount = amountText.toDoubleOrNull() ?: transaction.amount
+                    val amount = amountText.replace(",", "").toDoubleOrNull() ?: transaction.amount
                     onSave(selectedCatId, selectedCatName, merchantText, amount, selectedMethod)
                 }
             ) {

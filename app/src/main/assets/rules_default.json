@@ -60,7 +60,7 @@
     {
       "id": "credit_card_bill_payment",
       "name": "Credit Card Bill Payment",
-      "regex": "(?i)(?:payment\\s*of|paid)\\s*(?:Rs\\.?|INR|₹)?\\s*([0-9,]+(?:\\.[0-9]{1,2})?).*?(?:towards|for)?\\s*(?:credit\\s*card\\s*bill|card\\s*ending\\s*in\\s*\\d{3,4}|CRED)",
+      "regex": "(?i)(?:payment\\s*of|paid)\\s*(?:Rs\\.?|INR|₹)?\\s*([0-9,]+(?:\\.[0-9]{1,2})?).*?(?:towards|for)?\\s*(?:credit\\s*card\\s*bill|card\\s*ending\\s*in\\s*\\d{3,4}|\\bCRED\\b)",
       "amountGroup": 1,
       "merchantGroup": 0,
       "method": "UPI",

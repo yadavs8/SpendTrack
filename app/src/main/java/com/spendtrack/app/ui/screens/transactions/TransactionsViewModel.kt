@@ -46,7 +46,7 @@ class TransactionsViewModel : ViewModel() {
     private fun loadData() {
         viewModelScope.launch {
             combine(
-                repository.allExpenses,
+                repository.allTransactions,
                 categoryRepo.allCategories
             ) { allTxns, allCats ->
                 val catMap = allCats.associateBy { it.id }

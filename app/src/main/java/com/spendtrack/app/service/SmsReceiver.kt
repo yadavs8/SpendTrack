@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
 import com.spendtrack.app.core.logger.SafeLogger
-import com.spendtrack.app.core.parser.TransactionParser
 import com.spendtrack.app.data.di.ServiceLocator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -36,12 +35,16 @@ class SmsReceiver : BroadcastReceiver() {
 
         val fullText = bodyBuilder.toString()
 
+        // Keep the receiver alive until parsing and the DB write finish; otherwise the process
+        // may be killed as soon as onReceive returns and the SMS is silently lost.
+        val pendingResult = goAsync()
         receiverScope.launch {
             try {
                 val isSmsEnabled = ServiceLocator.settingsManager.isSmsDetectionEnabled.first()
                 if (!isSmsEnabled) return@launch
 
-                val parsed = TransactionParser.parse(
+                // Same pipeline as notifications: user-taught templates, rule pack, then heuristics
+                val parsed = ServiceLocator.rulePackEngine.parse(
                     title = sender,
                     text = fullText,
                     sourcePackage = null,
@@ -52,6 +55,8 @@ class SmsReceiver : BroadcastReceiver() {
                 ServiceLocator.transactionRepository.ingestTransaction(parsed)
             } catch (e: Exception) {
                 SafeLogger.e("Error processing incoming SMS", e)
+            } finally {
+                pendingResult.finish()
             }
         }
     }

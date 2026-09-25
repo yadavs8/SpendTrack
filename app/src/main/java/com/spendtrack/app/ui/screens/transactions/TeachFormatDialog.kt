@@ -26,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.spendtrack.app.core.parser.rulepack.TemplateBuilder
 import com.spendtrack.app.data.database.entity.TemplateRuleEntity
 import java.util.UUID
 
@@ -34,11 +35,12 @@ fun TeachFormatDialog(
     senderOrPackage: String,
     rawText: String,
     onDismiss: () -> Unit,
-    onSaveTemplate: (TemplateRuleEntity) -> Unit
+    onSaveTemplate: (rule: TemplateRuleEntity, amount: Double, merchant: String) -> Unit
 ) {
     var amountSnippet by remember { mutableStateOf("") }
     var merchantSnippet by remember { mutableStateOf("") }
     var refSnippet by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -96,29 +98,38 @@ fun TeachFormatDialog(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp)
                 )
+
+                if (errorMessage != null) {
+                    Text(
+                        text = errorMessage!!,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
-                    if (amountSnippet.isNotBlank() && merchantSnippet.isNotBlank()) {
-                        // Generate a regex pattern dynamically based on user snippets
-                        val escapedText = Regex.escape(rawText)
-                        val escapedAmount = Regex.escape(amountSnippet.trim())
-                        val escapedMerchant = Regex.escape(merchantSnippet.trim())
-
-                        val pattern = escapedText
-                            .replace(escapedAmount, "([0-9,]+(?:\\.[0-9]{1,2})?)")
-                            .replace(escapedMerchant, "([^.\\n]+?)")
-
+                    val template = TemplateBuilder.build(
+                        rawText = rawText,
+                        amount = amountSnippet,
+                        merchant = merchantSnippet,
+                        ref = refSnippet.ifBlank { null }
+                    )
+                    if (template == null) {
+                        errorMessage = "Copy the amount, merchant and reference exactly as they appear in the message above."
+                    } else {
                         val rule = TemplateRuleEntity(
                             id = UUID.randomUUID().toString(),
                             senderOrPackage = senderOrPackage,
-                            regexPattern = pattern,
-                            amountGroupIndex = 1,
-                            merchantGroupIndex = 2
+                            regexPattern = template.regexPattern,
+                            amountGroupIndex = template.amountGroupIndex,
+                            merchantGroupIndex = template.merchantGroupIndex,
+                            refGroupIndex = template.refGroupIndex
                         )
-                        onSaveTemplate(rule)
+                        val amount = amountSnippet.trim().replace(",", "").toDoubleOrNull() ?: 0.0
+                        onSaveTemplate(rule, amount, merchantSnippet.trim())
                     }
                 },
                 enabled = amountSnippet.isNotBlank() && merchantSnippet.isNotBlank()
