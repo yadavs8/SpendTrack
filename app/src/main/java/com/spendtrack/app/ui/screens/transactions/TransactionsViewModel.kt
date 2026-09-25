@@ -83,8 +83,12 @@ class TransactionsViewModel : ViewModel() {
 
     private fun applyFilters() {
         val state = _uiState.value
-        val now = System.currentTimeMillis()
-        val cal = Calendar.getInstance()
+        fun startOfToday(): Calendar = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
 
         var filtered = state.transactions
 
@@ -92,33 +96,23 @@ class TransactionsViewModel : ViewModel() {
         filtered = when (state.selectedDateFilter) {
             DateFilter.ALL -> filtered
             DateFilter.TODAY -> {
-                cal.set(Calendar.HOUR_OF_DAY, 0)
-                cal.set(Calendar.MINUTE, 0)
-                cal.set(Calendar.SECOND, 0)
-                val start = cal.timeInMillis
+                val start = startOfToday().timeInMillis
                 filtered.filter { it.dateTime >= start }
             }
             DateFilter.YESTERDAY -> {
-                cal.set(Calendar.HOUR_OF_DAY, 0)
-                cal.set(Calendar.MINUTE, 0)
-                cal.set(Calendar.SECOND, 0)
-                val end = cal.timeInMillis
-                cal.add(Calendar.DAY_OF_YEAR, -1)
-                val start = cal.timeInMillis
-                filtered.filter { it.dateTime in start..end }
+                val end = startOfToday().timeInMillis
+                val start = startOfToday().apply { add(Calendar.DAY_OF_YEAR, -1) }.timeInMillis
+                filtered.filter { it.dateTime >= start && it.dateTime < end }
             }
             DateFilter.THIS_WEEK -> {
-                cal.set(Calendar.DAY_OF_WEEK, cal.firstDayOfWeek)
-                cal.set(Calendar.HOUR_OF_DAY, 0)
-                cal.set(Calendar.MINUTE, 0)
-                val start = cal.timeInMillis
+                val start = startOfToday().apply {
+                    val diff = (get(Calendar.DAY_OF_WEEK) - firstDayOfWeek + 7) % 7
+                    add(Calendar.DAY_OF_YEAR, -diff)
+                }.timeInMillis
                 filtered.filter { it.dateTime >= start }
             }
             DateFilter.THIS_MONTH -> {
-                cal.set(Calendar.DAY_OF_MONTH, 1)
-                cal.set(Calendar.HOUR_OF_DAY, 0)
-                cal.set(Calendar.MINUTE, 0)
-                val start = cal.timeInMillis
+                val start = startOfToday().apply { set(Calendar.DAY_OF_MONTH, 1) }.timeInMillis
                 filtered.filter { it.dateTime >= start }
             }
         }

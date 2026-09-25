@@ -38,6 +38,7 @@ import com.spendtrack.app.ui.screens.settings.SettingsViewModel
 import com.spendtrack.app.ui.screens.transactions.TransactionsScreen
 import com.spendtrack.app.ui.screens.transactions.TransactionsViewModel
 import com.spendtrack.app.ui.theme.SpendTrackTheme
+import kotlinx.coroutines.launch
 
 class MainActivity : FragmentActivity() {
 
@@ -51,17 +52,21 @@ class MainActivity : FragmentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
+                    // null until DataStore loads. Starting from "false" would unlock the app before the
+                    // saved setting arrives, so the biometric lock would never be shown.
                     val isBiometricEnabled by ServiceLocator.settingsManager.isBiometricEnabled
-                        .collectAsState(initial = false)
+                        .collectAsState<Boolean, Boolean?>(initial = null)
                     var isUnlocked by remember { mutableStateOf(false) }
 
                     LaunchedEffect(isBiometricEnabled) {
-                        if (!isBiometricEnabled) {
+                        if (isBiometricEnabled == false) {
                             isUnlocked = true
                         }
                     }
 
-                    if (isBiometricEnabled && !isUnlocked) {
+                    if (isBiometricEnabled == null) {
+                        // Settings still loading
+                    } else if (isBiometricEnabled == true && !isUnlocked) {
                         LaunchedEffect(Unit) {
                             BiometricAuthManager.authenticate(
                                 activity = this@MainActivity,
@@ -138,11 +143,20 @@ fun LockScreen(onUnlockClick: () -> Unit) {
 
 @Composable
 fun MainApp() {
-    var isOnboarded by remember { mutableStateOf(false) }
+    val settingsManager = ServiceLocator.settingsManager
+    val scope = rememberCoroutineScope()
+    // null while DataStore is loading, so onboarding does not flash for returning users
+    val isOnboarded by remember { settingsManager.isOnboardingDone }.collectAsState<Boolean, Boolean?>(initial = null)
 
-    if (!isOnboarded) {
-        OnboardingScreen(onFinished = { isOnboarded = true })
-        return
+    when (isOnboarded) {
+        null -> return
+        false -> {
+            OnboardingScreen(onFinished = {
+                scope.launch { settingsManager.setOnboardingDone(true) }
+            })
+            return
+        }
+        true -> Unit
     }
 
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Home) }

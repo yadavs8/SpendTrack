@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -24,6 +25,8 @@ class SettingsManager(private val context: Context) {
         val KEY_BIOMETRIC_LOCK = booleanPreferencesKey("biometric_lock")
         val KEY_DARK_MODE = stringPreferencesKey("dark_mode") // "SYSTEM", "LIGHT", "DARK"
         val KEY_CONFIRMATION_NOTIFS = booleanPreferencesKey("confirmation_notifications")
+        val KEY_ONBOARDING_DONE = booleanPreferencesKey("onboarding_done")
+        val KEY_FALSE_DETECTION_CLEANUP_VERSION = intPreferencesKey("false_detection_cleanup_version")
 
         val DEFAULT_MONITORED_APPS = setOf(
             "com.google.android.apps.nbu.paisa.user", // Google Pay
@@ -60,6 +63,10 @@ class SettingsManager(private val context: Context) {
 
     val showConfirmationNotifs: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[KEY_CONFIRMATION_NOTIFS] ?: true
+    }
+
+    val isOnboardingDone: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_ONBOARDING_DONE] ?: false
     }
 
     val darkModeFlow: Flow<String> = context.dataStore.data.map { prefs ->
@@ -99,6 +106,18 @@ class SettingsManager(private val context: Context) {
 
     suspend fun setConfirmationNotifs(enabled: Boolean) {
         context.dataStore.edit { it[KEY_CONFIRMATION_NOTIFS] = enabled }
+    }
+
+    val falseDetectionCleanupVersion: Flow<Int> = context.dataStore.data.map { prefs ->
+        prefs[KEY_FALSE_DETECTION_CLEANUP_VERSION] ?: 0
+    }
+
+    suspend fun setFalseDetectionCleanupVersion(version: Int) {
+        context.dataStore.edit { it[KEY_FALSE_DETECTION_CLEANUP_VERSION] = version }
+    }
+
+    suspend fun setOnboardingDone(done: Boolean) {
+        context.dataStore.edit { it[KEY_ONBOARDING_DONE] = done }
     }
 
     suspend fun setDarkMode(mode: String) {

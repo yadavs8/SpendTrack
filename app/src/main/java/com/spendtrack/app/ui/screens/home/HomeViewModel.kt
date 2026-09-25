@@ -47,24 +47,25 @@ class HomeViewModel : ViewModel() {
     }
 
     private fun loadData() {
-        val cal = Calendar.getInstance()
+        fun startOfToday(): Calendar = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
 
-        // Today start
-        cal.set(Calendar.HOUR_OF_DAY, 0)
-        cal.set(Calendar.MINUTE, 0)
-        cal.set(Calendar.SECOND, 0)
-        cal.set(Calendar.MILLISECOND, 0)
-        val todayStart = cal.timeInMillis
+        val todayStart = startOfToday().timeInMillis
 
-        // Week start
-        cal.set(Calendar.DAY_OF_WEEK, cal.firstDayOfWeek)
-        val weekStart = cal.timeInMillis
+        // Week start (computed separately so the month start is not derived from the week start)
+        val weekStart = startOfToday().apply {
+            val diff = (get(Calendar.DAY_OF_WEEK) - firstDayOfWeek + 7) % 7
+            add(Calendar.DAY_OF_YEAR, -diff)
+        }.timeInMillis
 
-        // Month start
-        cal.set(Calendar.DAY_OF_MONTH, 1)
-        val monthStart = cal.timeInMillis
+        val monthStart = startOfToday().apply { set(Calendar.DAY_OF_MONTH, 1) }.timeInMillis
 
-        val now = System.currentTimeMillis()
+        // Open-ended range: transactions recorded after this screen was opened must still be counted
+        val now = Long.MAX_VALUE
 
         viewModelScope.launch {
             combine(

@@ -5,7 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
 import com.spendtrack.app.core.logger.SafeLogger
-import com.spendtrack.app.core.parser.TransactionParser
+import com.spendtrack.app.core.parser.TransactionFilter
 import com.spendtrack.app.data.di.ServiceLocator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,7 +25,12 @@ class SmsReceiver : BroadcastReceiver() {
         val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent)
         if (messages.isNullOrEmpty()) return
 
-        val sender = messages.first().originatingAddress ?: "Bank"
+        val sender = messages.first().originatingAddress ?: return
+
+        // Banks send alerts from DLT headers like "VM-HDFCBK"; a 10-digit phone number is a person,
+        // and "I paid Rs 500" from a friend is not your transaction.
+        if (TransactionFilter.isPersonalSmsSender(sender)) return
+
         val bodyBuilder = StringBuilder()
         var timestamp = System.currentTimeMillis()
 
@@ -36,12 +41,15 @@ class SmsReceiver : BroadcastReceiver() {
 
         val fullText = bodyBuilder.toString()
 
+        // Keep the receiver alive until the database write finishes
+        val pendingResult = goAsync()
         receiverScope.launch {
             try {
                 val isSmsEnabled = ServiceLocator.settingsManager.isSmsDetectionEnabled.first()
                 if (!isSmsEnabled) return@launch
 
-                val parsed = TransactionParser.parse(
+                // Same pipeline as notifications: user templates -> rule pack -> heuristic parser
+                val parsed = ServiceLocator.rulePackEngine.parse(
                     title = sender,
                     text = fullText,
                     sourcePackage = null,
@@ -52,6 +60,8 @@ class SmsReceiver : BroadcastReceiver() {
                 ServiceLocator.transactionRepository.ingestTransaction(parsed)
             } catch (e: Exception) {
                 SafeLogger.e("Error processing incoming SMS", e)
+            } finally {
+                pendingResult.finish()
             }
         }
     }
