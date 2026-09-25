@@ -62,7 +62,8 @@ class AnalyticsViewModel : ViewModel() {
         val currentMonthName = java.text.SimpleDateFormat("MMMM yyyy", java.util.Locale.getDefault()).format(cal.time)
 
         val dayOfMonth = Calendar.getInstance().get(Calendar.DAY_OF_MONTH)
-        val now = System.currentTimeMillis()
+        // Open-ended range: transactions recorded after this screen was opened must still be counted
+        val now = Long.MAX_VALUE
 
         // Previous Month range
         cal.add(Calendar.MONTH, -1)

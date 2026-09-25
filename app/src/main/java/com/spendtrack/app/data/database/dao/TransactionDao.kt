@@ -77,6 +77,9 @@ interface TransactionDao {
     """)
     suspend fun findPotentialDuplicates(amount: Double, startWindow: Long, endWindow: Long, upiRef: String?): List<TransactionEntity>
 
+    @Query("SELECT COUNT(*) FROM transactions WHERE amount = :amount AND description = :description")
+    suspend fun countByAmountAndText(amount: Double, description: String): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTransaction(transaction: TransactionEntity): Long
 

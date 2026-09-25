@@ -6,6 +6,7 @@ import com.spendtrack.app.core.model.ParsedTransaction
 import com.spendtrack.app.core.model.PaymentMethod
 import com.spendtrack.app.core.model.TransactionType
 import com.spendtrack.app.core.normalizer.MerchantNormalizer
+import com.spendtrack.app.core.parser.TransactionFilter
 import com.spendtrack.app.data.database.dao.CategorySpend
 import com.spendtrack.app.data.database.dao.PaymentMethodSpend
 import com.spendtrack.app.data.database.dao.TransactionDao
@@ -14,6 +15,8 @@ import com.spendtrack.app.data.database.entity.TransactionEntity
 import kotlinx.coroutines.flow.Flow
 import java.util.Calendar
 import java.util.UUID
+
+private const val USER_TEMPLATE_CONFIDENCE = 0.98f
 
 class TransactionRepository(
     private val transactionDao: TransactionDao,
@@ -292,6 +295,33 @@ class TransactionRepository(
         )
 
         transactionDao.insertTransactions(demoList)
+    }
+
+    /** True when this exact message (same amount and text) has already been stored. */
+    suspend fun isAlreadyRecorded(parsed: ParsedTransaction): Boolean {
+        val raw = parsed.rawText ?: return false
+        return transactionDao.countByAmountAndText(parsed.amount, raw) > 0
+    }
+
+    /**
+     * Removes auto-detected entries whose original message fails the current [TransactionFilter]
+     * (OTPs, offers, reminders, requests, failed payments, incoming money). Manually added,
+     * user-edited and demo entries are never touched. Returns the number of entries removed.
+     */
+    suspend fun purgeFalseDetections(): Int {
+        var removed = 0
+        for (txn in transactionDao.getAllTransactionsSync()) {
+            if (txn.isManuallyAdded || txn.isEdited || txn.isDemo) continue
+            if (txn.source == "MANUAL" || txn.source == "IMPORT") continue
+            // Entries confirmed by both SMS and notification, and user-taught template matches (0.98)
+            if (txn.source.contains("+") || txn.confidenceScore == USER_TEMPLATE_CONFIDENCE) continue
+            val raw = txn.description ?: continue
+            if (TransactionFilter.rejectionReason(raw, requireDebitEvidence = true) != null) {
+                transactionDao.deleteById(txn.id)
+                removed++
+            }
+        }
+        return removed
     }
 
     suspend fun getAllTransactionsSync(): List<TransactionEntity> =

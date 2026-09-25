@@ -18,6 +18,17 @@ import java.util.Date
 import java.util.Locale
 import java.util.UUID
 
+// Values in a "Type" / "Dr/Cr" column that mean the row is NOT an expense
+private val NON_EXPENSE_ROW_TYPES = setOf("CR", "CREDIT", "C", "INCOME", "REFUND", "INTERNAL_TRANSFER", "UNKNOWN")
+
+// Formats used by SpendTrack's own export and common Indian bank statements
+private val IMPORT_DATE_FORMATS = listOf(
+    "yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd",
+    "dd/MM/yyyy HH:mm:ss", "dd/MM/yyyy", "dd/MM/yy",
+    "dd-MM-yyyy", "dd-MM-yy", "dd-MMM-yyyy", "dd-MMM-yy",
+    "dd MMM yyyy", "dd MMM yy", "dd.MM.yyyy"
+)
+
 class DataImportExportManager(
     private val transactionRepository: TransactionRepository,
     private val categoryEngine: CategoryEngine
@@ -97,13 +108,14 @@ class DataImportExportManager(
         val lines = reader.readLines()
         if (lines.isEmpty()) return ImportResult(0, 0, 0, 0)
 
-        val header = lines.first().split(",").map { it.trim().lowercase(Locale.ROOT) }
+        val header = parseCsvLine(lines.first()).map { it.trim().lowercase(Locale.ROOT) }
         val dateIdx = header.indexOfFirst { it.contains("date") }
+        val timeIdx = header.indexOfFirst { it == "time" }
+        val typeIdx = header.indexOfFirst { it == "transaction type" || it == "type" || it == "dr/cr" || it == "cr/dr" }
         val descIdx = header.indexOfFirst { it.contains("desc") || it.contains("narration") || it.contains("particular") || it.contains("merchant") }
         val debitIdx = header.indexOfFirst { it.contains("debit") || it.contains("withdrawal") }
         val creditIdx = header.indexOfFirst { it.contains("credit") || it.contains("deposit") }
         val amountIdx = header.indexOfFirst { it.contains("amount") }
-        val refIdx = header.indexOfFirst { it.contains("ref") || it.contains("utr") || it.contains("chq") }
 
         var imported = 0
         var skipped = 0
@@ -132,6 +144,13 @@ class DataImportExportManager(
                     continue
                 }
 
+                // Rows marked as credit / refund / transfer (bank "Dr/Cr" column or SpendTrack's own export)
+                val rowType = if (typeIdx != -1 && typeIdx < cols.size) cols[typeIdx].trim().uppercase(Locale.ROOT) else ""
+                if (rowType in NON_EXPENSE_ROW_TYPES) {
+                    skipped++
+                    continue
+                }
+
                 val finalAmount = debitAmount ?: if (amountIdx != -1 && amountIdx < cols.size) cleanAmount(cols[amountIdx]) else null
                 if (finalAmount == null || finalAmount <= 0.0) {
                     failed++
@@ -141,13 +160,16 @@ class DataImportExportManager(
                 val desc = if (descIdx != -1 && descIdx < cols.size) cols[descIdx] else "Statement Import"
                 val normalizedMerchant = MerchantNormalizer.normalize(desc)
                 val catResult = categoryEngine.resolveCategory(normalizedMerchant)
-                val ref = if (refIdx != -1 && refIdx < cols.size) cols[refIdx] else null
+                val dateStr = if (dateIdx != -1 && dateIdx < cols.size) cols[dateIdx] else null
+                val timeStr = if (timeIdx != -1 && timeIdx < cols.size) cols[timeIdx] else null
+                val dateTime = parseDate(dateStr, timeStr) ?: System.currentTimeMillis()
 
                 transactionRepository.addManualExpense(
                     amount = finalAmount,
                     merchantName = normalizedMerchant,
                     categoryId = catResult.categoryId,
                     paymentMethod = PaymentMethod.UPI,
+                    dateTime = dateTime,
                     description = desc
                 )
                 imported++
@@ -162,6 +184,23 @@ class DataImportExportManager(
             skippedCredits = skipped,
             failedRows = failed
         )
+    }
+
+    private fun parseDate(date: String?, time: String?): Long? {
+        if (date.isNullOrBlank()) return null
+        val candidates = if (!time.isNullOrBlank()) listOf("${date.trim()} ${time.trim()}", date.trim()) else listOf(date.trim())
+        for (value in candidates) {
+            for (pattern in IMPORT_DATE_FORMATS) {
+                try {
+                    val format = SimpleDateFormat(pattern, Locale.ENGLISH).apply { isLenient = false }
+                    val parsed = format.parse(value) ?: continue
+                    return parsed.time
+                } catch (e: Exception) {
+                    // try next format
+                }
+            }
+        }
+        return null
     }
 
     private fun cleanAmount(raw: String): Double? {

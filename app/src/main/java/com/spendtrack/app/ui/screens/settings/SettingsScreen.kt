@@ -2,6 +2,8 @@ package com.spendtrack.app.ui.screens.settings
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -174,6 +176,27 @@ fun SettingsScreen(
                             }
                         }
 
+                        // Android 13+ greys out Notification Access for apps installed outside Play Store
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                "Toggle greyed out? Open App Info, tap ⋮ (top-right) → 'Allow restricted settings', then enable access again.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                            TextButton(
+                                onClick = {
+                                    val intent = Intent(
+                                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                        Uri.fromParts("package", context.packageName, null)
+                                    )
+                                    context.startActivity(intent)
+                                }
+                            ) {
+                                Text("Open App Info")
+                            }
+                        }
+
                         HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
                         // SMS Detection Toggle
@@ -194,6 +217,35 @@ fun SettingsScreen(
                                 checked = uiState.isSmsEnabled,
                                 onCheckedChange = { viewModel.toggleSms(it) }
                             )
+                        }
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                        // Sync Past SMS History Button
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Sync SMS History", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    "Scan past bank SMS in your inbox for missed transactions.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    viewModel.syncSmsHistory(context) { result ->
+                                        coroutineScope.launch {
+                                            snackbarHostState.showSnackbar("Scanned ${result.scannedCount} SMS. Imported ${result.importedCount} new bank transactions.")
+                                        }
+                                    }
+                                }
+                            ) {
+                                Text("Sync Now")
+                            }
                         }
 
                         HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))

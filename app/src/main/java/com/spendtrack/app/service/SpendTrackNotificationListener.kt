@@ -1,5 +1,6 @@
 package com.spendtrack.app.service
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
@@ -10,7 +11,8 @@ import androidx.core.app.NotificationCompat
 import com.spendtrack.app.R
 import com.spendtrack.app.core.deduplication.DeduplicationEngine
 import com.spendtrack.app.core.logger.SafeLogger
-import com.spendtrack.app.core.parser.TransactionParser
+import com.spendtrack.app.core.utils.CurrencyUtils
+import com.spendtrack.app.core.utils.OemBatteryHelper
 import com.spendtrack.app.data.di.ServiceLocator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -24,10 +26,22 @@ class SpendTrackNotificationListener : NotificationListenerService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val CHANNEL_ID = "spendtrack_expense_channel"
 
+    // Apps re-post / update the same notification (progress, "tap to view", group refresh).
+    // Remember recently processed notification contents so one payment is recorded once.
+    private val recentlyProcessed = object : LinkedHashMap<String, Long>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?): Boolean = size > 100
+    }
+
     override fun onCreate() {
         super.onCreate()
         ServiceLocator.init(applicationContext)
         createNotificationChannel()
+    }
+
+    override fun onListenerDisconnected() {
+        super.onListenerDisconnected()
+        // Some OEMs unbind listeners in the background; ask the system to reconnect us
+        OemBatteryHelper.requestServiceRebind(applicationContext)
     }
 
     override fun onDestroy() {
@@ -38,24 +52,38 @@ class SpendTrackNotificationListener : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         if (sbn == null) return
 
-        val packageName = sbn.packageName
-        val extras = sbn.notification?.extras ?: return
+        val packageName = sbn.packageName ?: return
+        if (packageName == applicationContext.packageName) return // never parse our own confirmations
 
-        // Extract text fields
-        val title = extras.getCharSequence("android.title")?.toString()
-        val text = extras.getCharSequence("android.text")?.toString()
-        val bigText = extras.getCharSequence("android.bigText")?.toString()
-        val subText = extras.getCharSequence("android.subText")?.toString()
+        val notification = sbn.notification ?: return
+        // Group summaries repeat their children; ongoing notifications are progress/status, not payments
+        if (notification.flags and Notification.FLAG_GROUP_SUMMARY != 0) return
+        if (notification.flags and Notification.FLAG_ONGOING_EVENT != 0) return
 
-        val fullText = listOfNotNull(text, bigText, subText).joinToString(" ")
+        val extras = notification.extras ?: return
+
+        // Extract text fields. bigText is the expanded form of text, so prefer it instead of joining both
+        val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
+        val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()
+        val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
+
+        val fullText = if (!bigText.isNullOrBlank()) bigText else text
+        if (title.isNullOrBlank() && fullText.isNullOrBlank()) return
+
+        val contentKey = "$packageName|$title|$fullText"
+        synchronized(recentlyProcessed) {
+            val now = System.currentTimeMillis()
+            val last = recentlyProcessed[contentKey]
+            if (last != null && now - last < DUPLICATE_WINDOW_MS) return
+            recentlyProcessed[contentKey] = now
+        }
 
         serviceScope.launch {
             try {
-                // Check if package is monitored
+                // Only apps the user has enabled in Settings (plus bank apps) are read
                 val monitoredApps = ServiceLocator.settingsManager.monitoredAppsFlow.first()
                 val isMonitored = monitoredApps.contains(packageName) ||
-                        TransactionParser.MONITORED_UPI_PACKAGES.contains(packageName) ||
-                        packageName.contains("bank", ignoreCase = true)
+                        isBankApp(packageName)
 
                 if (!isMonitored) return@launch
 
@@ -76,8 +104,10 @@ class SpendTrackNotificationListener : NotificationListenerService() {
                     when (result) {
                         is DeduplicationEngine.DeduplicationResult.NewTransaction -> {
                             val txn = result.transaction
+                            // Refunds and self-transfers are stored silently - they are not expenses
+                            if (!txn.transactionType.isExpense) return@launch
                             showExpenseNotification(
-                                "Expense recorded: ₹${txn.amount.toInt()} at ${txn.merchantName}",
+                                "Expense recorded: ${CurrencyUtils.formatRupees(txn.amount, showDecimals = true)} at ${txn.merchantName}",
                                 "Method: ${txn.paymentMethod.displayName}"
                             )
                         }
@@ -90,6 +120,11 @@ class SpendTrackNotificationListener : NotificationListenerService() {
                 SafeLogger.e("Error processing notification", e)
             }
         }
+    }
+
+    private fun isBankApp(packageName: String): Boolean {
+        val pkg = packageName.lowercase()
+        return KNOWN_BANK_PACKAGES.contains(pkg) || pkg.contains("bank")
     }
 
     private fun createNotificationChannel() {
@@ -126,5 +161,23 @@ class SpendTrackNotificationListener : NotificationListenerService() {
             .build()
 
         notificationManager.notify((System.currentTimeMillis() % 10000).toInt(), notification)
+    }
+
+    companion object {
+        private const val DUPLICATE_WINDOW_MS = 10 * 60 * 1000L
+
+        private val KNOWN_BANK_PACKAGES = setOf(
+            "com.google.android.gm",           // Gmail (Bank email alerts)
+            "com.snapwork.hdfc",               // HDFC Bank
+            "com.sbi.lotusintouch",            // SBI YONO
+            "com.sbi.upi",                     // BHIM SBI Pay
+            "com.csam.icici.bank.imobile",     // ICICI iMobile
+            "com.axis.mobile",                 // Axis Mobile
+            "com.msf.kbank.mobile",            // Kotak
+            "com.idfcfirstbank.optimus",       // IDFC FIRST
+            "com.bankofbaroda.mconnect",       // Bank of Baroda
+            "com.fss.pnbpsp",                  // PNB
+            "com.canarabank.mobility"          // Canara
+        )
     }
 }
