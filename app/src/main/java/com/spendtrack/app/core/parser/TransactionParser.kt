@@ -81,9 +81,14 @@ object TransactionParser {
 
         val lowerContent = fullContent.lowercase(Locale.ROOT)
 
-        // 1. Check for Failed / Declined payments -> DO NOT RECORD
+        // 1. Check for Failed / Declined / Pending payments -> DO NOT RECORD (not yet completed)
         for (failedKey in FAILED_KEYWORDS) {
             if (lowerContent.contains(failedKey)) {
+                return null
+            }
+        }
+        for (pendingKey in PENDING_KEYWORDS) {
+            if (lowerContent.contains(pendingKey)) {
                 return null
             }
         }

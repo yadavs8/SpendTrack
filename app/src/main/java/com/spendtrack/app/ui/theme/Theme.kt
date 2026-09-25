@@ -33,7 +33,12 @@ private val LightColorScheme = lightColorScheme(
 
 @Composable
 fun SpendTrackTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    darkMode: String = "SYSTEM",
+    darkTheme: Boolean = when (darkMode) {
+        "LIGHT" -> false
+        "DARK" -> true
+        else -> isSystemInDarkTheme()
+    },
     dynamicColor: Boolean = true,
     content: @Composable () -> Unit
 ) {

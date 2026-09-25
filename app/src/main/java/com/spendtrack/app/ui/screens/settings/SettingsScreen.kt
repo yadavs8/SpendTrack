@@ -79,6 +79,7 @@ fun SettingsScreen(
     var showDailyLimitDialog by remember { mutableStateOf(false) }
     var showAccountsDialog by remember { mutableStateOf(false) }
     var showOemHelpDialog by remember { mutableStateOf(false) }
+    var ruleIdPendingDeletion by remember { mutableStateOf<String?>(null) }
 
     val oemGuidance = remember { com.spendtrack.app.core.utils.OemBatteryHelper.getGuidance(context) }
 
@@ -216,6 +217,34 @@ fun SettingsScreen(
                                 checked = uiState.confirmationNotifs,
                                 onCheckedChange = { viewModel.toggleConfirmationNotifs(it) }
                             )
+                        }
+                    }
+                }
+            }
+
+            // 1.4 Appearance
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("Appearance", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            listOf("SYSTEM" to "System", "LIGHT" to "Light", "DARK" to "Dark").forEach { (value, label) ->
+                                FilterChip(
+                                    selected = uiState.darkMode == value,
+                                    onClick = { viewModel.setDarkMode(value) },
+                                    label = { Text(label) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                         }
                     }
                 }
@@ -441,7 +470,7 @@ fun SettingsScreen(
                                         Text(rule.merchantPattern, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                                         Text("Maps to: ${rule.categoryName}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                                     }
-                                    IconButton(onClick = { viewModel.deleteMerchantRule(rule.id) }) {
+                                    IconButton(onClick = { ruleIdPendingDeletion = rule.id }) {
                                         Icon(Icons.Default.Delete, contentDescription = "Delete", tint = CoralRed)
                                     }
                                 }
@@ -687,6 +716,28 @@ fun SettingsScreen(
                 viewModel.addAccount(bank, last4, type, nick)
             },
             onDeleteAccount = { viewModel.deleteAccount(it) }
+        )
+    }
+
+    if (ruleIdPendingDeletion != null) {
+        AlertDialog(
+            onDismissRequest = { ruleIdPendingDeletion = null },
+            title = { Text("Delete this rule?") },
+            text = { Text("Future transactions from this merchant will no longer be auto-categorized by this rule.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.deleteMerchantRule(ruleIdPendingDeletion!!)
+                        ruleIdPendingDeletion = null
+                    },
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = CoralRed)
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { ruleIdPendingDeletion = null }) { Text("Cancel") }
+            }
         )
     }
 

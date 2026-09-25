@@ -36,6 +36,9 @@ class SmsReceiver : BroadcastReceiver() {
 
         val fullText = bodyBuilder.toString()
 
+        // Without goAsync(), Android is free to kill this receiver's process as soon as
+        // onReceive() returns, before the launched coroutine finishes writing to the DB.
+        val pendingResult = goAsync()
         receiverScope.launch {
             try {
                 val isSmsEnabled = ServiceLocator.settingsManager.isSmsDetectionEnabled.first()
@@ -52,6 +55,8 @@ class SmsReceiver : BroadcastReceiver() {
                 ServiceLocator.transactionRepository.ingestTransaction(parsed)
             } catch (e: Exception) {
                 SafeLogger.e("Error processing incoming SMS", e)
+            } finally {
+                pendingResult.finish()
             }
         }
     }

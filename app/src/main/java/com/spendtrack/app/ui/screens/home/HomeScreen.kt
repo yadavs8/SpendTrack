@@ -40,6 +40,9 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -47,6 +50,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,6 +70,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 @Composable
 fun HomeScreen(
@@ -75,6 +80,8 @@ fun HomeScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
 
     val currencyFormat = remember {
         NumberFormat.getCurrencyInstance(Locale("en", "IN")).apply {
@@ -105,6 +112,7 @@ fun HomeScreen(
                 Icon(Icons.Default.Add, contentDescription = "Add Expense")
             }
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         modifier = modifier
     ) { paddingValues ->
         LazyColumn(
@@ -389,7 +397,18 @@ fun HomeScreen(
                                 IconButton(onClick = { viewModel.confirmTransaction(txn) }) {
                                     Icon(Icons.Default.Check, contentDescription = "Confirm", tint = EmeraldGreen)
                                 }
-                                IconButton(onClick = { viewModel.deleteTransaction(txn) }) {
+                                IconButton(onClick = {
+                                    viewModel.deleteTransaction(txn)
+                                    coroutineScope.launch {
+                                        val result = snackbarHostState.showSnackbar(
+                                            message = "Transaction ignored",
+                                            actionLabel = "Undo"
+                                        )
+                                        if (result == SnackbarResult.ActionPerformed) {
+                                            viewModel.restoreTransaction(txn)
+                                        }
+                                    }
+                                }) {
                                     Icon(Icons.Default.Close, contentDescription = "Ignore", tint = CoralRed)
                                 }
                             }

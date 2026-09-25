@@ -35,7 +35,7 @@ class DeduplicationEngine(
             val isExactRefMatch = !parsed.upiReference.isNullOrBlank() &&
                     candidate.upiReference == parsed.upiReference
 
-            val isSameAmount = candidate.amount == parsed.amount
+            val isSameAmount = amountsEqual(candidate.amount, parsed.amount)
             val isWithinWindow = abs(candidate.dateTime - parsed.dateTime) <= timeWindowMillis
             val isExactMerchant = isExactMerchantMatch(candidate.merchantName, normalizedMerchant)
             val isSameAccount = !parsed.accountLast4.isNullOrBlank() &&
@@ -66,7 +66,7 @@ class DeduplicationEngine(
         // Check if there is an identical amount within 2 minutes to prevent accidental duplicate taps without dropping real distinct expenses:
         // Flag for user review instead of silently merging or silently ignoring!
         val hasRecentIdenticalAmount = candidates.any {
-            it.amount == parsed.amount && abs(it.dateTime - parsed.dateTime) <= (2 * 60 * 1000L)
+            amountsEqual(it.amount, parsed.amount) && abs(it.dateTime - parsed.dateTime) <= (2 * 60 * 1000L)
         }
 
         val needsReview = (parsed.confidenceScore < 0.90f) || hasRecentIdenticalAmount
@@ -97,6 +97,8 @@ class DeduplicationEngine(
         transactionDao.insertTransaction(newEntity)
         return DeduplicationResult.NewTransaction(newEntity)
     }
+
+    private fun amountsEqual(a: Double, b: Double): Boolean = abs(a - b) < 0.005
 
     private fun isExactMerchantMatch(merchantA: String?, merchantB: String?): Boolean {
         if (merchantA.isNullOrBlank() || merchantB.isNullOrBlank()) return false

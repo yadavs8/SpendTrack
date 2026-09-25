@@ -52,6 +52,7 @@ fun AccountsManagementDialog(
     var last4 by remember { mutableStateOf("") }
     var nickname by remember { mutableStateOf("") }
     var selectedType by remember { mutableStateOf(AccountType.SAVINGS) }
+    var accountPendingDeletion by remember { mutableStateOf<UserAccountEntity?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -163,7 +164,7 @@ fun AccountsManagementDialog(
                                             Text(acc.nickname ?: acc.accountType.name, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
                                         }
                                     }
-                                    IconButton(onClick = { onDeleteAccount(acc.id) }) {
+                                    IconButton(onClick = { accountPendingDeletion = acc }) {
                                         Icon(Icons.Default.Delete, contentDescription = "Delete", tint = CoralRed)
                                     }
                                 }
@@ -177,4 +178,26 @@ fun AccountsManagementDialog(
             Button(onClick = onDismiss) { Text("Done") }
         }
     )
+
+    accountPendingDeletion?.let { acc ->
+        AlertDialog(
+            onDismissRequest = { accountPendingDeletion = null },
+            title = { Text("Remove this account?") },
+            text = { Text("Removing \"${acc.bankName} •••• ${acc.accountLast4}\" means SpendTrack may no longer recognize self-transfers or card bill payments to it as non-expenses.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDeleteAccount(acc.id)
+                        accountPendingDeletion = null
+                    },
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = CoralRed)
+                ) {
+                    Text("Remove")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { accountPendingDeletion = null }) { Text("Cancel") }
+            }
+        )
+    }
 }

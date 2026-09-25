@@ -156,6 +156,13 @@ class TransactionRepository(
         transactionDao.deleteTransaction(transaction)
     }
 
+    /**
+     * Re-inserts a previously deleted transaction, used to support "undo" after a delete.
+     */
+    suspend fun restoreTransaction(transaction: TransactionEntity) {
+        transactionDao.insertTransaction(transaction)
+    }
+
     suspend fun deleteTransactionById(id: String) {
         transactionDao.deleteById(id)
     }

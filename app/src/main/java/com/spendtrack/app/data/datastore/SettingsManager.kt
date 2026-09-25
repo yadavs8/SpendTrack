@@ -24,6 +24,7 @@ class SettingsManager(private val context: Context) {
         val KEY_BIOMETRIC_LOCK = booleanPreferencesKey("biometric_lock")
         val KEY_DARK_MODE = stringPreferencesKey("dark_mode") // "SYSTEM", "LIGHT", "DARK"
         val KEY_CONFIRMATION_NOTIFS = booleanPreferencesKey("confirmation_notifications")
+        val KEY_ONBOARDING_COMPLETE = booleanPreferencesKey("onboarding_complete")
 
         val DEFAULT_MONITORED_APPS = setOf(
             "com.google.android.apps.nbu.paisa.user", // Google Pay
@@ -64,6 +65,14 @@ class SettingsManager(private val context: Context) {
 
     val darkModeFlow: Flow<String> = context.dataStore.data.map { prefs ->
         prefs[KEY_DARK_MODE] ?: "SYSTEM"
+    }
+
+    val isOnboardingComplete: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_ONBOARDING_COMPLETE] ?: false
+    }
+
+    suspend fun setOnboardingComplete(complete: Boolean) {
+        context.dataStore.edit { it[KEY_ONBOARDING_COMPLETE] = complete }
     }
 
     suspend fun setMonitoredApp(packageName: String, enabled: Boolean) {

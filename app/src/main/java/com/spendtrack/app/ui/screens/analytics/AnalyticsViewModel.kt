@@ -7,9 +7,11 @@ import com.spendtrack.app.data.database.dao.PaymentMethodSpend
 import com.spendtrack.app.data.database.entity.CategoryEntity
 import com.spendtrack.app.data.database.entity.TransactionEntity
 import com.spendtrack.app.data.di.ServiceLocator
+import com.spendtrack.app.core.logger.SafeLogger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import java.util.Calendar
@@ -103,13 +105,19 @@ class AnalyticsViewModel : ViewModel() {
                     .mapValues { entry -> entry.value.sumOf { it.amount } }
                 val topEntry = merchantMap.maxByOrNull { it.value }
 
-                val comparison = MonthComparison(
-                    currentMonthName = currentMonthName,
-                    currentMonthTotal = currentTotal,
-                    previousMonthName = prevMonthName,
-                    previousMonthTotal = prevTotal,
-                    difference = currentTotal - prevTotal
-                )
+                // Omit the comparison when there's no prior-month spending to compare
+                // against, so a new user doesn't see a misleading "+100%" spike.
+                val comparison = if (prevTotal > 0.0) {
+                    MonthComparison(
+                        currentMonthName = currentMonthName,
+                        currentMonthTotal = currentTotal,
+                        previousMonthName = prevMonthName,
+                        previousMonthTotal = prevTotal,
+                        difference = currentTotal - prevTotal
+                    )
+                } else {
+                    null
+                }
 
                 val sevenDays = calculate7DaysSpend(currentTxns)
 
@@ -127,6 +135,8 @@ class AnalyticsViewModel : ViewModel() {
                     last7DaysSpend = sevenDays,
                     monthlyBudget = budget
                 )
+            }.catch { e ->
+                SafeLogger.e("Error loading analytics", e)
             }.collect { state ->
                 _uiState.value = state
             }

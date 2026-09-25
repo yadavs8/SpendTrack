@@ -61,6 +61,12 @@ class CategoryEngine(
         )
     )
 
+    // Word-boundary patterns so short keywords like "bar" or "care" don't match
+    // unrelated substrings such as "Barista" or "Healthcare".
+    private val KEYWORD_PATTERNS: Map<String, List<Regex>> = KEYWORD_MAP.mapValues { (_, keywords) ->
+        keywords.map { keyword -> Regex("\\b" + Regex.escape(keyword) + "\\b") }
+    }
+
     data class CategoryResult(
         val categoryId: String,
         val categoryName: String,
@@ -83,9 +89,9 @@ class CategoryEngine(
         val searchString = (merchantName + " " + (merchantVpa ?: "")).lowercase(Locale.ROOT)
 
         // 2. Check keyword dictionary
-        for ((catId, keywords) in KEYWORD_MAP) {
-            for (keyword in keywords) {
-                if (searchString.contains(keyword)) {
+        for ((catId, patterns) in KEYWORD_PATTERNS) {
+            for (pattern in patterns) {
+                if (pattern.containsMatchIn(searchString)) {
                     val cat = categoryDao.getCategoryById(catId)
                     return CategoryResult(
                         categoryId = catId,

@@ -5,10 +5,12 @@ import androidx.lifecycle.viewModelScope
 import com.spendtrack.app.core.model.PaymentMethod
 import com.spendtrack.app.data.database.entity.CategoryEntity
 import com.spendtrack.app.data.database.entity.TransactionEntity
+import com.spendtrack.app.core.logger.SafeLogger
 import com.spendtrack.app.data.di.ServiceLocator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import java.util.Calendar
@@ -55,6 +57,8 @@ class TransactionsViewModel : ViewModel() {
                     categories = catMap
                 )
                 applyFilters()
+            }.catch { e ->
+                SafeLogger.e("Error loading transactions", e)
             }.collect {}
         }
     }

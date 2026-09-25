@@ -4,11 +4,13 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.spendtrack.app.core.backup.DataImportExportManager
+import com.spendtrack.app.core.logger.SafeLogger
 import com.spendtrack.app.data.database.entity.MerchantRuleEntity
 import com.spendtrack.app.data.di.ServiceLocator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import java.io.InputStream
@@ -21,6 +23,7 @@ data class SettingsUiState(
     val isDailyLimitAlertEnabled: Boolean = false,
     val isBiometricEnabled: Boolean = false,
     val confirmationNotifs: Boolean = true,
+    val darkMode: String = "SYSTEM",
     val merchantRules: List<MerchantRuleEntity> = emptyList(),
     val userAccounts: List<com.spendtrack.app.data.database.entity.UserAccountEntity> = emptyList(),
     val importMessage: String? = null,
@@ -53,7 +56,8 @@ class SettingsViewModel : ViewModel() {
                 settingsManager.isBiometricEnabled,
                 settingsManager.showConfirmationNotifs,
                 merchantRuleRepo.allRules,
-                userAccountRepo.allAccounts
+                userAccountRepo.allAccounts,
+                settingsManager.darkModeFlow
             ) { values ->
                 @Suppress("UNCHECKED_CAST")
                 val apps = values[0] as Set<String>
@@ -67,6 +71,7 @@ class SettingsViewModel : ViewModel() {
                 val rules = values[7] as List<MerchantRuleEntity>
                 @Suppress("UNCHECKED_CAST")
                 val accounts = values[8] as List<com.spendtrack.app.data.database.entity.UserAccountEntity>
+                val darkMode = values[9] as String
 
                 SettingsUiState(
                     monitoredApps = apps,
@@ -77,8 +82,11 @@ class SettingsViewModel : ViewModel() {
                     isBiometricEnabled = biometric,
                     confirmationNotifs = notifs,
                     merchantRules = rules,
-                    userAccounts = accounts
+                    userAccounts = accounts,
+                    darkMode = darkMode
                 )
+            }.catch { e ->
+                SafeLogger.e("Error loading settings", e)
             }.collect { state ->
                 _uiState.value = state
             }
@@ -130,6 +138,12 @@ class SettingsViewModel : ViewModel() {
     fun toggleBiometric(enable: Boolean) {
         viewModelScope.launch {
             settingsManager.setBiometricLock(enable)
+        }
+    }
+
+    fun setDarkMode(mode: String) {
+        viewModelScope.launch {
+            settingsManager.setDarkMode(mode)
         }
     }
 
