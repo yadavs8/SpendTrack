@@ -32,16 +32,21 @@
   </div>
 
   <form class="auth" id="auth" hidden novalidate>
-    <h2 id="auth-title">Sign in with an email code</h2>
-    <p id="auth-intro">Enter your email and we will send you a one-time code. After that, use your fingerprint or phone PIN to open the app.</p>
-    <div class="field"><label for="auth-email">Email</label><input class="input" id="auth-email" type="email" autocomplete="email" inputmode="email"></div>
-    <div class="field" id="code-field" hidden><label for="auth-code">Code from your email</label><input class="input" id="auth-code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456"></div>
+    <h2 id="auth-title">Sign in with OTP code</h2>
+    <p id="auth-intro">Enter your phone number or email to receive a one-time verification code. After signing in, you can unlock with your fingerprint or phone PIN.</p>
+    <div class="auth-tabs" id="auth-tabs">
+      <button type="button" class="tabbtn active" id="tab-phone">Phone OTP</button>
+      <button type="button" class="tabbtn" id="tab-email">Email OTP</button>
+      <button type="button" class="tabbtn" id="tab-pass">Password</button>
+    </div>
+    <div class="field" id="phone-field"><label for="auth-phone">Phone number (with +91)</label><input class="input" id="auth-phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="+919876543210"></div>
+    <div class="field" id="email-field" hidden><label for="auth-email">Email address</label><input class="input" id="auth-email" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com"></div>
+    <div class="field" id="code-field" hidden><label for="auth-code">6-Digit verification code</label><input class="input" id="auth-code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456"></div>
     <div class="field" id="pass-field" hidden><label for="auth-pass">Password</label><input class="input" id="auth-pass" type="password" autocomplete="current-password"></div>
     <p class="err" id="auth-err" role="alert" hidden></p>
     <p id="auth-info" role="status" hidden></p>
     <div class="add-foot">
-      <button class="linkbtn" type="button" id="auth-toggle">Use a password instead</button>
-      <button class="primary" type="submit" id="auth-btn">Send code</button>
+      <button class="primary" type="submit" id="auth-btn">Send OTP Code</button>
     </div>
   </form>
 
@@ -75,6 +80,13 @@
       </button>
     </div>
     <p class="total" id="mtotal">₹0</p>
+    <div class="budget-bar-wrap" id="budget-wrap">
+      <div class="budget-head">
+        <span id="budget-status">Monthly budget: Not set</span>
+        <button type="button" class="budget-btn" id="budget-edit-btn">Set budget</button>
+      </div>
+      <div class="budget-progress-track"><div class="budget-progress-fill" id="budget-fill" style="width: 0%"></div></div>
+    </div>
     <dl class="stats">
       <div><dt>Entries</dt><dd id="st-count">0</dd></div>
       <div><dt>Spent most on</dt><dd id="st-top">—</dd></div>
@@ -93,14 +105,30 @@
         <input class="input" id="desc" list="descs" maxlength="60" placeholder="Grocery, petrol, vegetables…" aria-describedby="err">
       </div>
     </div>
+    <div class="add-row add-row-extra">
+      <div class="field">
+        <label for="spent-date">Date & Time (Optional)</label>
+        <input class="input" id="spent-date" type="datetime-local">
+      </div>
+    </div>
     <div class="chips" id="chips" aria-label="Quick descriptions"></div>
     <div class="add-foot">
-      <p class="stamp">Saved as <time id="stamp"></time></p>
+      <p class="stamp">Recorded at <time id="stamp"></time></p>
       <button class="primary" type="submit" id="addbtn" disabled>Add expense</button>
     </div>
     <p class="err" id="err" role="alert" hidden></p>
   </form>
   <datalist id="descs"></datalist>
+
+  <div class="actions-bar">
+    <div class="search-wrap">
+      <input class="input search-input" id="search" type="search" placeholder="Search expenses…">
+    </div>
+    <button type="button" class="ghost csv-btn" id="export-csv">
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Export CSV
+    </button>
+  </div>
 
   <section id="breakdown-sec" hidden>
     <h2 class="sec-title">Where it went, biggest first</h2>

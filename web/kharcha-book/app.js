@@ -19,6 +19,10 @@
     var t = String(s).replace(/\s+/g, ' ').trim().slice(0, 60);
     return t ? t.charAt(0).toUpperCase() + t.slice(1) : '';
   }
+  function toLocalISOString(ts) {
+    var d = new Date(ts);
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
   var inr0 = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 });
   var inr2 = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2, maximumFractionDigits: 2 });
   function money(v) { return Number.isInteger(v) ? inr0.format(v) : inr2.format(v); }
@@ -65,12 +69,13 @@
   function keyToDate(key) { var p = key.split('-'); return new Date(+p[0], +p[1] - 1, +p[2], 12); }
 
   /* Exposed for tests only. */
-  window.__kharcha = { parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals };
+  window.__kharcha = { parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString };
 
   var TABLE = 'daily_expenses';
   var COLS = 'id, amount, description, spent_at';
   var DEFAULT_CHIPS = ['Grocery', 'Petrol', 'Vegetables'];
   var state = { mode: 'pending', entries: [], sel: null, editing: null, draft: null };
+  var searchQuery = '';
   var sb = null;
 
   function $(id) { return document.getElementById(id); }
@@ -87,7 +92,7 @@
     return { id: r.id, amount: Number(r.amount), desc: r.description, ts: Date.parse(r.spent_at) };
   }
 
-  /* ---------- storage: Supabase table daily_expenses (RLS limits rows to the signed-in user) ---------- */
+  /* ---------- storage ---------- */
   var store = {
     loadAll: async function () {
       var out = [], from = 0, size = 1000;
@@ -101,17 +106,17 @@
       }
       return out.map(fromRow).filter(validEntry);
     },
-    // spent_at is omitted so the server stamps the time.
     add: async function (e) {
-      var res = await sb.from(TABLE)
-        .insert({ amount: e.amount, description: e.desc })
-        .select(COLS).single();
+      var payload = { amount: e.amount, description: e.desc };
+      if (e.spent_at) payload.spent_at = e.spent_at;
+      var res = await sb.from(TABLE).insert(payload).select(COLS).single();
       if (res.error) throw res.error;
       state.entries.push(fromRow(res.data));
     },
     update: async function (id, patch) {
-      var res = await sb.from(TABLE).update({ amount: patch.amount, description: patch.desc })
-        .eq('id', id).select(COLS).single();
+      var payload = { amount: patch.amount, description: patch.desc };
+      if (patch.spent_at) payload.spent_at = patch.spent_at;
+      var res = await sb.from(TABLE).update(payload).eq('id', id).select(COLS).single();
       if (res.error) throw res.error;
       var i = state.entries.findIndex(function (x) { return x.id === id; });
       if (i >= 0) state.entries[i] = fromRow(res.data);
@@ -122,6 +127,74 @@
       state.entries = state.entries.filter(function (x) { return x.id !== id; });
     }
   };
+
+  /* ---------- Budget Feature ---------- */
+  var BUDGET_KEY = 'kharcha_monthly_budget';
+  function getBudget() { try { return Number(localStorage.getItem(BUDGET_KEY)) || 0; } catch (e) { return 0; } }
+  function setBudget(val) { try { if (val > 0) localStorage.setItem(BUDGET_KEY, String(val)); else localStorage.removeItem(BUDGET_KEY); } catch (e) {} }
+
+  function renderBudget(curTotal) {
+    var b = getBudget();
+    var status = $('budget-status');
+    var fill = $('budget-fill');
+    var btn = $('budget-edit-btn');
+    if (!b) {
+      status.textContent = 'Monthly budget: Not set';
+      fill.style.width = '0%';
+      fill.className = 'budget-progress-fill';
+      btn.textContent = 'Set budget';
+      return;
+    }
+    btn.textContent = 'Edit budget';
+    var pct = Math.round((curTotal / b) * 100);
+    status.textContent = 'Budget: ' + money(curTotal) + ' of ' + money(b) + ' (' + pct + '%)';
+    fill.style.width = Math.min(100, pct) + '%';
+    if (pct >= 100) fill.className = 'budget-progress-fill danger';
+    else if (pct >= 80) fill.className = 'budget-progress-fill warning';
+    else fill.className = 'budget-progress-fill';
+  }
+
+  $('budget-edit-btn').addEventListener('click', function () {
+    var cur = getBudget();
+    var val = prompt('Enter your monthly budget limit in ₹ (enter 0 to clear):', cur || '');
+    if (val === null) return;
+    var n = Number(val.replace(/[,\s₹]/g, ''));
+    if (isNaN(n) || n < 0) { alert('Please enter a valid positive number.'); return; }
+    setBudget(n);
+    render();
+  });
+
+  /* ---------- Search & CSV Export ---------- */
+  $('search').addEventListener('input', function (ev) {
+    searchQuery = ev.target.value.trim().toLowerCase();
+    render();
+  });
+
+  $('export-csv').addEventListener('click', function () {
+    var list = state.entries.filter(function (e) { return monthKey(e.ts) === state.sel; });
+    if (searchQuery) {
+      list = list.filter(function (e) {
+        return e.desc.toLowerCase().includes(searchQuery) || dFmt.format(new Date(e.ts)).toLowerCase().includes(searchQuery);
+      });
+    }
+    if (!list.length) { toast('No expenses to export for this month.'); return; }
+    var csv = ['Date,Time,Description,Amount (INR)'];
+    list.sort(byTimeDesc).forEach(function (e) {
+      var d = new Date(e.ts);
+      var dateStr = dayKey(e.ts);
+      var timeStr = tFmt.format(d);
+      var descStr = '"' + e.desc.replace(/"/g, '""') + '"';
+      csv.push(dateStr + ',' + timeStr + ',' + descStr + ',' + e.amount);
+    });
+    var blob = new Blob([csv.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'kharcha-expenses-' + state.sel + '.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('Downloaded CSV for ' + monthLabel(state.sel));
+  });
 
   /* ---------- small UI helpers ---------- */
   var toastTimer = 0;
@@ -148,6 +221,13 @@
     var idx = months.findIndex(function (m) { return m.key === state.sel; });
     var cur = months[idx];
     var list = state.entries.filter(function (e) { return monthKey(e.ts) === state.sel; });
+
+    if (searchQuery) {
+      list = list.filter(function (e) {
+        return e.desc.toLowerCase().includes(searchQuery) || dFmt.format(new Date(e.ts)).toLowerCase().includes(searchQuery);
+      });
+    }
+
     var days = groupByDay(list);
 
     $('mlabel').textContent = monthLabel(state.sel);
@@ -160,6 +240,7 @@
     $('prev').disabled = idx >= months.length - 1;
     $('next').disabled = idx <= 0;
 
+    renderBudget(cur.total);
     renderSuggestions();
     renderBreakdown(list, cur.total);
     renderDays(days);
@@ -244,7 +325,7 @@
     b.appendChild(el('span', 'a', money(e.amount)));
     b.addEventListener('click', function () {
       state.editing = e.id;
-      state.draft = { amount: String(e.amount), desc: e.desc };
+      state.draft = { amount: String(e.amount), desc: e.desc, spent_at: toLocalISOString(e.ts) };
       render();
       var f = $('edit-amt'); if (f) f.focus();
     });
@@ -254,7 +335,7 @@
   function editRow(e) {
     var f = el('form', 'edit');
     f.noValidate = true;
-    var row = el('div', 'add-row');
+    var row1 = el('div', 'add-row');
     var f1 = el('div', 'field'), l1 = el('label', null, 'Amount'); l1.htmlFor = 'edit-amt';
     var w = el('div', 'amt-wrap'); w.appendChild(el('span', null, '₹'));
     var a = el('input', 'input'); a.id = 'edit-amt'; a.inputMode = 'decimal'; a.value = state.draft.amount;
@@ -264,15 +345,22 @@
     var d = el('input', 'input'); d.id = 'edit-desc'; d.maxLength = 60; d.value = state.draft.desc; d.setAttribute('list', 'descs');
     d.addEventListener('input', function () { state.draft.desc = d.value; });
     f2.appendChild(l2); f2.appendChild(d);
-    row.appendChild(f1); row.appendChild(f2);
+    row1.appendChild(f1); row1.appendChild(f2);
+
+    var row2 = el('div', 'add-row add-row-extra');
+    var f3 = el('div', 'field'), l3 = el('label', null, 'Date & Time'); l3.htmlFor = 'edit-date';
+    var dt = el('input', 'input'); dt.id = 'edit-date'; dt.type = 'datetime-local'; dt.value = state.draft.spent_at;
+    dt.addEventListener('input', function () { state.draft.spent_at = dt.value; });
+    f3.appendChild(l3); f3.appendChild(dt);
+    row2.appendChild(f3);
+
     var msg = el('p', 'err'); msg.hidden = true; msg.setAttribute('role', 'alert');
     var btns = el('div', 'edit-btns');
     var save = el('button', 'primary small', 'Save'); save.type = 'submit';
     var cancel = el('button', 'ghost', 'Cancel'); cancel.type = 'button';
     var del = el('button', 'danger', 'Delete'); del.type = 'button';
     btns.appendChild(save); btns.appendChild(cancel); btns.appendChild(del);
-    f.appendChild(row); f.appendChild(msg); f.appendChild(btns);
-    f.appendChild(el('p', 'ddate', 'Recorded ' + dFmt.format(new Date(e.ts)) + ', ' + tFmt.format(new Date(e.ts))));
+    f.appendChild(row1); f.appendChild(row2); f.appendChild(msg); f.appendChild(btns);
 
     cancel.addEventListener('click', function () { state.editing = null; render(); });
     f.addEventListener('submit', function (ev) {
@@ -281,7 +369,8 @@
       if (amt == null) { msg.textContent = 'Enter an amount greater than zero, like 250 or 99.50.'; msg.hidden = false; return; }
       if (!desc) { msg.textContent = 'Add a short description, like Grocery.'; msg.hidden = false; return; }
       save.disabled = true;
-      store.update(e.id, { amount: amt, desc: desc }).then(function () {
+      var newTs = state.draft.spent_at ? new Date(state.draft.spent_at).toISOString() : null;
+      store.update(e.id, { amount: amt, desc: desc, spent_at: newTs }).then(function () {
         state.editing = null; render(); toast('Changes saved');
       }).catch(function () {
         save.disabled = false; msg.textContent = 'Could not save the change. Try again.'; msg.hidden = false;
@@ -309,13 +398,13 @@
       var em = el('div', 'empty');
       var p1 = el('p'); p1.appendChild(el('strong', null, 'No expenses yet.'));
       em.appendChild(p1);
-      em.appendChild(el('p', null, 'Type an amount and a description above, then tap Add expense. The date and time are filled in for you, so groceries in the morning and petrol in the evening show up as two entries on the same day.'));
+      em.appendChild(el('p', null, 'Type an amount and a description above, then tap Add expense. You can also pick a specific date and time for past expenses.'));
       box.appendChild(em);
       return;
     }
     if (!days.length) {
       var e2 = el('div', 'empty');
-      e2.appendChild(el('p', null, 'Nothing logged in ' + monthLabel(state.sel) + '.'));
+      e2.appendChild(el('p', null, searchQuery ? 'No expenses matching "' + searchQuery + '".' : 'Nothing logged in ' + monthLabel(state.sel) + '.'));
       box.appendChild(e2);
       return;
     }
@@ -390,11 +479,15 @@
     if (amt == null) { showErr('Enter an amount greater than zero, like 250 or 99.50.'); $('amt').focus(); return; }
     var desc = normDesc($('desc').value);
     if (!desc) { showErr('Add a short description, like Grocery or Petrol.'); $('desc').focus(); return; }
+    var spentVal = $('spent-date').value;
+    var spentAt = spentVal ? new Date(spentVal).toISOString() : null;
+
     var btn = $('addbtn');
     btn.disabled = true;
-    store.add({ amount: amt, desc: desc }).then(function () {
-      $('amt').value = ''; $('desc').value = '';
-      state.sel = monthKey(Date.now());
+    store.add({ amount: amt, desc: desc, spent_at: spentAt }).then(function () {
+      $('amt').value = ''; $('desc').value = ''; $('spent-date').value = '';
+      var ts = spentAt ? Date.parse(spentAt) : Date.now();
+      state.sel = monthKey(ts);
       render();
       toast('Added ' + money(amt) + ' for ' + desc);
       $('amt').focus();
@@ -404,8 +497,6 @@
   });
 
   /* ---------- app lock: fingerprint / phone PIN via WebAuthn ---------- */
-  // This is a screen lock on this device. It uses the phone's own unlock (fingerprint, face, PIN, pattern).
-  // The sign-in session itself stays in the browser, so the lock keeps casual users out; it is not server-side verification.
   var LOCK_KEY = 'kharcha_lock_cred';
   var LOCK_AFTER_MS = 60000;
   var hiddenAt = 0;
@@ -430,7 +521,7 @@
       var cred = await navigator.credentials.create({ publicKey: {
         challenge: rand(32),
         rp: { name: 'Kharcha Book' },
-        user: { id: rand(16), name: (who && who.email) || 'kharcha', displayName: 'Kharcha Book' },
+        user: { id: rand(16), name: (who && (who.email || who.phone)) || 'kharcha', displayName: 'Kharcha Book' },
         pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
         authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'discouraged' },
         timeout: 60000
@@ -454,7 +545,7 @@
         timeout: 60000
       } });
     } catch (err) {
-      $('lock-err').textContent = 'Could not unlock. Try again, or sign in with your password.';
+      $('lock-err').textContent = 'Could not unlock. Try again, or sign in with password.';
       $('lock-err').hidden = false;
       return;
     }
@@ -487,56 +578,94 @@
   $('offer-no').addEventListener('click', function () { try { localStorage.setItem(OFFER_KEY, '1'); } catch (e) {} renderLockOffer(); });
   $('offer-yes').addEventListener('click', async function () { await enableLock(); renderLockOffer(); });
 
-  /* ---------- sign in ---------- */
+  /* ---------- Sign In (Phone OTP / Email OTP / Password) ---------- */
   function showAuthErr(msg) { var e = $('auth-err'); e.textContent = msg; e.hidden = !msg; }
-  var authMode = 'otp', otpSent = false;
   function showAuthInfo(msg) { var i = $('auth-info'); i.textContent = msg; i.hidden = !msg; }
-  function renderAuth() {
-    var otp = authMode === 'otp';
-    $('auth-title').textContent = otp ? 'Sign in with an email code' : 'Sign in with a password';
-    $('auth-intro').hidden = !otp || otpSent;
-    $('code-field').hidden = !(otp && otpSent);
-    $('pass-field').hidden = otp;
-    $('auth-email').readOnly = otp && otpSent;
-    $('auth-btn').textContent = otp ? (otpSent ? 'Verify code' : 'Send code') : 'Sign in';
-    $('auth-toggle').textContent = otp ? 'Use a password instead' : 'Use an email code instead';
+
+  var authTab = 'phone';
+  var otpSent = false;
+
+  function renderAuthTabs() {
+    $('tab-phone').classList.toggle('active', authTab === 'phone');
+    $('tab-email').classList.toggle('active', authTab === 'email');
+    $('tab-pass').classList.toggle('active', authTab === 'pass');
+
+    $('phone-field').hidden = authTab !== 'phone';
+    $('email-field').hidden = authTab !== 'email';
+    $('pass-field').hidden = authTab !== 'pass';
+    $('code-field').hidden = !otpSent || authTab === 'pass';
+
+    if (authTab === 'phone') {
+      $('auth-title').textContent = otpSent ? 'Enter SMS Code' : 'Sign in with Phone OTP';
+      $('auth-intro').textContent = 'Enter your phone number with country code (e.g. +919876543210) to receive a one-time SMS code.';
+      $('auth-btn').textContent = otpSent ? 'Verify SMS Code' : 'Send SMS Code';
+    } else if (authTab === 'email') {
+      $('auth-title').textContent = otpSent ? 'Enter Email Code' : 'Sign in with Email OTP';
+      $('auth-intro').textContent = 'Enter your email address to receive a one-time code.';
+      $('auth-btn').textContent = otpSent ? 'Verify Email Code' : 'Send Email Code';
+    } else {
+      $('auth-title').textContent = 'Sign in with Password';
+      $('auth-intro').textContent = 'Enter your email and password to sign in.';
+      $('auth-btn').textContent = 'Sign in';
+    }
     showAuthErr(''); showAuthInfo('');
   }
-  $('auth-toggle').addEventListener('click', function () {
-    authMode = authMode === 'otp' ? 'pass' : 'otp'; otpSent = false; $('auth-code').value = ''; renderAuth();
-  });
+
+  $('tab-phone').addEventListener('click', function () { authTab = 'phone'; otpSent = false; renderAuthTabs(); });
+  $('tab-email').addEventListener('click', function () { authTab = 'email'; otpSent = false; renderAuthTabs(); });
+  $('tab-pass').addEventListener('click', function () { authTab = 'pass'; otpSent = false; renderAuthTabs(); });
+
   $('auth').addEventListener('submit', async function (ev) {
     ev.preventDefault();
-    var email = $('auth-email').value.trim();
-    if (!email) { showAuthErr('Enter your email address.'); return; }
-    $('auth-btn').disabled = true; showAuthErr('');
+    showAuthErr(''); showAuthInfo('');
+    $('auth-btn').disabled = true;
     var res;
     try {
-      if (authMode === 'pass') {
+      if (authTab === 'pass') {
+        var email = $('auth-email').value.trim();
         var pass = $('auth-pass').value;
-        if (pass.length < 6) { showAuthErr('Enter your password.'); $('auth-btn').disabled = false; return; }
+        if (!email || pass.length < 6) { showAuthErr('Enter your email and password.'); $('auth-btn').disabled = false; return; }
         res = await sb.auth.signInWithPassword({ email: email, password: pass });
-      } else if (!otpSent) {
-        res = await sb.auth.signInWithOtp({ email: email, options: { shouldCreateUser: false } });
-        if (!res.error) {
-          otpSent = true; renderAuth();
-          showAuthInfo('We sent a code to ' + email + '. Enter it below. It can take a minute to arrive.');
-          $('auth-code').focus();
-          $('auth-btn').disabled = false; return;
+      } else if (authTab === 'phone') {
+        var phone = $('auth-phone').value.trim();
+        if (!phone) { showAuthErr('Enter your phone number with country code (e.g. +919876543210).'); $('auth-btn').disabled = false; return; }
+        if (!otpSent) {
+          res = await sb.auth.signInWithOtp({ phone: phone });
+          if (!res.error) {
+            otpSent = true; renderAuthTabs();
+            showAuthInfo('SMS code sent to ' + phone + '. Enter the 6-digit code below.');
+            $('auth-code').focus(); $('auth-btn').disabled = false; return;
+          }
+        } else {
+          var code = $('auth-code').value.replace(/\s/g, '');
+          if (code.length < 6) { showAuthErr('Enter the 6-digit SMS code.'); $('auth-btn').disabled = false; return; }
+          res = await sb.auth.verifyOtp({ phone: phone, token: code, type: 'sms' });
         }
-      } else {
-        var code = $('auth-code').value.replace(/\s/g, '');
-        if (code.length < 6) { showAuthErr('Enter the code from your email.'); $('auth-btn').disabled = false; return; }
-        res = await sb.auth.verifyOtp({ email: email, token: code, type: 'email' });
+      } else if (authTab === 'email') {
+        var email = $('auth-email').value.trim();
+        if (!email) { showAuthErr('Enter your email address.'); $('auth-btn').disabled = false; return; }
+        if (!otpSent) {
+          res = await sb.auth.signInWithOtp({ email: email, options: { shouldCreateUser: false } });
+          if (!res.error) {
+            otpSent = true; renderAuthTabs();
+            showAuthInfo('We sent a code to ' + email + '. Enter it below.');
+            $('auth-code').focus(); $('auth-btn').disabled = false; return;
+          }
+        } else {
+          var code = $('auth-code').value.replace(/\s/g, '');
+          if (code.length < 6) { showAuthErr('Enter the code from your email.'); $('auth-btn').disabled = false; return; }
+          res = await sb.auth.verifyOtp({ email: email, token: code, type: 'email' });
+        }
       }
     } catch (err) {
-      res = { error: { message: 'Could not reach Supabase. Check your connection.' } };
+      res = { error: { message: err.message || 'Could not reach Supabase. Check connection.' } };
     }
     $('auth-btn').disabled = false;
     if (res.error) { showAuthErr(res.error.message); return; }
-    otpSent = false; renderAuth();
+    otpSent = false;
     await enterApp();
   });
+
   $('signout').addEventListener('click', async function () {
     setLockCred(null);
     try { localStorage.removeItem(OFFER_KEY); } catch (e) {}
@@ -551,6 +680,7 @@
     $('lock').hidden = which !== 'lock';
     $('main').hidden = which !== 'main';
     $('signout').hidden = which !== 'main';
+    if (which === 'auth') renderAuthTabs();
     renderLockToggle(); renderLockOffer();
     if (which !== 'main') { state.mode = which === 'auth' ? 'signedout' : which === 'lock' ? 'locked' : 'setup'; renderSync(); }
   }

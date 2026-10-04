@@ -167,8 +167,30 @@ button { cursor: pointer; }
 .setup p { margin: 0; }
 .setup code { font-family: var(--f-mono); font-size: 0.85em; }
 
+/* Auth Tabs */
+.auth-tabs { display: flex; gap: 6px; background: var(--bg); padding: 4px; border-radius: 10px; border: 1px solid var(--line); }
+.tabbtn { flex: 1; height: 36px; background: transparent; border: 0; border-radius: 6px; font-size: 0.82rem; font-weight: 500; color: var(--muted); }
+.tabbtn.active { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,0.1); font-weight: 600; }
+
+/* Budget Bar */
+.budget-bar-wrap { margin-bottom: 12px; }
+.budget-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 0.78rem; color: var(--hero-muted); }
+.budget-btn { background: transparent; border: 1px solid var(--hero-line); color: var(--hero-ink); border-radius: 6px; padding: 2px 8px; font-size: 0.72rem; }
+.budget-progress-track { height: 6px; background: var(--hero-line); border-radius: 3px; overflow: hidden; }
+.budget-progress-fill { height: 100%; background: var(--accent-soft); border-radius: 3px; transition: width 0.3s ease; }
+.budget-progress-fill.warning { background: #F59E0B; }
+.budget-progress-fill.danger { background: var(--danger); }
+
+/* Extra Form Rows & Actions Bar */
+.add-row-extra { grid-template-columns: 1fr; margin-top: -6px; }
+.actions-bar { display: flex; gap: 10px; align-items: center; justify-content: space-between; margin-block: 4px; }
+.search-wrap { flex: 1; }
+.search-input { height: 40px; font-size: 0.88rem; }
+.csv-btn { display: inline-flex; align-items: center; gap: 6px; height: 40px; font-size: 0.82rem; white-space: nowrap; }
+
 .toast { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); max-width: calc(100% - 32px); padding: 10px 16px; background: var(--ink); color: var(--bg); border-radius: 10px; font-size: 0.9rem; box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25); z-index: 5; }
 
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 
 .logo { border-radius: 9px; flex: none; }
+
