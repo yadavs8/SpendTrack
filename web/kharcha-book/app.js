@@ -131,7 +131,12 @@
       return out.map(fromRow).filter(validEntry);
     },
     add: async function (e) {
-      var payload = { amount: e.amount, description: e.desc.slice(0, 60) };
+      var userRes = await sb.auth.getUser();
+      if (!userRes.data || !userRes.data.user) {
+        showScreen('auth');
+        throw new Error("Your sign-in session expired. Please sign in again.");
+      }
+      var payload = { amount: e.amount, description: e.desc.slice(0, 60), user_id: userRes.data.user.id };
       if (e.spent_at) payload.spent_at = e.spent_at;
       var res = await sb.from(TABLE).insert(payload).select(COLS).single();
       if (res.error) throw res.error;
