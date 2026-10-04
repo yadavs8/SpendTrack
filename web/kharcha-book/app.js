@@ -579,19 +579,63 @@
     });
   }
 
-  /* ---------- Bank SMS Parser Modal ---------- */
+  /* ---------- Bank SMS Parser Modal & Auto-Detection ---------- */
   var parsedSMSDraft = null;
 
-  function openSMSModal() {
-    var modal = $('sms-modal');
-    if (modal) {
-      modal.hidden = false;
-      $('sms-input').value = '';
-      var res = $('sms-result');
-      if (res) res.hidden = true;
+  function triggerSMSParse(txt) {
+    var result = parseBankSMS(txt);
+    var container = $('sms-result');
+    if (!container) return;
+    container.textContent = '';
+    container.hidden = false;
+
+    if (!result.valid) {
+      container.className = 'sms-preview-card invalid';
+      var title = el('div', 'sms-badge-title', '❌ Invalid or Non-Bank Message');
+      var desc = el('div', null, result.error || 'Only debit SMS messages from recognized banks are parsed.');
+      container.appendChild(title);
+      container.appendChild(desc);
       $('save-sms-entry').disabled = true;
-      $('sms-input').focus();
+      parsedSMSDraft = null;
+    } else {
+      container.className = 'sms-preview-card valid';
+      var title = el('div', 'sms-badge-title', '✓ Verified Bank SMS (' + result.bank + ')');
+      var grid = el('div', 'sms-details-grid');
+      grid.appendChild(el('div', null, 'Amount: ' + money(result.amount)));
+      grid.appendChild(el('div', null, 'Scope: ' + (result.scope === 'family' ? '🏠 Family & Bills' : '👤 Personal')));
+      grid.appendChild(el('div', null, 'Parsed Category: ' + result.desc));
+
+      container.appendChild(title);
+      container.appendChild(grid);
+      $('save-sms-entry').disabled = false;
+      parsedSMSDraft = result;
     }
+  }
+
+  function openSMSModal(initialText) {
+    var modal = $('sms-modal');
+    if (!modal) return;
+    modal.hidden = false;
+    $('sms-input').value = (typeof initialText === 'string') ? initialText : '';
+    var res = $('sms-result');
+    if (res) res.hidden = true;
+    $('save-sms-entry').disabled = true;
+
+    if (typeof initialText === 'string' && initialText.trim()) {
+      triggerSMSParse(initialText);
+    } else if (navigator.clipboard && navigator.clipboard.readText) {
+      navigator.clipboard.readText().then(function (clipText) {
+        if (clipText && clipText.trim()) {
+          var parsed = parseBankSMS(clipText);
+          if (parsed.valid) {
+            $('sms-input').value = clipText;
+            triggerSMSParse(clipText);
+            toast('Auto-detected Bank SMS from clipboard!');
+          }
+        }
+      }).catch(function () {});
+    }
+    $('sms-input').focus();
   }
 
   function closeSMSModal() {
@@ -600,7 +644,7 @@
     parsedSMSDraft = null;
   }
 
-  if ($('open-sms-modal')) $('open-sms-modal').addEventListener('click', openSMSModal);
+  if ($('open-sms-modal')) $('open-sms-modal').addEventListener('click', function () { openSMSModal(); });
   if ($('close-sms-modal')) $('close-sms-modal').addEventListener('click', closeSMSModal);
   if ($('cancel-sms-modal')) $('cancel-sms-modal').addEventListener('click', closeSMSModal);
 
@@ -612,34 +656,7 @@
 
   if ($('sms-parse-btn')) {
     $('sms-parse-btn').addEventListener('click', function () {
-      var txt = $('sms-input').value;
-      var result = parseBankSMS(txt);
-      var container = $('sms-result');
-      if (!container) return;
-      container.textContent = '';
-      container.hidden = false;
-
-      if (!result.valid) {
-        container.className = 'sms-preview-card invalid';
-        var title = el('div', 'sms-badge-title', '❌ Invalid or Non-Bank Message');
-        var desc = el('div', null, result.error || 'Only debit SMS messages from recognized banks are parsed.');
-        container.appendChild(title);
-        container.appendChild(desc);
-        $('save-sms-entry').disabled = true;
-        parsedSMSDraft = null;
-      } else {
-        container.className = 'sms-preview-card valid';
-        var title = el('div', 'sms-badge-title', '✓ Verified Bank SMS (' + result.bank + ')');
-        var grid = el('div', 'sms-details-grid');
-        grid.appendChild(el('div', null, 'Amount: ' + money(result.amount)));
-        grid.appendChild(el('div', null, 'Scope: ' + (result.scope === 'family' ? '🏠 Family & Bills' : '👤 Personal')));
-        grid.appendChild(el('div', null, 'Parsed Category: ' + result.desc));
-
-        container.appendChild(title);
-        container.appendChild(grid);
-        $('save-sms-entry').disabled = false;
-        parsedSMSDraft = result;
-      }
+      triggerSMSParse($('sms-input').value);
     });
   }
 
@@ -662,6 +679,16 @@
       });
     });
   }
+
+  // Web Share Target: Auto-detect shared SMS text from Android Share menu
+  try {
+    var queryParams = new URLSearchParams(window.location.search);
+    var sharedSMS = queryParams.get('sms_text') || queryParams.get('text') || queryParams.get('title');
+    if (sharedSMS && sharedSMS.trim()) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+      openSMSModal(sharedSMS);
+    }
+  } catch (e) {}
 
   function renderSuggestions() {
     var box = $('chips');
