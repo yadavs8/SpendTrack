@@ -129,6 +129,9 @@
     <div class="search-wrap">
       <input class="input search-input" id="search" type="search" placeholder="Search expenses…">
     </div>
+    <button type="button" class="primary csv-btn" id="open-sms-modal">
+      📱 Parse Bank SMS
+    </button>
     <button type="button" class="ghost csv-btn" id="move-all-family">
       🏠 Move All to Family
     </button>
@@ -137,6 +140,11 @@
       Export CSV
     </button>
   </div>
+
+  <section id="category-sec" hidden>
+    <h2 class="sec-title">Monthly Category Breakdown</h2>
+    <div class="cat-card" id="cat-breakdown"></div>
+  </section>
 
   <section id="breakdown-sec" hidden>
     <h2 class="sec-title">Where it went, biggest first</h2>
@@ -156,13 +164,33 @@
 </main>
 <div class="toast" id="toast" role="status" hidden></div>
 
+<!-- Bank SMS Parser Modal -->
+<div class="modal-backdrop" id="sms-modal" hidden>
+  <div class="modal-card">
+    <div class="modal-head">
+      <h3>📱 Paste Bank / UPI SMS</h3>
+      <button type="button" class="close-btn" id="close-sms-modal" aria-label="Close">&times;</button>
+    </div>
+    <p class="modal-intro">Paste your bank transaction SMS below. Only authentic debit messages from recognized banks (HDFC, ICICI, SBI, Axis, Paytm, GPay, etc.) are verified and parsed.</p>
+    <textarea class="input sms-textarea" id="sms-input" rows="4" placeholder="Paste SMS here, e.g.:&#10;AD-HDFCBK: Rs.450.00 debited from A/C **1234 on 04-Oct-26 to SWIGGY via UPI Ref 42781923."></textarea>
+    <div class="modal-row">
+      <button type="button" class="secondary" id="sms-parse-btn">🔍 Verify & Parse SMS</button>
+    </div>
+    <div class="sms-preview-card" id="sms-result" hidden></div>
+    <div class="modal-foot">
+      <button type="button" class="ghost" id="cancel-sms-modal">Cancel</button>
+      <button type="button" class="primary" id="save-sms-entry" disabled>1-Tap Add Expense</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=8" onerror="void 0"></script>
-<script src="app.js?v=8"></script>
+<script src="config.js?v=9" onerror="void 0"></script>
+<script src="app.js?v=9"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('sw.js?v=8').then(function (reg) {
+      navigator.serviceWorker.register('sw.js?v=9').then(function (reg) {
         reg.update();
         reg.addEventListener('updatefound', function () {
           var newWorker = reg.installing;

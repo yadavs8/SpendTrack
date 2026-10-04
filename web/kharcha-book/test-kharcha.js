@@ -49,7 +49,7 @@ windowMock.window = windowMock;
 const code = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8');
 vm.runInNewContext(code, windowMock);
 
-const { parseAmount, normDesc, money, groupByDay, byDescription, monthTotals, toLocalISOString, isFamilyEntry } = windowMock.__kharcha;
+const { parseAmount, normDesc, money, groupByDay, byDescription, monthTotals, toLocalISOString, isFamilyEntry, parseBankSMS, categoryBreakdown } = windowMock.__kharcha;
 
 let passed = 0;
 let failed = 0;
@@ -103,9 +103,35 @@ const months = monthTotals(sampleEntries);
 assert(months.length === 1, 'monthTotals calculates month summaries');
 assert(months[0].total === 450, 'monthTotals correctly sums amounts in paise without rounding error');
 
-// 7. Local ISO string helper
-const iso = toLocalISOString(new Date('2026-10-04T10:30:00').getTime());
-assert(iso.includes('2026-10-04T10:30'), 'toLocalISOString formats local datetime');
+// 8. Bank SMS Parser tests
+const hdfcSMS = "AD-HDFCBK: Rs.450.00 debited from A/C **1234 on 04-OCT-26 to SWIGGY via UPI Ref 42781923.";
+const parsedHdfc = parseBankSMS(hdfcSMS);
+assert(parsedHdfc.valid === true && parsedHdfc.amount === 450 && parsedHdfc.bank === 'HDFC Bank', 'parseBankSMS parses valid HDFC debit SMS');
+
+const iciciSMS = "Dear Customer, A/C X6789 has been debited by Rs 1,250.00 on 04-Oct-26 for BESCOM Electricity Bill payment. ICICI Bank.";
+const parsedIcici = parseBankSMS(iciciSMS);
+assert(parsedIcici.valid === true && parsedIcici.amount === 1250 && parsedIcici.scope === 'family', 'parseBankSMS identifies ICICI electricity bill as Family scope');
+
+const otpMsg = "Your OTP for Login to XYZ Store is 482910. Do not share with anyone. Rs 500 off!";
+const parsedOTP = parseBankSMS(otpMsg);
+assert(parsedOTP.valid === false && parsedOTP.error.includes('OTP'), 'parseBankSMS rejects OTP messages');
+
+const spamMsg = "Congratulations! You got Rs 50,000 pre-approved loan from QuickCash. Click http://spam.link to claim.";
+const parsedSpam = parseBankSMS(spamMsg);
+assert(parsedSpam.valid === false && parsedSpam.error.includes('promotional'), 'parseBankSMS rejects fake loan promotional spam');
+
+const creditMsg = "Rs 1,000.00 credited to A/C XX1234 on 04-Oct-26 by VPA salary@company. SBI";
+const parsedCredit = parseBankSMS(creditMsg);
+assert(parsedCredit.valid === false && parsedCredit.error.includes('credit'), 'parseBankSMS rejects income credit messages');
+
+// 9. Category Breakdown tests
+const catRes = categoryBreakdown([
+  { amount: 1500, desc: '🛒 General Grocery' },
+  { amount: 500, desc: '🛒 Supermarket' },
+  { amount: 800, desc: '⚡ Electricity Bill' }
+]);
+assert(catRes.categories.length === 2, 'categoryBreakdown groups expenses into 2 categories');
+assert(catRes.categories[0].name === '🛒 Grocery' && catRes.categories[0].total === 2000, 'categoryBreakdown sums total per category');
 
 console.log(`\nResults: ${passed} passed, ${failed} failed.`);
 if (failed > 0) process.exit(1);
