@@ -30,7 +30,7 @@
 
   function isFamilyEntry(desc) {
     var d = desc.toLowerCase();
-    return d.includes('🏠') || d.includes('⚡') || d.includes('🔥') || d.includes('👧') || d.includes('family') || d.includes('bill') || d.includes('niece') || d.includes('electricity') || d.includes('gas');
+    return d.includes('🏠') || d.includes('family') || d.includes('niece') || d.includes('electricity') || d.includes('gas') || d.includes('bill');
   }
 
   function groupByDay(list) {
@@ -81,13 +81,13 @@
   var COLS = 'id, amount, description, spent_at';
 
   var DEFAULT_CHIPS = [
-    { label: 'Grocery', scope: 'personal', emoji: '🛒' },
-    { label: 'Milk', scope: 'personal', emoji: '🥛' },
-    { label: 'Vegetables', scope: 'personal', emoji: '🥦' },
-    { label: 'Online Spend', scope: 'personal', emoji: '🛍️' },
-    { label: 'Electricity Bill', scope: 'family', emoji: '⚡' },
-    { label: 'Gas Bill', scope: 'family', emoji: '🔥' },
-    { label: 'Niece Allowance', scope: 'family', emoji: '👧' }
+    { label: 'Grocery', emoji: '🛒' },
+    { label: 'Milk', emoji: '🥛' },
+    { label: 'Vegetables', emoji: '🥦' },
+    { label: 'Online Spend', emoji: '🛍️' },
+    { label: 'Electricity Bill', emoji: '⚡' },
+    { label: 'Gas Bill', emoji: '🔥' },
+    { label: 'Niece Allowance', emoji: '👧' }
   ];
 
   var state = { mode: 'pending', entries: [], sel: null, editing: null, draft: null, scopeFilter: 'all' };
@@ -313,7 +313,7 @@
       var b = el('button', 'chip', c.emoji + ' ' + c.label);
       b.type = 'button';
       b.addEventListener('click', function () {
-        setSelectedScope(c.scope);
+        // Populates description WITHOUT altering the user's selected scope radio pill!
         $('desc').value = c.emoji + ' ' + c.label;
         if (!$('amt').value) $('amt').focus(); else $('desc').focus();
       });
@@ -527,13 +527,8 @@
     if (!rawDesc) { showErr('Add a description, e.g. Grocery, Milk, Electricity Bill.'); $('desc').focus(); return; }
 
     var scope = getSelectedScope();
-    var desc = rawDesc;
-    if (scope === 'family' && !isFamilyEntry(desc)) {
-      desc = '🏠 ' + desc;
-    } else if (scope === 'personal' && !desc.startsWith('👤') && !isFamilyEntry(desc)) {
-      var hasEmoji = /^\p{Extended_Pictographic}/u.test(desc);
-      if (!hasEmoji) desc = '👤 ' + desc;
-    }
+    var cleanDesc = rawDesc.replace(/^[🏠👤]\s*/, '');
+    var desc = (scope === 'family') ? ('🏠 ' + cleanDesc) : cleanDesc;
 
     var spentVal = $('spent-date').value;
     var spentAt = spentVal ? new Date(spentVal).toISOString() : null;
