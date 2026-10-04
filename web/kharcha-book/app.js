@@ -81,13 +81,21 @@
   var COLS = 'id, amount, description, spent_at';
 
   var DEFAULT_CHIPS = [
-    { label: 'Grocery', emoji: '🛒' },
-    { label: 'Milk', emoji: '🥛' },
-    { label: 'Vegetables', emoji: '🥦' },
+    { label: 'General Grocery', emoji: '🛒' },
+    { label: 'Daily Vegetables', emoji: '🥦' },
+    { label: 'Milk / Doodh', emoji: '🥛' },
+    { label: 'Bread & Eggs', emoji: '🍞' },
+    { label: 'Fresh Fruits', emoji: '🍎' },
     { label: 'Online Spend', emoji: '🛍️' },
+    { label: 'Tea / Chai & Snacks', emoji: '☕' },
     { label: 'Electricity Bill', emoji: '⚡' },
-    { label: 'Gas Bill', emoji: '🔥' },
-    { label: 'Niece Allowance', emoji: '👧' }
+    { label: 'Gas Bill / Cylinder', emoji: '🔥' },
+    { label: 'Mobile & WiFi Recharge', emoji: '📱' },
+    { label: 'Petrol / Fuel', emoji: '⛽' },
+    { label: 'Niece Allowance', emoji: '👧' },
+    { label: 'Medicines & Doctor', emoji: '💊' },
+    { label: 'House Help / Maid', emoji: '🧹' },
+    { label: 'Auto / Cab / Bus', emoji: '🛺' }
   ];
 
   var state = { mode: 'pending', entries: [], sel: null, editing: null, draft: null, scopeFilter: 'all' };
