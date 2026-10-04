@@ -27,6 +27,12 @@
   var inr2 = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2, maximumFractionDigits: 2 });
   function money(v) { return Number.isInteger(v) ? inr0.format(v) : inr2.format(v); }
   function byTimeDesc(a, b) { return b.ts - a.ts || (a.id < b.id ? 1 : -1); }
+
+  function isFamilyEntry(desc) {
+    var d = desc.toLowerCase();
+    return d.includes('🏠') || d.includes('⚡') || d.includes('🔥') || d.includes('👧') || d.includes('family') || d.includes('bill') || d.includes('niece') || d.includes('electricity') || d.includes('gas');
+  }
+
   function groupByDay(list) {
     var map = new Map();
     list.slice().sort(byTimeDesc).forEach(function (e) {
@@ -69,12 +75,22 @@
   function keyToDate(key) { var p = key.split('-'); return new Date(+p[0], +p[1] - 1, +p[2], 12); }
 
   /* Exposed for tests only. */
-  window.__kharcha = { parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString };
+  window.__kharcha = { parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry };
 
   var TABLE = 'daily_expenses';
   var COLS = 'id, amount, description, spent_at';
-  var DEFAULT_CHIPS = ['Grocery', 'Petrol', 'Vegetables'];
-  var state = { mode: 'pending', entries: [], sel: null, editing: null, draft: null };
+
+  var DEFAULT_CHIPS = [
+    { label: 'Grocery', scope: 'personal', emoji: '🛒' },
+    { label: 'Milk', scope: 'personal', emoji: '🥛' },
+    { label: 'Vegetables', scope: 'personal', emoji: '🥦' },
+    { label: 'Online Spend', scope: 'personal', emoji: '🛍️' },
+    { label: 'Electricity Bill', scope: 'family', emoji: '⚡' },
+    { label: 'Gas Bill', scope: 'family', emoji: '🔥' },
+    { label: 'Niece Allowance', scope: 'family', emoji: '👧' }
+  ];
+
+  var state = { mode: 'pending', entries: [], sel: null, editing: null, draft: null, scopeFilter: 'all' };
   var searchQuery = '';
   var sb = null;
 
@@ -128,6 +144,35 @@
     }
   };
 
+  /* ---------- Scope Radio Pills in Form ---------- */
+  function getSelectedScope() {
+    var checked = document.querySelector('input[name="scope"]:checked');
+    return checked ? checked.value : 'personal';
+  }
+  function setSelectedScope(val) {
+    var radios = document.querySelectorAll('input[name="scope"]');
+    radios.forEach(function (r) {
+      r.checked = (r.value === val);
+      r.parentElement.classList.toggle('active', r.checked);
+    });
+  }
+  document.querySelectorAll('.scope-pill').forEach(function (pill) {
+    pill.addEventListener('click', function () {
+      var input = pill.querySelector('input');
+      if (input) setSelectedScope(input.value);
+    });
+  });
+
+  /* ---------- Scope Filter Tabs on Hero Card ---------- */
+  document.querySelectorAll('.scopetab').forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      document.querySelectorAll('.scopetab').forEach(function (t) { t.classList.remove('active'); });
+      tab.classList.add('active');
+      state.scopeFilter = tab.dataset.scope || 'all';
+      render();
+    });
+  });
+
   /* ---------- Budget Feature ---------- */
   var BUDGET_KEY = 'kharcha_monthly_budget';
   function getBudget() { try { return Number(localStorage.getItem(BUDGET_KEY)) || 0; } catch (e) { return 0; } }
@@ -172,25 +217,29 @@
 
   $('export-csv').addEventListener('click', function () {
     var list = state.entries.filter(function (e) { return monthKey(e.ts) === state.sel; });
+    if (state.scopeFilter === 'personal') list = list.filter(function (e) { return !isFamilyEntry(e.desc); });
+    else if (state.scopeFilter === 'family') list = list.filter(function (e) { return isFamilyEntry(e.desc); });
+
     if (searchQuery) {
       list = list.filter(function (e) {
         return e.desc.toLowerCase().includes(searchQuery) || dFmt.format(new Date(e.ts)).toLowerCase().includes(searchQuery);
       });
     }
-    if (!list.length) { toast('No expenses to export for this month.'); return; }
-    var csv = ['Date,Time,Description,Amount (INR)'];
+    if (!list.length) { toast('No expenses to export for this view.'); return; }
+    var csv = ['Date,Time,Category,Description,Amount (INR)'];
     list.sort(byTimeDesc).forEach(function (e) {
       var d = new Date(e.ts);
       var dateStr = dayKey(e.ts);
       var timeStr = tFmt.format(d);
+      var catStr = isFamilyEntry(e.desc) ? 'Family/Bill' : 'Personal';
       var descStr = '"' + e.desc.replace(/"/g, '""') + '"';
-      csv.push(dateStr + ',' + timeStr + ',' + descStr + ',' + e.amount);
+      csv.push(dateStr + ',' + timeStr + ',' + catStr + ',' + descStr + ',' + e.amount);
     });
     var blob = new Blob([csv.join('\n')], { type: 'text/csv;charset=utf-8;' });
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
-    a.download = 'kharcha-expenses-' + state.sel + '.csv';
+    a.download = 'kharcha-' + state.scopeFilter + '-' + state.sel + '.csv';
     a.click();
     URL.revokeObjectURL(url);
     toast('Downloaded CSV for ' + monthLabel(state.sel));
@@ -220,7 +269,15 @@
     if (!state.sel || !months.some(function (m) { return m.key === state.sel; })) state.sel = nowKey;
     var idx = months.findIndex(function (m) { return m.key === state.sel; });
     var cur = months[idx];
-    var list = state.entries.filter(function (e) { return monthKey(e.ts) === state.sel; });
+
+    var monthEntries = state.entries.filter(function (e) { return monthKey(e.ts) === state.sel; });
+    var list = monthEntries;
+
+    if (state.scopeFilter === 'personal') {
+      list = list.filter(function (e) { return !isFamilyEntry(e.desc); });
+    } else if (state.scopeFilter === 'family') {
+      list = list.filter(function (e) { return isFamilyEntry(e.desc); });
+    }
 
     if (searchQuery) {
       list = list.filter(function (e) {
@@ -228,11 +285,12 @@
       });
     }
 
+    var displayTotal = sumRupees(list);
     var days = groupByDay(list);
 
     $('mlabel').textContent = monthLabel(state.sel);
-    $('mtotal').textContent = money(cur.total);
-    $('st-count').textContent = String(cur.count);
+    $('mtotal').textContent = money(displayTotal);
+    $('st-count').textContent = String(list.length);
     var top = days.slice().sort(function (a, b) { return b.total - a.total; })[0];
     var byDesc = byDescription(list)[0];
     $('st-top').textContent = byDesc ? byDesc.label + ' · ' + money(byDesc.total) : '—';
@@ -242,43 +300,30 @@
 
     renderBudget(cur.total);
     renderSuggestions();
-    renderBreakdown(list, cur.total);
+    renderBreakdown(list, displayTotal);
     renderDays(days);
     renderMonths(months);
     renderSync();
   }
 
-  function suggestionList() {
-    var counts = new Map();
-    state.entries.forEach(function (e) {
-      var k = e.desc.toLowerCase();
-      if (!counts.has(k)) counts.set(k, { label: e.desc, n: 0 });
-      counts.get(k).n++;
-    });
-    var all = Array.from(counts.values()).sort(function (a, b) { return b.n - a.n; }).map(function (c) { return c.label; });
-    var chips = all.slice(0, 6);
-    DEFAULT_CHIPS.forEach(function (d) {
-      if (chips.length < 6 && !chips.some(function (c) { return c.toLowerCase() === d.toLowerCase(); })) chips.push(d);
-    });
-    return { chips: chips, all: all.slice(0, 60) };
-  }
   function renderSuggestions() {
-    var s = suggestionList();
     var box = $('chips');
     box.textContent = '';
-    s.chips.forEach(function (label) {
-      var b = el('button', 'chip', label);
+    DEFAULT_CHIPS.forEach(function (c) {
+      var b = el('button', 'chip', c.emoji + ' ' + c.label);
       b.type = 'button';
       b.addEventListener('click', function () {
-        $('desc').value = label;
+        setSelectedScope(c.scope);
+        $('desc').value = c.emoji + ' ' + c.label;
         if (!$('amt').value) $('amt').focus(); else $('desc').focus();
       });
       box.appendChild(b);
     });
+
     var dl = $('descs');
     dl.textContent = '';
-    s.all.concat(DEFAULT_CHIPS).forEach(function (label) {
-      var o = document.createElement('option'); o.value = label; dl.appendChild(o);
+    DEFAULT_CHIPS.forEach(function (c) {
+      var o = document.createElement('option'); o.value = c.emoji + ' ' + c.label; dl.appendChild(o);
     });
   }
 
@@ -398,13 +443,14 @@
       var em = el('div', 'empty');
       var p1 = el('p'); p1.appendChild(el('strong', null, 'No expenses yet.'));
       em.appendChild(p1);
-      em.appendChild(el('p', null, 'Type an amount and a description above, then tap Add expense. You can also pick a specific date and time for past expenses.'));
+      em.appendChild(el('p', null, 'Type an amount and a description above, or tap a quick chip like 🛒 Grocery, 🥛 Milk, or ⚡ Electricity Bill.'));
       box.appendChild(em);
       return;
     }
     if (!days.length) {
       var e2 = el('div', 'empty');
-      e2.appendChild(el('p', null, searchQuery ? 'No expenses matching "' + searchQuery + '".' : 'Nothing logged in ' + monthLabel(state.sel) + '.'));
+      var filterNote = state.scopeFilter !== 'all' ? ' in ' + (state.scopeFilter === 'personal' ? 'Personal' : 'Family & Bills') : '';
+      e2.appendChild(el('p', null, searchQuery ? 'No expenses matching "' + searchQuery + '".' : 'Nothing logged' + filterNote + ' for ' + monthLabel(state.sel) + '.'));
       box.appendChild(e2);
       return;
     }
@@ -477,8 +523,18 @@
     showErr('');
     var amt = parseAmount($('amt').value);
     if (amt == null) { showErr('Enter an amount greater than zero, like 250 or 99.50.'); $('amt').focus(); return; }
-    var desc = normDesc($('desc').value);
-    if (!desc) { showErr('Add a short description, like Grocery or Petrol.'); $('desc').focus(); return; }
+    var rawDesc = normDesc($('desc').value);
+    if (!rawDesc) { showErr('Add a description, e.g. Grocery, Milk, Electricity Bill.'); $('desc').focus(); return; }
+
+    var scope = getSelectedScope();
+    var desc = rawDesc;
+    if (scope === 'family' && !isFamilyEntry(desc)) {
+      desc = '🏠 ' + desc;
+    } else if (scope === 'personal' && !desc.startsWith('👤') && !isFamilyEntry(desc)) {
+      var hasEmoji = /^\p{Extended_Pictographic}/u.test(desc);
+      if (!hasEmoji) desc = '👤 ' + desc;
+    }
+
     var spentVal = $('spent-date').value;
     var spentAt = spentVal ? new Date(spentVal).toISOString() : null;
 
@@ -578,7 +634,7 @@
   $('offer-no').addEventListener('click', function () { try { localStorage.setItem(OFFER_KEY, '1'); } catch (e) {} renderLockOffer(); });
   $('offer-yes').addEventListener('click', async function () { await enableLock(); renderLockOffer(); });
 
-  /* ---------- Sign In (Phone OTP / Email OTP / Password) ---------- */
+  /* ---------- Sign In ---------- */
   function showAuthErr(msg) { var e = $('auth-err'); e.textContent = msg; e.hidden = !msg; }
   function showAuthInfo(msg) { var i = $('auth-info'); i.textContent = msg; i.hidden = !msg; }
 

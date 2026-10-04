@@ -10,7 +10,9 @@ const dummyEl = {
   removeAttribute: () => {},
   classList: { toggle: () => {}, add: () => {}, remove: () => {} },
   style: {},
-  dataset: {}
+  dataset: {},
+  querySelector: () => ({ value: 'personal' }),
+  querySelectorAll: () => []
 };
 
 const windowMock = {
@@ -37,6 +39,8 @@ const windowMock = {
   document: {
     getElementById: () => dummyEl,
     createElement: () => dummyEl,
+    querySelector: () => dummyEl,
+    querySelectorAll: () => [dummyEl],
     addEventListener: () => {}
   }
 };
@@ -45,7 +49,7 @@ windowMock.window = windowMock;
 const code = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8');
 vm.runInNewContext(code, windowMock);
 
-const { parseAmount, normDesc, money, groupByDay, byDescription, monthTotals, toLocalISOString } = windowMock.__kharcha;
+const { parseAmount, normDesc, money, groupByDay, byDescription, monthTotals, toLocalISOString, isFamilyEntry } = windowMock.__kharcha;
 
 let passed = 0;
 let failed = 0;
@@ -75,7 +79,12 @@ assert(normDesc('  grocery  shopping ') === 'Grocery shopping', 'normDesc cleans
 assert(money(250).includes('250'), 'money(250) formats INR integer');
 assert(money(250.50).includes('250.50'), 'money(250.50) formats INR decimal');
 
-// 4. Group by Day
+// 4. Family vs Personal scope detection
+assert(isFamilyEntry('⚡ Electricity Bill') === true, 'isFamilyEntry identifies electricity bill as family');
+assert(isFamilyEntry('👧 Niece Allowance') === true, 'isFamilyEntry identifies niece allowance as family');
+assert(isFamilyEntry('🛒 Grocery') === false, 'isFamilyEntry identifies grocery as personal');
+
+// 5. Group by Day
 const sampleEntries = [
   { id: '1', amount: 100, desc: 'Milk', ts: new Date('2026-10-04T10:00:00Z').getTime() },
   { id: '2', amount: 50, desc: 'Bread', ts: new Date('2026-10-04T12:00:00Z').getTime() },
@@ -85,12 +94,12 @@ const sampleEntries = [
 const days = groupByDay(sampleEntries);
 assert(days.length === 2, 'groupByDay groups entries into 2 days');
 
-// 5. Month Totals
+// 6. Month Totals
 const months = monthTotals(sampleEntries);
 assert(months.length === 1, 'monthTotals calculates month summaries');
 assert(months[0].total === 450, 'monthTotals correctly sums amounts in paise without rounding error');
 
-// 6. Local ISO string helper
+// 7. Local ISO string helper
 const iso = toLocalISOString(new Date('2026-10-04T10:30:00').getTime());
 assert(iso.includes('2026-10-04T10:30'), 'toLocalISOString formats local datetime');
 

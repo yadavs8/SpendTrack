@@ -167,6 +167,17 @@ button { cursor: pointer; }
 .setup p { margin: 0; }
 .setup code { font-family: var(--f-mono); font-size: 0.85em; }
 
+/* Scope Filter Tabs & Scope Picker */
+.scope-tabs { display: flex; gap: 6px; margin-top: 10px; margin-bottom: 4px; background: rgba(255, 255, 255, 0.15); padding: 4px; border-radius: 10px; }
+.scopetab { flex: 1; height: 32px; background: transparent; border: 0; border-radius: 6px; font-size: 0.78rem; font-weight: 500; color: var(--hero-muted); }
+.scopetab.active { background: var(--hero-ink); color: var(--hero-bg); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.15); }
+
+.scope-picker { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: -4px; }
+.scope-label { font-size: 0.72rem; letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted); }
+.scope-pill { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 999px; font-size: 0.82rem; cursor: pointer; color: var(--muted); }
+.scope-pill input { margin: 0; display: none; }
+.scope-pill.active { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); font-weight: 600; }
+
 /* Auth Tabs */
 .auth-tabs { display: flex; gap: 6px; background: var(--bg); padding: 4px; border-radius: 10px; border: 1px solid var(--line); }
 .tabbtn { flex: 1; height: 36px; background: transparent; border: 0; border-radius: 6px; font-size: 0.82rem; font-weight: 500; color: var(--muted); }

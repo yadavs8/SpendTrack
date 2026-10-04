@@ -79,6 +79,11 @@
         <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
     </div>
+    <div class="scope-tabs" id="scope-filter">
+      <button type="button" class="scopetab active" data-scope="all">All Spends</button>
+      <button type="button" class="scopetab" data-scope="personal">👤 Personal</button>
+      <button type="button" class="scopetab" data-scope="family">🏠 Family & Bills</button>
+    </div>
     <p class="total" id="mtotal">₹0</p>
     <div class="budget-bar-wrap" id="budget-wrap">
       <div class="budget-head">
@@ -95,6 +100,11 @@
   </section>
 
   <form class="add" id="add" autocomplete="off" novalidate>
+    <div class="scope-picker">
+      <span class="scope-label">Category / Type:</span>
+      <label class="scope-pill active"><input type="radio" name="scope" value="personal" checked> 👤 Personal</label>
+      <label class="scope-pill"><input type="radio" name="scope" value="family"> 🏠 Family / Bill</label>
+    </div>
     <div class="add-row">
       <div class="field">
         <label for="amt">Amount</label>
@@ -102,7 +112,7 @@
       </div>
       <div class="field">
         <label for="desc">Description</label>
-        <input class="input" id="desc" list="descs" maxlength="60" placeholder="Grocery, petrol, vegetables…" aria-describedby="err">
+        <input class="input" id="desc" list="descs" maxlength="60" placeholder="Grocery, milk, electricity bill…" aria-describedby="err">
       </div>
     </div>
     <div class="add-row add-row-extra">
