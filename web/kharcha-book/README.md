@@ -14,3 +14,8 @@ Open the page in Chrome (Android) and tap the menu > **Add to Home screen** / **
 ## Fingerprint / PIN lock
 After signing in, tap **Turn on fingerprint / PIN lock**. The app then asks for the phone's fingerprint, face, PIN or pattern when it opens and after it has been in the background for a minute.
 This is a lock on the device. The sign-in session stays in the browser, so it keeps casual users out but is not server-side verification. Needs HTTPS (GitHub Pages is) and a phone screen lock.
+
+## Email code sign-in
+The page signs in with a one-time email code (existing users only; it never creates accounts). A password option remains as a fallback.
+For the code to arrive, the Supabase email template must include the code: Authentication > Email Templates > **Magic Link**, add `{{ .Token }}` to the message (for example: `Your Kharcha Book code is {{ .Token }}`).
+After the first sign-in the app offers to turn on the fingerprint / PIN lock, so later opens skip signing in.
