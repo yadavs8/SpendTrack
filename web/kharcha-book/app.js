@@ -70,7 +70,7 @@
   var TABLE = 'daily_expenses';
   var COLS = 'id, amount, description, spent_at';
   var DEFAULT_CHIPS = ['Grocery', 'Petrol', 'Vegetables'];
-  var state = { mode: 'pending', entries: [], sel: null, editing: null, draft: null, authMode: 'in' };
+  var state = { mode: 'pending', entries: [], sel: null, editing: null, draft: null };
   var sb = null;
 
   function $(id) { return document.getElementById(id); }
@@ -404,15 +404,6 @@
 
   /* ---------- sign in ---------- */
   function showAuthErr(msg) { var e = $('auth-err'); e.textContent = msg; e.hidden = !msg; }
-  function setAuthMode(m) {
-    state.authMode = m;
-    $('auth-title').textContent = m === 'in' ? 'Sign in' : 'Create your account';
-    $('auth-btn').textContent = m === 'in' ? 'Sign in' : 'Create account';
-    $('auth-toggle').textContent = m === 'in' ? 'Create an account instead' : 'I already have an account';
-    $('auth-pass').autocomplete = m === 'in' ? 'current-password' : 'new-password';
-    showAuthErr('');
-  }
-  $('auth-toggle').addEventListener('click', function () { setAuthMode(state.authMode === 'in' ? 'up' : 'in'); });
   $('auth').addEventListener('submit', async function (ev) {
     ev.preventDefault();
     var email = $('auth-email').value.trim(), pass = $('auth-pass').value;
@@ -420,15 +411,12 @@
     $('auth-btn').disabled = true; showAuthErr('');
     var res;
     try {
-      res = state.authMode === 'in'
-        ? await sb.auth.signInWithPassword({ email: email, password: pass })
-        : await sb.auth.signUp({ email: email, password: pass });
+      res = await sb.auth.signInWithPassword({ email: email, password: pass });
     } catch (err) {
       res = { error: { message: 'Could not reach Supabase. Check your connection.' } };
     }
     $('auth-btn').disabled = false;
     if (res.error) { showAuthErr(res.error.message); return; }
-    if (!res.data.session) { showAuthErr('Account created. Check your email to confirm it, then sign in.'); setAuthMode('in'); return; }
     await enterApp();
   });
   $('signout').addEventListener('click', async function () {
