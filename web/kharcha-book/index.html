@@ -80,6 +80,7 @@
       <button type="button" class="scopetab" data-scope="family">🏠 Family & Bills</button>
     </div>
     <p class="total" id="mtotal">₹0</p>
+    <p class="vs-last" id="vs-last" hidden></p>
     <div class="budget-bar-wrap" id="budget-wrap">
       <div class="budget-head">
         <span id="budget-status">Monthly budget: Not set</span>
@@ -142,7 +143,7 @@
   </div>
 
   <section id="category-sec" hidden>
-    <h2 class="sec-title">Monthly Category Breakdown</h2>
+    <h2 class="sec-title">Monthly Category Breakdown <small>(tap a category to set its budget)</small></h2>
     <div class="cat-card" id="cat-breakdown"></div>
   </section>
 
@@ -171,7 +172,7 @@
       <h3>📱 Paste Bank / UPI SMS</h3>
       <button type="button" class="close-btn" id="close-sms-modal" aria-label="Close">&times;</button>
     </div>
-    <p class="modal-intro">Paste your bank transaction SMS below. Only authentic debit messages from recognized banks (HDFC, ICICI, SBI, Axis, Paytm, GPay, etc.) are verified and parsed.</p>
+    <p class="modal-intro">Paste your bank transaction SMS below. Only real debits are added. Failed payments, refunds, reminders, card bill payments, payment requests and scam messages are rejected. You can correct the amount, description and date before adding.</p>
     <textarea class="input sms-textarea" id="sms-input" rows="4" placeholder="Paste SMS here, e.g.:&#10;AD-HDFCBK: Rs.450.00 debited from A/C **1234 on 04-Oct-26 to SWIGGY via UPI Ref 42781923."></textarea>
     <div class="modal-row">
       <button type="button" class="secondary" id="sms-parse-btn">🔍 Verify & Parse SMS</button>
@@ -185,12 +186,12 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=10" onerror="void 0"></script>
-<script src="app.js?v=10"></script>
+<script src="config.js?v=11" onerror="void 0"></script>
+<script src="app.js?v=11"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('sw.js?v=10').then(function (reg) {
+      navigator.serviceWorker.register('sw.js?v=11').then(function (reg) {
         reg.update();
         reg.addEventListener('updatefound', function () {
           var newWorker = reg.installing;

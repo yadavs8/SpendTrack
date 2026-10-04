@@ -49,7 +49,7 @@ windowMock.window = windowMock;
 const code = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8');
 vm.runInNewContext(code, windowMock);
 
-const { parseAmount, normDesc, money, groupByDay, byDescription, monthTotals, toLocalISOString, isFamilyEntry, parseBankSMS, categoryBreakdown } = windowMock.__kharcha;
+const { parseAmount, normDesc, money, groupByDay, byDescription, monthTotals, toLocalISOString, isFamilyEntry, parseBankSMS, parseSMSDate, findDuplicate, categoryBreakdown, monthCompare } = windowMock.__kharcha;
 
 let passed = 0;
 let failed = 0;
@@ -124,6 +124,69 @@ const creditMsg = "Rs 1,000.00 credited to A/C XX1234 on 04-Oct-26 by VPA salary
 const parsedCredit = parseBankSMS(creditMsg);
 assert(parsedCredit.valid === false && parsedCredit.error.includes('credit'), 'parseBankSMS rejects income credit messages');
 
+// 8b. Messages that must NOT become expenses (false positives seen in real use)
+const NOW = new Date(2026, 9, 4, 18, 30).getTime(); // 4 Oct 2026, 6:30 pm local
+const mustReject = [
+  ['failed UPI payment', 'SBI: Your UPI txn of Rs 500 to merchant@ybl has failed. Amount will be refunded if debited.', 'failed'],
+  ['declined card swipe', 'HDFC Bank Card XX4321 txn of Rs 2,000 at FLIPKART declined due to insufficient balance.', 'failed'],
+  ['reversal', 'HDFC Bank: Rs 799 reversed to your a/c **1234 for txn paid to Amazon on 01-10.', 'refund'],
+  ['refund credited', 'ICICI Bank: Refund of INR 349.00 from MYNTRA credited to your a/c XX1234.', 'refund'],
+  ['future autopay', 'Axis Bank: Mandate for Rs 649 to Netflix will be debited on 05-10-26 from a/c XX9988.', 'future'],
+  ['card bill reminder', 'ICICI Bank Credit Card XX4321: Total amount due Rs 12,345. Min due Rs 620. Pay by 10-Oct to avoid charges.', 'future'],
+  ['money received', 'Your a/c XX1234 is credited with Rs 5000 by Rahul via UPI. Avl bal Rs 12,000 paid', 'credit'],
+  ['salary credit', 'Rs 1,000.00 credited to A/C XX1234 on 04-Oct-26 by VPA salary@company. SBI', 'credit'],
+  ['payment request', 'ICICI Bank: Rahul has requested money of Rs 2,000 from you on Google Pay. Pay only if you know the sender.', 'request'],
+  ['phishing', 'Dear customer your SBI account will be blocked. Update KYC http://bit.ly/x Rs 10 debited', 'scam'],
+  ['card bill payment', 'Payment of Rs 12,345 received towards your ICICI Bank Credit Card XX4321. Thank you.', 'transfer'],
+  ['bill paid via CRED', 'HDFC Bank: Rs 5,000 debited from a/c **1234 to VPA cred.club@axisb (UPI Ref No 998877665544).', 'transfer'],
+  ['self transfer', 'Kotak Bank: Rs 10,000 debited from a/c XX5678 for self transfer to a/c XX1234. UPI Ref 556677889900.', 'transfer'],
+  ['balance alert', 'Kotak: Avl bal in a/c XX5678 is Rs 3,456.78 as on 03-Oct. Low balance alert.', 'nodebit'],
+  ['cashback', 'Paytm: Cashback of Rs 25 credited to your wallet for payment to Zomato.', 'refund'],
+];
+mustReject.forEach(([name, sms, kind]) => {
+  const r = parseBankSMS(sms, NOW);
+  assert(r.valid === false && r.kind === kind, `rejects ${name} (${kind})` + (r.valid ? ` — got ₹${r.amount}` : r.kind !== kind ? ` — got ${r.kind}` : ''));
+});
+
+// 8c. Real debits: right amount, payee, ref, account and date
+const realUPI = parseBankSMS('HDFC Bank: Rs 450.00 debited from a/c **1234 on 03-10-26 to VPA swiggy@icici (UPI Ref No 123456789012). Not you? Call 18002586161', NOW);
+assert(realUPI.valid && realUPI.amount === 450 && realUPI.bank === 'HDFC Bank', 'real UPI debit is accepted with correct amount');
+assert(realUPI.rawPayee === 'Swiggy' && realUPI.desc.includes('Food'), 'payee is read from the UPI ID (swiggy@icici -> Swiggy, Food)');
+assert(realUPI.refNo === '123456789012' && realUPI.account === '1234', 'reference number and account are extracted');
+assert(new Date(realUPI.ts).getDate() === 3 && new Date(realUPI.ts).getMonth() === 9, 'date is taken from the SMS (03-10-26), not today');
+assert(realUPI.confidence === 'high', 'complete bank SMS is high confidence');
+
+const balanceFirst = parseBankSMS('Avl Bal Rs 25,000.00. Rs 300 debited from a/c XX1234 to zepto@ybl', NOW);
+assert(balanceFirst.valid && balanceFirst.amount === 300, 'balance shown before the amount is ignored (300, not 25,000)');
+
+const cardSwipe = parseBankSMS('Kotak Bank: Rs.1,299.00 spent on Credit Card XX4321 at AMAZON on 02-Oct-26. Avl limit Rs 50,000', NOW);
+assert(cardSwipe.valid && cardSwipe.amount === 1299 && cardSwipe.bank === 'Kotak Bank' && cardSwipe.rawPayee === 'Amazon', 'card swipe: amount, bank (not Amazon Pay) and merchant');
+
+const sbiStyle = parseBankSMS('Dear UPI user A/C X1234 debited by 300.0 on date 03Oct26 trf to ZEPTO Refno 412345678901. If not u? call 1800111109. -SBI', NOW);
+assert(sbiStyle.valid && sbiStyle.amount === 300 && sbiStyle.refNo === '412345678901' && sbiStyle.bank === 'State Bank of India', 'SBI format without "Rs" is parsed');
+assert(new Date(sbiStyle.ts).getDate() === 3, 'SBI compact date 03Oct26 is parsed');
+
+const credLimit = parseBankSMS('ICICI Bank: INR 2,500.00 spent using Card XX9999 on 01-Oct-26 at DMART. Avl Limit: INR 47,500.00.', NOW);
+assert(credLimit.valid && credLimit.amount === 2500 && credLimit.scope === 'family', 'available limit is ignored; DMart is family grocery');
+
+const noBank = parseBankSMS('Rs 200 debited for chai', NOW);
+assert(noBank.valid && noBank.confidence === 'check', 'unknown sender is accepted but flagged "check"');
+
+// 8d. SMS dates
+assert(parseSMSDate('on 04-Oct-26 at 10:32 AM', NOW) === new Date(2026, 9, 4, 10, 32).getTime(), 'parseSMSDate reads date + time');
+assert(parseSMSDate('on 04-Oct-26', NOW) === NOW, 'parseSMSDate uses "now" for today without a time');
+assert(parseSMSDate('on 25-12-26', NOW) === null, 'parseSMSDate rejects future dates');
+assert(parseSMSDate('on 31-02-26', NOW) === null, 'parseSMSDate rejects impossible dates');
+
+// 8e. Duplicate detection
+const existing = [
+  { id: 'a', amount: 450, desc: 'Swiggy', ts: new Date(2026, 9, 3, 12).getTime(), refNo: '123456789012' },
+  { id: 'b', amount: 300, desc: 'Zepto', ts: NOW, refNo: null }
+];
+assert(findDuplicate(realUPI, existing, NOW).kind === 'exact', 'same UPI reference is an exact duplicate');
+assert(findDuplicate(balanceFirst, existing, NOW).kind === 'likely', 'same amount on the same day is a likely duplicate');
+assert(findDuplicate(cardSwipe, existing, NOW) === null, 'different amount is not a duplicate');
+
 // 9. Category Breakdown tests
 const catRes = categoryBreakdown([
   { amount: 1500, desc: '🛒 General Grocery' },
@@ -132,6 +195,9 @@ const catRes = categoryBreakdown([
 ]);
 assert(catRes.categories.length === 2, 'categoryBreakdown groups expenses into 2 categories');
 assert(catRes.categories[0].name === '🛒 Grocery' && catRes.categories[0].total === 2000, 'categoryBreakdown sums total per category');
+
+const cmp = monthCompare([{ amount: 1200, desc: '🛒 General Grocery' }], [{ amount: 1000, desc: '🛒 General Grocery' }]);
+assert(cmp.pct === 20 && cmp.prevCats['🛒 Grocery'] === 1000, 'monthCompare gives % change and last month per category');
 
 console.log(`\nResults: ${passed} passed, ${failed} failed.`);
 if (failed > 0) process.exit(1);

@@ -342,3 +342,22 @@ button { cursor: pointer; }
 }
 
 
+/* Month-over-month line under the hero total */
+.vs-last { margin: -8px 0 12px; font-size: 0.8rem; color: var(--hero-muted); }
+.sec-title small { text-transform: none; letter-spacing: 0; opacity: 0.8; }
+
+/* Category rows are buttons so a tap can set a budget */
+button.cat-row { width: 100%; text-align: left; background: none; border: 0; padding: 0; color: inherit; font: inherit; cursor: pointer; }
+.cat-fill.warning { background: #F59E0B; }
+.cat-fill.danger { background: var(--danger); }
+.cat-note { font-size: 0.74rem; color: var(--muted); }
+
+/* SMS preview: confidence, warnings, duplicates and editable fields */
+.sms-preview-card.check { background: #FFFBEB; border-color: #F59E0B; color: #78350F; }
+.sms-meta { font-size: 0.78rem; opacity: 0.85; font-family: var(--f-mono); }
+.sms-dup { font-weight: 600; }
+.sms-warn { margin: 0; padding-left: 18px; font-size: 0.8rem; }
+.sms-edit { grid-template-columns: 1fr 1fr; gap: 8px; }
+.sms-field { display: flex; flex-direction: column; gap: 3px; font-size: 0.74rem; font-weight: 500; min-width: 0; }
+.sms-field.wide { grid-column: 1 / -1; }
+.sms-field .input { height: 40px; background: #FFFFFF; color: #12232A; font-size: 0.88rem; }

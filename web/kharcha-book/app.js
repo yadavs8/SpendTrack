@@ -77,141 +77,256 @@
       .sort(function (a, b) { return a.key < b.key ? 1 : -1; });
   }
 
+  // Whole-word matches only, so "credited" is not read as Cred and "AMAZON" (a merchant) is not read as Amazon Pay.
   var KNOWN_BANKS = [
-    { name: 'HDFC Bank', code: 'HDFCBK', match: /HDFC|HDFCBK/i },
-    { name: 'ICICI Bank', code: 'ICICIB', match: /ICICI|ICICIB/i },
-    { name: 'State Bank of India', code: 'SBIINB', match: /SBI|SBIINB|STATE BANK/i },
-    { name: 'Axis Bank', code: 'AXISBK', match: /AXIS|AXISBK/i },
-    { name: 'Kotak Bank', code: 'KOTAKB', match: /KOTAK|KOTAKB/i },
-    { name: 'Punjab National Bank', code: 'PNBSMS', match: /PNB|PNBSMS/i },
-    { name: 'Bank of Baroda', code: 'BOBTXT', match: /BOB|BARODA/i },
-    { name: 'Paytm Payments Bank', code: 'PAYTM', match: /PAYTM/i },
-    { name: 'Google Pay', code: 'GPAY', match: /GPAY|GOOGLE PAY/i },
-    { name: 'PhonePe', code: 'PHONEPE', match: /PHONEPE/i },
-    { name: 'Amazon Pay', code: 'AMAZON', match: /AMAZON/i },
-    { name: 'Canara Bank', code: 'CANBK', match: /CANARA|CANBK/i },
-    { name: 'IndusInd Bank', code: 'INDUSI', match: /INDUSIND|INDUSI/i },
-    { name: 'IDFC FIRST Bank', code: 'IDFCFB', match: /IDFC/i },
-    { name: 'Yes Bank', code: 'YESBNK', match: /YESBNK|YES BANK/i },
-    { name: 'Union Bank', code: 'UNIONB', match: /UNION/i },
-    { name: 'Federal Bank', code: 'FEDERAL', match: /FEDERAL/i },
-    { name: 'Cred', code: 'CRED', match: /CRED/i },
-    { name: 'Slice', code: 'SLICE', match: /SLICE/i },
-    { name: 'Jupiter', code: 'JUPITR', match: /JUPITER|JUPITR/i },
-    { name: 'Fi Money', code: 'FI', match: /FI MONEY|EPIFI/i }
+    { name: 'HDFC Bank', match: /\bHDFC(?:BK|BANK)?\b/i },
+    { name: 'ICICI Bank', match: /\bICICI(?:B|BANK)?\b/i },
+    { name: 'State Bank of India', match: /\bSBI(?:INB|UPI|PSG|CRD)?\b|STATE BANK/i },
+    { name: 'Axis Bank', match: /\bAXIS(?:BK)?\b/i },
+    { name: 'Kotak Bank', match: /\bKOTAK(?:B|BK)?\b/i },
+    { name: 'Punjab National Bank', match: /\bPNB(?:SMS)?\b/i },
+    { name: 'Bank of Baroda', match: /\bBOB(?:TXT|SMS)?\b|\bBARODA\b/i },
+    { name: 'Paytm Payments Bank', match: /\bPAYTM(?:B)?\b/i },
+    { name: 'Google Pay', match: /\bGPAY\b|GOOGLE PAY/i },
+    { name: 'PhonePe', match: /\bPHONEPE\b/i },
+    { name: 'Amazon Pay', match: /AMAZON ?PAY\b|\bAMZPAY\b/i },
+    { name: 'Canara Bank', match: /\bCANARA\b|\bCANBNK\b|\bCANBK\b/i },
+    { name: 'IndusInd Bank', match: /\bINDUSIND\b|\bINDUSB\b|\bINDUSI\b/i },
+    { name: 'IDFC FIRST Bank', match: /\bIDFC(?:FB)?\b/i },
+    { name: 'Yes Bank', match: /\bYESBNK\b|\bYES BANK\b/i },
+    { name: 'Union Bank', match: /\bUNION BANK\b|\bUNIONB\b|\bUBOI\b/i },
+    { name: 'Federal Bank', match: /\bFEDERAL BANK\b|\bFEDBNK\b/i },
+    { name: 'Cred', match: /\bCRED\b/i },
+    { name: 'Slice', match: /\bSLICE(?:IT)?\b/i },
+    { name: 'Jupiter', match: /\bJUPITER\b|\bJUPITR\b/i },
+    { name: 'Fi Money', match: /\bFI MONEY\b|\bEPIFI\b/i }
   ];
 
-  function parseBankSMS(rawText) {
-    if (!rawText || typeof rawText !== 'string') return { valid: false, error: 'Empty message provided.' };
-    var txt = rawText.trim();
-    if (!txt) return { valid: false, error: 'Empty message provided.' };
+  // Checked in order; the first match rejects the message.
+  var REJECT_RULES = [
+    { kind: 'otp', re: /\botp\b|one[- ]time password|verification code|secret code|do not share/i,
+      msg: 'This is an OTP / verification message, not a transaction.' },
+    { kind: 'scam', re: /\bkyc\b|will be (?:blocked|suspended|deactivated|closed)|has been (?:blocked|suspended|deactivated)|account (?:is )?(?:blocked|suspended)|lottery|you have won|\bclaim (?:your|now)\b|update your (?:pan|details|account)/i,
+      msg: 'This looks like a scam / phishing message. Banks never ask you to update KYC or unblock an account through an SMS.' },
+    { kind: 'promo', re: /pre-approved|apply (?:now|for)|congratulations|flat \d+%|reward points|earn cashback|limited period offer|get up to/i,
+      msg: 'This is a promotional offer, not a debit transaction.' },
+    { kind: 'request', re: /has requested|requested (?:money|payment|rs|inr|₹)|collect request|payment request/i,
+      msg: 'This is a payment request. No money has left your account.' },
+    { kind: 'failed', re: /\bfail(?:ed|ure)?\b|\bdeclined\b|\bunsuccessful\b|not (?:been )?processed|could not be (?:processed|completed)|\brejected\b|insufficient (?:funds|balance)/i,
+      msg: 'This transaction failed, so no money was spent.' },
+    { kind: 'refund', re: /\brevers(?:ed|al)\b|\brefund(?:ed)?\b|\bchargeback\b|cash ?back[\s\S]*\bcredited\b|\bcredited\b[\s\S]*cash ?back/i,
+      msg: 'This is a refund / reversal (money coming back), not an expense.' },
+    { kind: 'future', re: /will be debited|to be debited|\bdue (?:on|date|by)\b|\bis due\b|\bpay by\b|(?:total|min(?:imum)?) (?:amount )?due|\breminder\b|\bupcoming\b|\bscheduled\b|mandate (?:is |has been )?(?:created|registered|set ?up|approved)|autopay (?:is |has been )?(?:set|registered|enabled|activated)/i,
+      msg: 'This is a reminder or an upcoming debit. Add it once the money is actually debited.' },
+    { kind: 'transfer', re: /self[- ]?transfer|to (?:your )?own (?:a\/c|account)|towards [\w ]{0,30}?card|credit card (?:bill|payment)|card bill|received (?:towards|on|for) [\w ]{0,30}?card|cred\.?club|\bcred club\b/i,
+      msg: 'This is a credit card bill payment or a transfer between your own accounts. It is not a new spend (the card swipes themselves are).' }
+  ];
 
-    // 1. Filter out OTPs, promotional spam, and credits
-    var isOTP = /otp|verification code|secret code|do not share/i.test(txt);
-    if (isOTP) return { valid: false, error: 'This is an OTP / verification message, not a transaction.' };
+  var STRONG_OUT = /\bdebited\b|\bspent\b|\bwithdrawn\b|\bcharged\b|\bpurchase\b/i;
+  var WEAK_OUT = /\bpaid\b|\bsent\b|\btrf to\b|\btransferred to\b|\bused (?:at|for|on)\b/i;
+  var INCOMING = /\bcredited\b|\breceived\b|\bdeposited\b|\bcredit of\b|\badded to (?:your )?(?:wallet|a\/c|account)\b/i;
+  var CUR_AMT = /(?:rs\.?|inr|₹)\s*([\d,]+(?:\.\d{1,2})?)/gi;
+  var BARE_AMT = /\b(?:debited|spent|paid|withdrawn|charged)\s+(?:by|for|of|with)?\s*([\d,]+(?:\.\d{1,2})?)\b/gi;
+  var BAL_WORD = /\b(?:avl|avail(?:able)?|bal|balance|limit|due|outstanding)\b/gi;
 
-    var isSpam = /pre-approved|apply (?:now|for)|congratulations|flat \d+%|reward points|earn cashback|limited period offer/i.test(txt);
-    if (isSpam) return { valid: false, error: 'This is a promotional offer, not a debit transaction.' };
+  // An amount is a balance/limit if a balance word comes right before it with no other amount or debit word in between.
+  function isBalanceAmount(txt, idx) {
+    var before = txt.slice(Math.max(0, idx - 30), idx), last = -1, m;
+    BAL_WORD.lastIndex = 0;
+    while ((m = BAL_WORD.exec(before))) last = m.index + m[0].length;
+    if (last < 0) return false;
+    var gap = before.slice(last);
+    return !/(?:rs\.?|inr|₹)\s*\d|\d[.,]\d/i.test(gap) && !/\b(?:debited|spent|paid|withdrawn|charged)\b/i.test(gap);
+  }
 
-    var isCredit = /\bcredited\b|\bcredit of\b|\brefund of\b/i.test(txt) && !/\bdebited\b|\bpaid\b|\bspent\b/i.test(txt);
-    if (isCredit) return { valid: false, error: 'This is a credit/income message, not an expense.' };
+  function extractAmount(txt) {
+    var cands = [], m;
+    CUR_AMT.lastIndex = 0;
+    while ((m = CUR_AMT.exec(txt))) cands.push({ v: m[1], idx: m.index });
+    BARE_AMT.lastIndex = 0;
+    while ((m = BARE_AMT.exec(txt))) cands.push({ v: m[1], idx: m.index + m[0].length - m[1].length });
+    cands = cands.filter(function (c) { return parseAmount(c.v) && !isBalanceAmount(txt, c.idx); });
+    if (!cands.length) return null;
+    // Prefer the amount closest to a debit word.
+    var outIdx = [], re = /\b(?:debited|spent|paid|withdrawn|charged|sent|purchase)\b/gi;
+    while ((m = re.exec(txt))) outIdx.push(m.index);
+    var best = cands[0], bestDist = Infinity;
+    cands.forEach(function (c) {
+      outIdx.forEach(function (o) {
+        var d = Math.abs(o - c.idx);
+        if (d < bestDist) { bestDist = d; best = c; }
+      });
+    });
+    return { amount: parseAmount(best.v), nearDebit: bestDist < 40 };
+  }
 
-    // 2. Identify Bank / Sender
+  var MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+  // Returns the transaction time from the SMS (ms), or null if none / implausible. Indian dd-mm order.
+  function parseSMSDate(txt, now) {
+    now = now || Date.now();
+    var y, mo, d, m;
+    if ((m = txt.match(/\b(\d{1,2})[-\/ ]?(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[-\/ ,]*(\d{4}|\d{2})(?!\d)/i))) {
+      d = +m[1]; mo = MONTHS[m[2].toLowerCase()]; y = +m[3];
+    } else if ((m = txt.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/))) {
+      y = +m[1]; mo = +m[2] - 1; d = +m[3];
+    } else if ((m = txt.match(/\b(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4}|\d{2})\b/))) {
+      d = +m[1]; mo = +m[2] - 1; y = +m[3];
+    } else return null;
+    if (y < 100) y += 2000;
+    var hh = null, mm = 0, t = txt.match(/\b(\d{1,2}):(\d{2})(?::\d{2})?\s*(am|pm)?\b/i);
+    if (t && +t[1] < 24 && +t[2] < 60) {
+      hh = +t[1]; mm = +t[2];
+      if (t[3] && /pm/i.test(t[3]) && hh < 12) hh += 12;
+      if (t[3] && /am/i.test(t[3]) && hh === 12) hh = 0;
+    }
+    var dt = new Date(y, mo, d, hh == null ? 12 : hh, mm);
+    if (dt.getDate() !== d || dt.getMonth() !== mo) return null;
+    var today = new Date(now);
+    var sameDay = dt.getFullYear() === today.getFullYear() && dt.getMonth() === today.getMonth() && dt.getDate() === today.getDate();
+    if (sameDay && hh == null) return now;
+    var endOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59).getTime();
+    if (dt.getTime() > endOfToday || now - dt.getTime() > 400 * 864e5) return null;
+    return dt.getTime();
+  }
+
+  function extractRef(txt) {
+    var m = txt.match(/(?:upi\s*ref(?:erence)?|\bref(?:erence)?|\brrn|\butr|txn\s*id|transaction\s*id)\s*(?:no\.?|num(?:ber)?|id|#)?\s*[:.#-]?\s*([A-Z0-9]{6,24})\b/i);
+    return m && /\d{4,}/.test(m[1]) ? m[1].toUpperCase() : null;
+  }
+
+  function extractAccount(txt) {
+    var m = txt.match(/(?:a\/c|acct|account|card)(?:\s*no\.?)?\s*(?:ending(?:\s*with)?)?\s*[:\s]*(?:[x*]+\s*)?(\d{3,4})\b/i);
+    return m ? m[1] : null;
+  }
+
+  function prettyName(s) {
+    return s.replace(/[._-]+/g, ' ').replace(/\d+$/, '').trim().split(/\s+/)
+      .map(function (w) { return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase(); }).join(' ');
+  }
+  var PAYEE_STOP = /^(?:you|your|a\/?c|account|card|vpa|upi|the|bank|rs|inr|us|mobile|self)\b/i;
+  function extractPayee(txt) {
+    var vpa = txt.match(/\b([a-z][a-z0-9._-]{1,40})@[a-z]{2,}\b/i);
+    if (vpa && !/^(?:paytmqr|bharatpe|q\d|upi|\d)/i.test(vpa[1])) {
+      var n = prettyName(vpa[1]);
+      if (n.length >= 2) return n;
+    }
+    var m = txt.match(/\b(?:at|to|trf to|info[:\s])\s*(?:vpa\s+)?([A-Za-z][A-Za-z0-9 &'._-]{1,30}?)(?=\s+(?:on|ref\w*|via|vpa|using|upi|from|for|dated|avl|with|is|has|txn)\b|[.,;(:]|\s*$)/i) ||
+            txt.match(/\bfor\s+([A-Za-z][A-Za-z0-9 &'._-]{1,30}?)(?=\s+(?:payment|via|on)\b|[.,;(]|\s*$)/i);
+    if (m) {
+      var p = m[1].trim();
+      if (p.length >= 2 && !PAYEE_STOP.test(p)) return p === p.toUpperCase() && p.length > 3 ? prettyName(p) : p;
+    }
+    return '';
+  }
+
+  var CATEGORY_RULES = [
+    { re: /swiggy|zomato|\beats\b|\bfood\b|restaurant|\bcafe\b|domino|pizza/i, emoji: '🍔', label: function (p) { return 'Food & Dining (' + p + ')'; }, scope: 'personal' },
+    { re: /zepto|blinkit|instamart|grocery|dmart|supermarket|bigbasket|bazaar/i, emoji: '🛒', label: function (p) { return 'General Grocery (' + p + ')'; }, scope: 'family' },
+    { re: /electricity|bescom|tata power|torrent power|light bill/i, emoji: '⚡', label: function () { return 'Electricity Bill'; }, scope: 'family' },
+    { re: /\bgas\b|indane|bharat ?gas|cylinder/i, emoji: '🔥', label: function () { return 'Gas Bill'; }, scope: 'family' },
+    { re: /airtel|\bjio\b|\bvi\b|vodafone|wifi|broadband|recharge/i, emoji: '📱', label: function () { return 'Mobile & WiFi'; }, scope: 'personal' },
+    { re: /hpcl|iocl|bpcl|petrol|\bfuel\b|\bshell\b/i, emoji: '⛽', label: function () { return 'Petrol / Fuel'; }, scope: 'personal' },
+    { re: /\buber\b|\bola\b|rapido|namma yatri|\bauto\b|\bcab\b|\bmetro\b/i, emoji: '🛺', label: function () { return 'Auto / Cab'; }, scope: 'personal' },
+    { re: /amazon|flipkart|myntra|meesho|nykaa/i, emoji: '🛍️', label: function (p) { return 'Online Shopping (' + p + ')'; }, scope: 'personal' },
+    { re: /pharmacy|pharmeasy|apollo|\b1mg\b|doctor|clinic|hospital|medicine/i, emoji: '💊', label: function () { return 'Medicines & Doctor'; }, scope: 'family' },
+    { re: /\bmilk\b|doodh|dairy/i, emoji: '🥛', label: function () { return 'Milk / Doodh'; }, scope: 'family' }
+  ];
+  function categorise(payee, txt) {
+    var targets = [payee, txt];
+    for (var t = 0; t < targets.length; t++) {
+      if (!targets[t]) continue;
+      for (var i = 0; i < CATEGORY_RULES.length; i++) {
+        if (CATEGORY_RULES[i].re.test(targets[t])) return CATEGORY_RULES[i];
+      }
+    }
+    return null;
+  }
+
+  function parseBankSMS(rawText, now) {
+    if (!rawText || typeof rawText !== 'string') return { valid: false, kind: 'empty', error: 'Empty message provided.' };
+    var txt = rawText.trim().replace(/\s+/g, ' ');
+    if (!txt) return { valid: false, kind: 'empty', error: 'Empty message provided.' };
+
+    // 1. Reject messages that are not money actually leaving the account
+    for (var r = 0; r < REJECT_RULES.length; r++) {
+      if (REJECT_RULES[r].re.test(txt)) return { valid: false, kind: REJECT_RULES[r].kind, error: REJECT_RULES[r].msg };
+    }
+    var strongOut = STRONG_OUT.test(txt), weakOut = WEAK_OUT.test(txt);
+    if (INCOMING.test(txt) && !strongOut) {
+      return { valid: false, kind: 'credit', error: 'This is a credit/income message (money received), not an expense.' };
+    }
+
+    // 2. Identify Bank / Sender (header like "AD-HDFCBK:" first, then body)
     var detectedBank = null;
     var headerMatch = txt.match(/^([A-Z]{2}-[A-Z0-9]{3,8}(?:-[A-Z0-9]+)?):\s*/i);
-    var headerCode = headerMatch ? headerMatch[1] : '';
-
-    for (var i = 0; i < KNOWN_BANKS.length; i++) {
-      var b = KNOWN_BANKS[i];
-      if (b.match.test(headerCode) || b.match.test(txt)) {
-        detectedBank = b.name;
-        break;
+    var sources = headerMatch ? [headerMatch[1], txt] : [txt];
+    for (var s = 0; s < sources.length && !detectedBank; s++) {
+      for (var i = 0; i < KNOWN_BANKS.length; i++) {
+        if (KNOWN_BANKS[i].match.test(sources[s])) { detectedBank = KNOWN_BANKS[i].name; break; }
       }
     }
 
-    // Check for standard debit keywords
-    var hasDebitWord = /\bdebited\b|\bpaid\b|\bspent\b|\bwithdrawn\b|\btransferred\b|\bused at\b|\bpurchased at\b|\bvpa\b|\bupi ref\b|\bspent rs\b|\bsent rs\b/i.test(txt);
-
-    if (!detectedBank && !hasDebitWord) {
-      return { valid: false, error: 'No recognized bank or debit pattern found in message.' };
+    if (!strongOut && !weakOut) {
+      return { valid: false, kind: 'nodebit', error: detectedBank
+        ? 'Message from bank found, but does not contain a debit transaction.'
+        : 'No recognized bank or debit pattern found in message.' };
     }
 
-    if (!hasDebitWord) {
-      return { valid: false, error: 'Message from bank found, but does not contain a debit transaction.' };
-    }
+    // 3. Extract Amount (ignoring balances, limits and dues)
+    var amt = extractAmount(txt);
+    if (!amt || !amt.amount) return { valid: false, kind: 'noamount', error: 'Could not extract valid transaction amount from SMS.' };
 
-    // 3. Extract Amount
-    var amtMatch = txt.match(/(?:rs\.?|inr|₹)\s*([\d,]+(?:\.\d{1,2})?)/i) ||
-                   txt.match(/([\d,]+(?:\.\d{1,2})?)\s*(?:debited|paid|spent)/i) ||
-                   txt.match(/(?:amount|sum)\s*(?:of)?\s*(?:rs\.?|inr|₹)?\s*([\d,]+(?:\.\d{1,2})?)/i);
+    // 4. Details used for confidence and duplicate detection
+    var refNo = extractRef(txt);
+    var account = extractAccount(txt);
+    var tsFromSMS = parseSMSDate(txt, now);
+    var warnings = [];
+    if (!detectedBank) warnings.push('Sender is not a recognised bank or UPI app.');
+    if (/https?:\/\/|www\.|bit\.ly/i.test(txt)) warnings.push('Contains a link. Real debit alerts rarely need you to click anything.');
+    if (!amt.nearDebit) warnings.push('Amount was not found right next to "debited/spent". Please check it.');
+    if (tsFromSMS == null) warnings.push('No valid date in the SMS, so today\'s date is used.');
 
-    if (!amtMatch) {
-      return { valid: false, error: 'Could not extract valid transaction amount from SMS.' };
-    }
-
-    var amtStr = amtMatch[1].replace(/,/g, '');
-    var amount = Number(amtStr);
-    if (!amount || isNaN(amount) || amount <= 0) {
-      return { valid: false, error: 'Invalid transaction amount extracted.' };
-    }
-
-    // 4. Extract Payee / Merchant Name
-    var payee = '';
-    var payeeMatch = txt.match(/(?:to|at|info:)\s+([A-Za-z0-9\s._&-]{2,30}?)(?:\s+on|\s+ref|\s+via|\s+vpa|\s+a\/c|\s+balance|\.|\,|$)/i) ||
-                     txt.match(/paid\s+(?:to\s+)?([A-Za-z0-9\s._&-]{2,30}?)(?:\s+on|\s+ref|\s+via|\.|\,|$)/i) ||
-                     txt.match(/for\s+([A-Za-z0-9\s._&-]{2,30}?)(?:\s+payment|\s+via|\s+on|\.|\,|$)/i);
-
-    if (payeeMatch) {
-      payee = payeeMatch[1].trim();
-      payee = payee.replace(/@\w+/g, '').replace(/^(vpa|info|ref)\s+/i, '').trim();
-    }
-
-    if (!payee || payee.length < 2) {
-      payee = detectedBank ? (detectedBank + ' Spend') : 'Bank Spend';
-    }
-
-    // 5. Determine Category Emoji & Scope
-    var payeeLower = payee.toLowerCase();
-    var txtLower = txt.toLowerCase();
-    var combo = payeeLower + ' ' + txtLower;
-
-    var emoji = '💳';
-    var label = payee;
-    var scope = 'personal';
-
-    if (/swiggy|zomato|eats|food|restaurant|cafe|dominos|pizza/i.test(combo)) {
-      emoji = '🍔'; label = 'Food & Dining (' + payee + ')'; scope = 'personal';
-    } else if (/zepto|blinkit|instamart|grocery|dmart|supermarket|bigbasket|bazaar/i.test(combo)) {
-      emoji = '🛒'; label = 'General Grocery (' + payee + ')'; scope = 'family';
-    } else if (/electricity|bescom|tata power|torrent|power|light bill/i.test(combo)) {
-      emoji = '⚡'; label = 'Electricity Bill'; scope = 'family';
-    } else if (/gas|indane|hpcl|bharatgas|cylinder/i.test(combo)) {
-      emoji = '🔥'; label = 'Gas Bill'; scope = 'family';
-    } else if (/airtel|jio|vi\b|vodafone|wifi|broadband|recharge/i.test(combo)) {
-      emoji = '📱'; label = 'Mobile & WiFi'; scope = 'personal';
-    } else if (/hpcl|iocl|bpcl|petrol|fuel|shell\b/i.test(combo)) {
-      emoji = '⛽'; label = 'Petrol / Fuel'; scope = 'personal';
-    } else if (/uber|ola|rapido|namma yatri|auto|cab|metro/i.test(combo)) {
-      emoji = '🛺'; label = 'Auto / Cab'; scope = 'personal';
-    } else if (/amazon|flipkart|myntra|meesho|nykaa/i.test(combo)) {
-      emoji = '🛍️'; label = 'Online Shopping (' + payee + ')'; scope = 'personal';
-    } else if (/pharmacy|pharmeasy|apollo|1mg|doctor|clinic|hospital|medicine/i.test(combo)) {
-      emoji = '💊'; label = 'Medicines & Doctor'; scope = 'family';
-    } else if (/milk|doodh|dairy|mother dairy/i.test(combo)) {
-      emoji = '🥛'; label = 'Milk / Doodh'; scope = 'family';
-    }
-
+    // 5. Payee and category
+    var payee = extractPayee(txt);
+    var rawPayee = payee;
+    if (!payee) payee = detectedBank ? (detectedBank + ' Spend') : 'Bank Spend';
+    var cat = categorise(rawPayee, txt);
+    var emoji = cat ? cat.emoji : '💳';
+    var label = cat ? cat.label(payee) : payee;
+    var scope = cat ? cat.scope : 'personal';
     var descWithEmoji = (scope === 'family') ? ('🏠 ' + emoji + ' ' + label) : (emoji + ' ' + label);
+
+    var confident = detectedBank && amt.nearDebit && (refNo || account) && strongOut && !warnings.length;
 
     return {
       valid: true,
       bank: detectedBank || 'Bank SMS',
-      amount: amount,
-      rawPayee: payee,
+      amount: amt.amount,
+      rawPayee: rawPayee,
       desc: descWithEmoji,
       scope: scope,
+      refNo: refNo,
+      account: account,
+      ts: tsFromSMS,
+      confidence: confident ? 'high' : 'check',
+      warnings: warnings,
       rawSMS: txt
     };
+  }
+
+  // Exact = same bank reference number. Likely = same amount on the same day (when refs can't be compared).
+  function findDuplicate(parsed, entries, now) {
+    if (!parsed || !parsed.valid) return null;
+    if (parsed.refNo) {
+      var exact = entries.find(function (e) { return e.refNo && e.refNo === parsed.refNo; });
+      if (exact) return { kind: 'exact', entry: exact };
+    }
+    var day = dayKey(parsed.ts || now || Date.now());
+    var p = paise(parsed.amount);
+    var likely = entries.find(function (e) {
+      return paise(e.amount) === p && dayKey(e.ts) === day && !(parsed.refNo && e.refNo && e.refNo !== parsed.refNo);
+    });
+    return likely ? { kind: 'likely', entry: likely } : null;
   }
 
   function categoryBreakdown(entries) {
@@ -256,6 +371,16 @@
     return { categories: list, total: grandTotal };
   }
 
+  function monthCompare(curList, prevList) {
+    var cur = sumRupees(curList), prev = sumRupees(prevList), prevCats = {};
+    categoryBreakdown(prevList).categories.forEach(function (c) { prevCats[c.name] = c.total; });
+    return { cur: cur, prev: prev, pct: prev > 0 ? Math.round(((cur - prev) / prev) * 100) : null, prevCats: prevCats };
+  }
+  function prevMonthKey(key) {
+    var p = key.split('-'); var d = new Date(+p[0], +p[1] - 2, 1);
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1);
+  }
+
   var dFmt = new Intl.DateTimeFormat('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
   var tFmt = new Intl.DateTimeFormat('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true });
   var mFmt = new Intl.DateTimeFormat('en-IN', { month: 'long', year: 'numeric' });
@@ -263,10 +388,17 @@
   function keyToDate(key) { var p = key.split('-'); return new Date(+p[0], +p[1] - 1, +p[2], 12); }
 
   /* Exposed for tests only. */
-  window.__kharcha = { parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, categoryBreakdown: categoryBreakdown };
+  window.__kharcha = { parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, parseSMSDate: parseSMSDate, findDuplicate: findDuplicate, categoryBreakdown: categoryBreakdown, monthCompare: monthCompare };
 
   var TABLE = 'daily_expenses';
   var COLS = 'id, amount, description, spent_at';
+  // ref_no / raw_sms come from supabase/daily_expenses_v2_sms.sql. Until that migration runs, the app falls back to COLS.
+  var COLS_EXT = COLS + ', ref_no, raw_sms';
+  var hasExtCols = true;
+  function selectCols() { return hasExtCols ? COLS_EXT : COLS; }
+  function isMissingColumn(err) {
+    return err && (err.code === '42703' || err.code === 'PGRST204' || /column .*(does not exist|not find)|could not find the '.*' column/i.test(err.message || ''));
+  }
 
   var DEFAULT_CHIPS = [
     { label: 'General Grocery', emoji: '🛒' },
@@ -301,7 +433,7 @@
     return e && typeof e.amount === 'number' && isFinite(e.amount) && typeof e.ts === 'number' && !isNaN(e.ts) && typeof e.desc === 'string';
   }
   function fromRow(r) {
-    return { id: r.id, amount: Number(r.amount), desc: r.description, ts: Date.parse(r.spent_at) };
+    return { id: r.id, amount: Number(r.amount), desc: r.description, ts: Date.parse(r.spent_at), refNo: r.ref_no || null };
   }
 
   /* ---------- storage ---------- */
@@ -309,8 +441,9 @@
     loadAll: async function () {
       var out = [], from = 0, size = 1000;
       while (true) {
-        var res = await sb.from(TABLE).select(COLS)
+        var res = await sb.from(TABLE).select(selectCols())
           .order('spent_at', { ascending: false }).order('id').range(from, from + size - 1);
+        if (res.error && hasExtCols && isMissingColumn(res.error)) { hasExtCols = false; continue; }
         if (res.error) throw res.error;
         out = out.concat(res.data);
         if (res.data.length < size) break;
@@ -327,7 +460,17 @@
       var cleanDesc = safeTruncate(e.desc, 50);
       var payload = { amount: e.amount, description: cleanDesc, user_id: userRes.data.user.id };
       if (e.spent_at) payload.spent_at = e.spent_at;
-      var res = await sb.from(TABLE).insert([payload]).select(COLS).single();
+      if (hasExtCols && e.ref_no) payload.ref_no = e.ref_no;
+      if (hasExtCols && e.raw_sms) payload.raw_sms = safeTruncate(e.raw_sms, 500);
+      var res = await sb.from(TABLE).insert([payload]).select(selectCols()).single();
+      if (res.error && hasExtCols && isMissingColumn(res.error)) {
+        hasExtCols = false;
+        delete payload.ref_no; delete payload.raw_sms;
+        res = await sb.from(TABLE).insert([payload]).select(COLS).single();
+      }
+      if (res.error && res.error.code === '23505') {
+        throw new Error('Already added: this transaction (Ref ' + e.ref_no + ') is already in your Kharcha Book.');
+      }
       if (res.error) {
         console.error('Supabase add error:', res.error);
         throw res.error;
@@ -338,7 +481,7 @@
       var cleanDesc = safeTruncate(patch.desc, 50);
       var payload = { amount: patch.amount, description: cleanDesc };
       if (patch.spent_at) payload.spent_at = patch.spent_at;
-      var res = await sb.from(TABLE).update(payload).eq('id', id).select(COLS).single();
+      var res = await sb.from(TABLE).update(payload).eq('id', id).select(selectCols()).single();
       if (res.error) {
         console.error('Supabase update error:', res.error);
         throw res.error;
@@ -458,15 +601,7 @@
   }
 
   $('export-csv').addEventListener('click', function () {
-    var list = state.entries.filter(function (e) { return monthKey(e.ts) === state.sel; });
-    if (state.scopeFilter === 'personal') list = list.filter(function (e) { return !isFamilyEntry(e.desc); });
-    else if (state.scopeFilter === 'family') list = list.filter(function (e) { return isFamilyEntry(e.desc); });
-
-    if (searchQuery) {
-      list = list.filter(function (e) {
-        return e.desc.toLowerCase().includes(searchQuery) || dFmt.format(new Date(e.ts)).toLowerCase().includes(searchQuery);
-      });
-    }
+    var list = visibleEntries(state.sel);
     if (!list.length) { toast('No expenses to export for this view.'); return; }
     var csv = ['Date,Time,Category,Description,Amount (INR)'];
     list.sort(byTimeDesc).forEach(function (e) {
@@ -503,6 +638,22 @@
   }
 
   /* ---------- render ---------- */
+  // Entries of one month after the scope tab and search box are applied.
+  function visibleEntries(key) {
+    var list = state.entries.filter(function (e) { return monthKey(e.ts) === key; });
+    if (state.scopeFilter === 'personal') {
+      list = list.filter(function (e) { return !isFamilyEntry(e.desc); });
+    } else if (state.scopeFilter === 'family') {
+      list = list.filter(function (e) { return isFamilyEntry(e.desc); });
+    }
+    if (searchQuery) {
+      list = list.filter(function (e) {
+        return e.desc.toLowerCase().includes(searchQuery) || dFmt.format(new Date(e.ts)).toLowerCase().includes(searchQuery);
+      });
+    }
+    return list;
+  }
+
   function render() {
     var nowKey = monthKey(Date.now());
     var months = monthTotals(state.entries);
@@ -512,26 +663,21 @@
     var idx = months.findIndex(function (m) { return m.key === state.sel; });
     var cur = months[idx];
 
-    var monthEntries = state.entries.filter(function (e) { return monthKey(e.ts) === state.sel; });
-    var list = monthEntries;
-
-    if (state.scopeFilter === 'personal') {
-      list = list.filter(function (e) { return !isFamilyEntry(e.desc); });
-    } else if (state.scopeFilter === 'family') {
-      list = list.filter(function (e) { return isFamilyEntry(e.desc); });
-    }
-
-    if (searchQuery) {
-      list = list.filter(function (e) {
-        return e.desc.toLowerCase().includes(searchQuery) || dFmt.format(new Date(e.ts)).toLowerCase().includes(searchQuery);
-      });
-    }
+    var list = visibleEntries(state.sel);
+    var prevKey = prevMonthKey(state.sel);
+    var prevList = visibleEntries(prevKey);
+    var cmp = monthCompare(list, prevList);
 
     var displayTotal = sumRupees(list);
     var days = groupByDay(list);
 
     $('mlabel').textContent = monthLabel(state.sel);
     $('mtotal').textContent = money(displayTotal);
+    var vs = $('vs-last');
+    if (vs) {
+      vs.hidden = cmp.pct == null;
+      if (cmp.pct != null) vs.textContent = (cmp.pct > 0 ? '▲ ' : cmp.pct < 0 ? '▼ ' : '') + Math.abs(cmp.pct) + '% vs ' + monthLabel(prevKey) + ' (' + money(cmp.prev) + ')';
+    }
     $('st-count').textContent = String(list.length);
     var top = days.slice().sort(function (a, b) { return b.total - a.total; })[0];
     var byDesc = byDescription(list)[0];
@@ -542,14 +688,22 @@
 
     renderBudget(cur.total);
     renderSuggestions();
-    renderCategoryBreakdown(list);
+    renderCategoryBreakdown(list, cmp, prevKey);
     renderBreakdown(list, displayTotal);
     renderDays(days);
     renderMonths(months);
     renderSync();
   }
 
-  function renderCategoryBreakdown(list) {
+  var CAT_BUDGET_KEY = 'kharcha_category_budgets';
+  function categoryBudgets() { try { return JSON.parse(localStorage.getItem(CAT_BUDGET_KEY)) || {}; } catch (e) { return {}; } }
+  function setCategoryBudget(name, val) {
+    var b = categoryBudgets();
+    if (val > 0) b[name] = val; else delete b[name];
+    try { localStorage.setItem(CAT_BUDGET_KEY, JSON.stringify(b)); } catch (e) {}
+  }
+
+  function renderCategoryBreakdown(list, cmp, prevKey) {
     var sec = $('category-sec');
     var container = $('cat-breakdown');
     if (!sec || !container) return;
@@ -560,21 +714,46 @@
     if (!res.categories.length) { sec.hidden = true; return; }
     sec.hidden = false;
 
+    var budgets = categoryBudgets();
+    var prevName = monthLabel(prevKey).split(' ')[0].slice(0, 3);
     res.categories.slice(0, 6).forEach(function (c) {
-      var row = el('div', 'cat-row');
+      var row = el('button', 'cat-row');
+      row.type = 'button';
+      row.title = 'Tap to set a monthly budget for ' + c.name;
       var head = el('div', 'cat-row-head');
       var nameSpan = el('span', null, c.name + ' (' + c.count + ')');
       var amtSpan = el('span', null, money(c.total) + ' · ' + c.pct + '%');
       head.appendChild(nameSpan);
       head.appendChild(amtSpan);
 
+      var budget = budgets[c.name];
+      var used = budget ? Math.round((c.total / budget) * 100) : c.pct;
       var track = el('div', 'cat-track');
-      var fill = el('div', 'cat-fill');
-      fill.style.width = Math.min(100, Math.max(2, c.pct)) + '%';
+      var fill = el('div', 'cat-fill' + (budget && used >= 100 ? ' danger' : budget && used >= 80 ? ' warning' : ''));
+      fill.style.width = Math.min(100, Math.max(2, used)) + '%';
       track.appendChild(fill);
+
+      var notes = [];
+      if (budget) notes.push(used + '% of ' + money(budget) + ' budget');
+      var prev = cmp.prevCats[c.name];
+      if (prev) {
+        var diff = c.total - prev;
+        notes.push((diff > 0 ? '▲ ' : diff < 0 ? '▼ ' : '') + money(Math.abs(diff)) + ' vs ' + prevName);
+      } else if (cmp.prev > 0) {
+        notes.push('New vs ' + prevName);
+      }
 
       row.appendChild(head);
       row.appendChild(track);
+      if (notes.length) row.appendChild(el('div', 'cat-note', notes.join(' · ')));
+      row.addEventListener('click', function () {
+        var val = prompt('Monthly budget for ' + c.name + ' in ₹ (0 to clear):', budget || '');
+        if (val === null) return;
+        var n = Number(val.replace(/[,\s₹]/g, ''));
+        if (isNaN(n) || n < 0) { alert('Please enter a valid positive number.'); return; }
+        setCategoryBudget(c.name, n);
+        render();
+      });
       container.appendChild(row);
     });
   }
@@ -582,34 +761,81 @@
   /* ---------- Bank SMS Parser Modal & Auto-Detection ---------- */
   var parsedSMSDraft = null;
 
+  /* Merchant memory: when you change the description of a parsed SMS, the next SMS from that payee uses it. */
+  var MERCHANT_KEY = 'kharcha_merchant_memory';
+  function merchantMemory() { try { return JSON.parse(localStorage.getItem(MERCHANT_KEY)) || {}; } catch (e) { return {}; } }
+  function rememberMerchant(payee, desc) {
+    if (!payee) return;
+    var mem = merchantMemory();
+    mem[payee.toLowerCase()] = desc;
+    try { localStorage.setItem(MERCHANT_KEY, JSON.stringify(mem)); } catch (e) {}
+  }
+
+  function smsField(labelText, input) {
+    var f = el('label', 'sms-field');
+    f.appendChild(el('span', null, labelText));
+    f.appendChild(input);
+    return f;
+  }
+
   function triggerSMSParse(txt) {
     var result = parseBankSMS(txt);
     var container = $('sms-result');
     if (!container) return;
     container.textContent = '';
     container.hidden = false;
+    var saveBtn = $('save-sms-entry');
+    saveBtn.textContent = '1-Tap Add Expense';
 
     if (!result.valid) {
       container.className = 'sms-preview-card invalid';
-      var title = el('div', 'sms-badge-title', '❌ Invalid or Non-Bank Message');
-      var desc = el('div', null, result.error || 'Only debit SMS messages from recognized banks are parsed.');
-      container.appendChild(title);
-      container.appendChild(desc);
-      $('save-sms-entry').disabled = true;
+      container.appendChild(el('div', 'sms-badge-title', '❌ Not added: not a real spend'));
+      container.appendChild(el('div', null, result.error || 'Only debit SMS messages from recognized banks are parsed.'));
+      saveBtn.disabled = true;
       parsedSMSDraft = null;
-    } else {
-      container.className = 'sms-preview-card valid';
-      var title = el('div', 'sms-badge-title', '✓ Verified Bank SMS (' + result.bank + ')');
-      var grid = el('div', 'sms-details-grid');
-      grid.appendChild(el('div', null, 'Amount: ' + money(result.amount)));
-      grid.appendChild(el('div', null, 'Scope: ' + (result.scope === 'family' ? '🏠 Family & Bills' : '👤 Personal')));
-      grid.appendChild(el('div', null, 'Parsed Category: ' + result.desc));
-
-      container.appendChild(title);
-      container.appendChild(grid);
-      $('save-sms-entry').disabled = false;
-      parsedSMSDraft = result;
+      return;
     }
+
+    var remembered = result.rawPayee && merchantMemory()[result.rawPayee.toLowerCase()];
+    if (remembered) result.desc = remembered;
+    var dup = findDuplicate(result, state.entries);
+
+    container.className = 'sms-preview-card valid' + (result.confidence === 'high' && !dup ? '' : ' check');
+    container.appendChild(el('div', 'sms-badge-title', result.confidence === 'high'
+      ? '✓ Verified debit (' + result.bank + ')'
+      : '⚠️ Check before adding (' + result.bank + ')'));
+
+    var meta = [];
+    if (result.account) meta.push('A/c ··' + result.account);
+    if (result.refNo) meta.push('Ref ' + result.refNo);
+    if (meta.length) container.appendChild(el('div', 'sms-meta', meta.join(' · ')));
+
+    if (dup) {
+      var when = dFmt.format(new Date(dup.entry.ts));
+      container.appendChild(el('div', 'sms-dup', dup.kind === 'exact'
+        ? '⛔ Already added on ' + when + ' (same reference number).'
+        : '⚠️ Possible duplicate: ' + money(dup.entry.amount) + ' "' + dup.entry.desc + '" is already logged on ' + when + '.'));
+    }
+    if (result.warnings.length) {
+      var ul = el('ul', 'sms-warn');
+      result.warnings.forEach(function (w) { ul.appendChild(el('li', null, w)); });
+      container.appendChild(ul);
+    }
+    if (remembered) container.appendChild(el('div', 'sms-meta', 'Using your saved description for ' + result.rawPayee + '.'));
+
+    var grid = el('div', 'sms-details-grid sms-edit');
+    var amtIn = el('input', 'input'); amtIn.id = 'sms-amt'; amtIn.inputMode = 'decimal'; amtIn.value = String(result.amount);
+    var descIn = el('input', 'input'); descIn.id = 'sms-desc'; descIn.maxLength = 50; descIn.value = result.desc;
+    var dateIn = el('input', 'input'); dateIn.id = 'sms-date'; dateIn.type = 'datetime-local'; dateIn.value = toLocalISOString(result.ts || Date.now());
+    grid.appendChild(smsField('Amount (₹)', amtIn));
+    grid.appendChild(smsField('Date & time', dateIn));
+    var descField = smsField('Description', descIn); descField.classList.add('wide');
+    grid.appendChild(descField);
+    container.appendChild(grid);
+
+    parsedSMSDraft = result;
+    saveBtn.disabled = dup && dup.kind === 'exact';
+    if (dup && dup.kind === 'likely') saveBtn.textContent = 'Add anyway';
   }
 
   function openSMSModal(initialText) {
@@ -662,15 +888,23 @@
 
   if ($('save-sms-entry')) {
     $('save-sms-entry').addEventListener('click', function () {
-      if (!parsedSMSDraft || !parsedSMSDraft.valid) return;
+      var draft = parsedSMSDraft;
+      if (!draft || !draft.valid) return;
+      var amt = parseAmount($('sms-amt').value);
+      if (!amt) { alert('Please enter a valid amount.'); return; }
+      var desc = normDesc($('sms-desc').value);
+      if (!desc) { alert('Please enter a description.'); return; }
+      var dateVal = $('sms-date').value;
+      var spentAt = dateVal ? new Date(dateVal).toISOString() : null;
+      if (desc !== draft.desc) rememberMerchant(draft.rawPayee, desc);
+
       var saveBtn = $('save-sms-entry');
       saveBtn.disabled = true;
       saveBtn.textContent = 'Saving…';
-
-      store.add({ amount: parsedSMSDraft.amount, desc: parsedSMSDraft.desc, spent_at: null }).then(function () {
+      store.add({ amount: amt, desc: desc, spent_at: spentAt, ref_no: draft.refNo, raw_sms: draft.rawSMS }).then(function () {
         closeSMSModal();
         render();
-        toast('Added ' + money(parsedSMSDraft.amount) + ' from ' + parsedSMSDraft.bank + ' SMS!');
+        toast('Added ' + money(amt) + ' from ' + draft.bank + ' SMS!');
       }).catch(function (err) {
         alert('Could not save SMS entry: ' + (err.message || 'Error'));
       }).then(function () {
