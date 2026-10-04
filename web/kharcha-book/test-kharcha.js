@@ -74,6 +74,10 @@ assert(parseAmount('abc') === null, 'parseAmount("abc") => null');
 
 // 2. Description normalization
 assert(normDesc('  grocery  shopping ') === 'Grocery shopping', 'normDesc cleans up whitespace & capitalizes first letter');
+const longEmojiStr = '🛒'.repeat(55);
+const normEmojiResult = normDesc(longEmojiStr);
+assert(Array.from(normEmojiResult).length === 50, 'normDesc safely truncates emoji surrogate pairs without malformed JSON characters');
+assert((function() { try { encodeURIComponent(normEmojiResult); return true; } catch(e) { return false; } })(), 'normEmojiResult is valid UTF-16 without unpaired surrogates');
 
 // 3. Money formatting
 assert(money(250).includes('250'), 'money(250) formats INR integer');

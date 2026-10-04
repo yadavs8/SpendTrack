@@ -15,8 +15,11 @@
     var n = Number(t);
     return n > 0 && n < 1e9 ? n : null;
   }
+  function safeTruncate(str, len) {
+    return Array.from(String(str)).slice(0, len || 50).join('');
+  }
   function normDesc(s) {
-    var t = String(s).replace(/\s+/g, ' ').trim().slice(0, 60);
+    var t = safeTruncate(String(s).replace(/\s+/g, ' ').trim(), 50);
     return t ? t.charAt(0).toUpperCase() + t.slice(1) : '';
   }
   function toLocalISOString(ts) {
@@ -136,14 +139,14 @@
         showScreen('auth');
         throw new Error("Your sign-in session expired. Please sign in again.");
       }
-      var payload = { amount: e.amount, description: e.desc.slice(0, 60), user_id: userRes.data.user.id };
+      var payload = { amount: e.amount, description: safeTruncate(e.desc, 50), user_id: userRes.data.user.id };
       if (e.spent_at) payload.spent_at = e.spent_at;
       var res = await sb.from(TABLE).insert(payload).select(COLS).single();
       if (res.error) throw res.error;
       state.entries.push(fromRow(res.data));
     },
     update: async function (id, patch) {
-      var payload = { amount: patch.amount, description: patch.desc.slice(0, 60) };
+      var payload = { amount: patch.amount, description: safeTruncate(patch.desc, 50) };
       if (patch.spent_at) payload.spent_at = patch.spent_at;
       var res = await sb.from(TABLE).update(payload).eq('id', id).select(COLS).single();
       if (res.error) throw res.error;
