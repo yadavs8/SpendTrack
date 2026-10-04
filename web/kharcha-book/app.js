@@ -735,4 +735,28 @@
       if (lockCred() && lockSupported) { showScreen('lock'); unlock(); } else await enterApp();
     } else showScreen('auth');
   })();
+
+  /* ---------- PWA Installation Handler ---------- */
+  var deferredPrompt = null;
+  window.addEventListener('beforeinstallprompt', function (ev) {
+    ev.preventDefault();
+    deferredPrompt = ev;
+    var btn = $('install-btn');
+    if (btn) btn.hidden = false;
+  });
+
+  var installBtn = $('install-btn');
+  if (installBtn) {
+    installBtn.addEventListener('click', function () {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.then(function (choice) {
+        if (choice.outcome === 'accepted') {
+          installBtn.hidden = true;
+          toast('Kharcha Book app installed!');
+        }
+        deferredPrompt = null;
+      });
+    });
+  }
 })();

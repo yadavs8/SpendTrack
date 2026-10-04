@@ -162,6 +162,7 @@ button { cursor: pointer; }
 .auth p { margin: 0; color: var(--muted); font-size: 0.9rem; }
 .linkbtn { background: transparent; border: 0; padding: 0; color: var(--accent); text-decoration: underline; text-underline-offset: 3px; font-size: 0.875rem; }
 .signout { background: transparent; border: 0; padding: 4px 0; color: var(--muted); font-size: 0.78rem; text-decoration: underline; text-underline-offset: 3px; }
+.installbtn { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 8px; padding: 4px 10px; font-size: 0.78rem; font-weight: 600; }
 .top-r { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .setup { border: 1px dashed var(--danger); border-radius: 12px; padding: 16px; color: var(--ink); }
 .setup p { margin: 0; }
