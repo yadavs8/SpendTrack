@@ -362,6 +362,7 @@
       pending: ['Loading…', ''],
       db: ['Saved to Supabase', 'Every entry is stored in your Supabase project.'],
       signedout: ['Signed out', ''],
+      locked: ['Locked', ''],
       setup: ['Not connected', ''],
       error: ['Not connected', '']
     };
@@ -402,6 +403,84 @@
     }).then(function () { renderSync(); });
   });
 
+  /* ---------- app lock: fingerprint / phone PIN via WebAuthn ---------- */
+  // This is a screen lock on this device. It uses the phone's own unlock (fingerprint, face, PIN, pattern).
+  // The sign-in session itself stays in the browser, so the lock keeps casual users out; it is not server-side verification.
+  var LOCK_KEY = 'kharcha_lock_cred';
+  var LOCK_AFTER_MS = 60000;
+  var hiddenAt = 0;
+  function b64u(buf) { var s = ''; new Uint8Array(buf).forEach(function (b) { s += String.fromCharCode(b); }); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+  function unb64u(str) { str = str.replace(/-/g, '+').replace(/_/g, '/'); while (str.length % 4) str += '='; var bin = atob(str), out = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out; }
+  function lockCred() { try { return localStorage.getItem(LOCK_KEY); } catch (e) { return null; } }
+  function setLockCred(v) { try { if (v) localStorage.setItem(LOCK_KEY, v); else localStorage.removeItem(LOCK_KEY); } catch (e) {} }
+  var lockSupported = false;
+  function detectLock() {
+    if (!window.PublicKeyCredential || !window.isSecureContext || !PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable) return Promise.resolve();
+    return PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().then(function (ok) { lockSupported = !!ok; }).catch(function () {});
+  }
+  function renderLockToggle() {
+    var b = $('locktoggle');
+    b.hidden = $('main').hidden || !lockSupported;
+    b.textContent = lockCred() ? 'Turn off lock' : 'Turn on fingerprint / PIN lock';
+  }
+  function rand(n) { var a = new Uint8Array(n); crypto.getRandomValues(a); return a; }
+  async function enableLock() {
+    try {
+      var who = (await sb.auth.getUser()).data.user;
+      var cred = await navigator.credentials.create({ publicKey: {
+        challenge: rand(32),
+        rp: { name: 'Kharcha Book' },
+        user: { id: rand(16), name: (who && who.email) || 'kharcha', displayName: 'Kharcha Book' },
+        pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+        authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'discouraged' },
+        timeout: 60000
+      } });
+      setLockCred(b64u(cred.rawId));
+      renderLockToggle();
+      toast('Lock is on. It asks for your fingerprint or PIN next time.');
+    } catch (err) {
+      toast('Could not turn on the lock. Make sure your phone has a screen lock set up.');
+    }
+  }
+  async function unlock() {
+    var id = lockCred();
+    if (!id) { await enterApp(); return; }
+    $('lock-err').hidden = true;
+    try {
+      await navigator.credentials.get({ publicKey: {
+        challenge: rand(32),
+        allowCredentials: [{ type: 'public-key', id: unb64u(id), transports: ['internal'] }],
+        userVerification: 'required',
+        timeout: 60000
+      } });
+    } catch (err) {
+      $('lock-err').textContent = 'Could not unlock. Try again, or sign in with your password.';
+      $('lock-err').hidden = false;
+      return;
+    }
+    await enterApp();
+  }
+  function lockNow() {
+    state.editing = null;
+    showScreen('lock');
+  }
+  $('locktoggle').addEventListener('click', function () {
+    if (lockCred()) { setLockCred(null); renderLockToggle(); toast('Lock turned off'); }
+    else enableLock();
+  });
+  $('lock-btn').addEventListener('click', unlock);
+  $('lock-pass').addEventListener('click', async function () {
+    setLockCred(null);
+    await sb.auth.signOut();
+    state.entries = []; state.editing = null;
+    showScreen('auth');
+  });
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) { hiddenAt = Date.now(); return; }
+    if (hiddenAt && Date.now() - hiddenAt > LOCK_AFTER_MS && lockCred() && !$('main').hidden) lockNow();
+    hiddenAt = 0;
+  });
+
   /* ---------- sign in ---------- */
   function showAuthErr(msg) { var e = $('auth-err'); e.textContent = msg; e.hidden = !msg; }
   $('auth').addEventListener('submit', async function (ev) {
@@ -420,6 +499,7 @@
     await enterApp();
   });
   $('signout').addEventListener('click', async function () {
+    setLockCred(null);
     await sb.auth.signOut();
     state.entries = []; state.editing = null; state.mode = 'signedout';
     showScreen('auth');
@@ -428,9 +508,11 @@
   function showScreen(which) {
     $('setup').hidden = which !== 'setup';
     $('auth').hidden = which !== 'auth';
+    $('lock').hidden = which !== 'lock';
     $('main').hidden = which !== 'main';
     $('signout').hidden = which !== 'main';
-    if (which !== 'main') { state.mode = which === 'auth' ? 'signedout' : 'setup'; renderSync(); }
+    renderLockToggle();
+    if (which !== 'main') { state.mode = which === 'auth' ? 'signedout' : which === 'lock' ? 'locked' : 'setup'; renderSync(); }
   }
 
   async function enterApp() {
@@ -456,7 +538,10 @@
   (async function init() {
     if (!CFG.SUPABASE_URL || !CFG.SUPABASE_ANON_KEY || !window.supabase) { showScreen('setup'); return; }
     sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
+    await detectLock();
     var got = await sb.auth.getSession();
-    if (got.data && got.data.session) await enterApp(); else showScreen('auth');
+    if (got.data && got.data.session) {
+      if (lockCred() && lockSupported) { showScreen('lock'); unlock(); } else await enterApp();
+    } else showScreen('auth');
   })();
 })();

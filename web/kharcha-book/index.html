@@ -8,13 +8,21 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="styles.css">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0B5D75">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Kharcha">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png" type="image/png">
 </head>
 <body>
 <main class="app">
   <header class="top">
-    <h1>Kharcha Book</h1>
+    <h1><img class="logo" src="icon-192.png" width="36" height="36" alt="">Kharcha Book</h1>
     <div class="top-r">
       <span class="sync" id="sync" data-state="pending">Loading…</span>
+      <button type="button" class="signout" id="locktoggle" hidden></button>
       <button type="button" class="signout" id="signout" hidden>Sign out</button>
     </div>
   </header>
@@ -33,6 +41,16 @@
       <button class="primary" type="submit" id="auth-btn">Sign in</button>
     </div>
   </form>
+
+  <section class="auth" id="lock" hidden>
+    <h2>Kharcha Book is locked</h2>
+    <p>Use your fingerprint or your phone's PIN, pattern or password to open it.</p>
+    <p class="err" id="lock-err" role="alert" hidden></p>
+    <div class="add-foot">
+      <button class="linkbtn" type="button" id="lock-pass">Sign in with password instead</button>
+      <button class="primary" type="button" id="lock-btn">Unlock</button>
+    </div>
+  </section>
 
   <div id="main" class="app" hidden>
   <section class="hero" aria-label="Month total">
@@ -94,5 +112,6 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="config.js" onerror="void 0"></script>
 <script src="app.js"></script>
+<script>if ('serviceWorker' in navigator) { window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); }); }</script>
 </body>
 </html>
