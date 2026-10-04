@@ -565,11 +565,6 @@
     if (!window.PublicKeyCredential || !window.isSecureContext || !PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable) return Promise.resolve();
     return PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().then(function (ok) { lockSupported = !!ok; }).catch(function () {});
   }
-  function renderLockToggle() {
-    var b = $('locktoggle');
-    b.hidden = $('main').hidden || !lockSupported;
-    b.textContent = lockCred() ? 'Turn off lock' : 'Turn on fingerprint / PIN lock';
-  }
   function rand(n) { var a = new Uint8Array(n); crypto.getRandomValues(a); return a; }
   async function enableLock() {
     try {
@@ -583,10 +578,10 @@
         timeout: 60000
       } });
       setLockCred(b64u(cred.rawId));
-      renderLockToggle(); renderLockOffer();
-      toast('Lock is on. It asks for your fingerprint or PIN next time.');
+      renderLockOffer();
+      toast('Lock enabled! Fingerprint or phone PIN will be required next time.');
     } catch (err) {
-      toast('Could not turn on the lock. Make sure your phone has a screen lock set up.');
+      toast('Could not enable lock. Ensure your device has a fingerprint or phone PIN set up.');
     }
   }
   async function unlock() {
@@ -601,7 +596,7 @@
         timeout: 60000
       } });
     } catch (err) {
-      $('lock-err').textContent = 'Could not unlock. Try again, or sign in with password.';
+      $('lock-err').textContent = 'Could not unlock. Try again, or verify with your phone PIN / password.';
       $('lock-err').hidden = false;
       return;
     }
@@ -611,10 +606,6 @@
     state.editing = null;
     showScreen('lock');
   }
-  $('locktoggle').addEventListener('click', function () {
-    if (lockCred()) { setLockCred(null); renderLockToggle(); toast('Lock turned off'); }
-    else enableLock();
-  });
   $('lock-btn').addEventListener('click', unlock);
   $('lock-pass').addEventListener('click', async function () {
     setLockCred(null);
@@ -630,7 +621,10 @@
 
   var OFFER_KEY = 'kharcha_lock_declined';
   function offerDeclined() { try { return !!localStorage.getItem(OFFER_KEY); } catch (e) { return false; } }
-  function renderLockOffer() { $('lock-offer').hidden = !(lockSupported && !lockCred() && !offerDeclined() && !$('main').hidden); }
+  function renderLockOffer() {
+    var offerSec = $('lock-offer');
+    if (offerSec) offerSec.hidden = !(lockSupported && !lockCred() && !offerDeclined() && !$('main').hidden);
+  }
   $('offer-no').addEventListener('click', function () { try { localStorage.setItem(OFFER_KEY, '1'); } catch (e) {} renderLockOffer(); });
   $('offer-yes').addEventListener('click', async function () { await enableLock(); renderLockOffer(); });
 
@@ -640,13 +634,13 @@
   function showAuthInfo(msg) { var i = $('auth-info'); i.textContent = msg; i.hidden = !msg; }
   function renderAuth() {
     var otp = authMode === 'otp';
-    $('auth-title').textContent = otp ? 'Sign in with an email code' : 'Sign in with a password';
+    $('auth-title').textContent = otp ? 'Sign in with an email link or code' : 'Sign in with a password';
     $('auth-intro').hidden = !otp || otpSent;
     $('code-field').hidden = !(otp && otpSent);
     $('pass-field').hidden = otp;
     $('auth-email').readOnly = otp && otpSent;
-    $('auth-btn').textContent = otp ? (otpSent ? 'Verify code' : 'Send code') : 'Sign in';
-    $('auth-toggle').textContent = otp ? 'Use a password instead' : 'Use an email code instead';
+    $('auth-btn').textContent = otp ? (otpSent ? 'Verify code' : 'Send link / code') : 'Sign in';
+    $('auth-toggle').textContent = otp ? 'Use a password instead' : 'Use an email link instead';
     showAuthErr(''); showAuthInfo('');
   }
   $('auth-toggle').addEventListener('click', function () {
@@ -667,7 +661,7 @@
         res = await sb.auth.signInWithOtp({ email: email, options: { shouldCreateUser: false } });
         if (!res.error) {
           otpSent = true; renderAuth();
-          showAuthInfo('We sent a code to ' + email + '. Enter it below. It can take a minute to arrive.');
+          showAuthInfo('We sent a sign-in link to ' + email + '. Click the link in your email to log in automatically.');
           $('auth-code').focus();
           $('auth-btn').disabled = false; return;
         }
@@ -700,7 +694,7 @@
     $('main').hidden = which !== 'main';
     $('signout').hidden = which !== 'main';
     if (which === 'auth') renderAuth();
-    renderLockToggle(); renderLockOffer();
+    renderLockOffer();
     if (which !== 'main') { state.mode = which === 'auth' ? 'signedout' : which === 'lock' ? 'locked' : 'setup'; renderSync(); }
   }
 
@@ -728,6 +722,14 @@
     if (!CFG.SUPABASE_URL || !CFG.SUPABASE_ANON_KEY || !window.supabase) { showScreen('setup'); return; }
     sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
     await detectLock();
+
+    sb.auth.onAuthStateChange(async function (event, session) {
+      if (session && ($('main').hidden || state.mode === 'signedout')) {
+        if (lockCred() && lockSupported) { showScreen('lock'); unlock(); }
+        else await enterApp();
+      }
+    });
+
     var got = await sb.auth.getSession();
     if (got.data && got.data.session) {
       if (lockCred() && lockSupported) { showScreen('lock'); unlock(); } else await enterApp();

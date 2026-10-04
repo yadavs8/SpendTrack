@@ -178,6 +178,16 @@ button { cursor: pointer; }
 .scope-pill input { margin: 0; display: none; }
 .scope-pill.active { background: var(--accent-soft); border-color: var(--accent); color: var(--ink); font-weight: 600; }
 
+.lock-offer-banner {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 10px;
+}
+.lock-offer-banner h2 { font-size: 1.05rem; margin-bottom: 4px; }
+.lock-offer-banner p { font-size: 0.85rem; color: var(--ink); }
+
 /* Auth Tabs */
 .auth-tabs { display: flex; gap: 6px; background: var(--bg); padding: 4px; border-radius: 10px; border: 1px solid var(--line); }
 .tabbtn { flex: 1; height: 36px; background: transparent; border: 0; border-radius: 6px; font-size: 0.82rem; font-weight: 500; color: var(--muted); }

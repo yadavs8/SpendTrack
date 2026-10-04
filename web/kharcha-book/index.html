@@ -22,7 +22,6 @@
     <h1><img class="logo" src="icon-192.png" width="36" height="36" alt="">Kharcha Book</h1>
     <div class="top-r">
       <span class="sync" id="sync" data-state="pending">Loading…</span>
-      <button type="button" class="signout" id="locktoggle" hidden></button>
       <button type="button" class="signout" id="signout" hidden>Sign out</button>
     </div>
   </header>
@@ -32,22 +31,22 @@
   </div>
 
   <form class="auth" id="auth" hidden novalidate>
-    <h2 id="auth-title">Sign in with an email code</h2>
-    <p id="auth-intro">Enter your email and we will send you a one-time code. After that, use your fingerprint or phone PIN to open the app.</p>
-    <div class="field" id="email-field"><label for="auth-email">Email</label><input class="input" id="auth-email" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com"></div>
-    <div class="field" id="code-field" hidden><label for="auth-code">Code from your email</label><input class="input" id="auth-code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456"></div>
+    <h2 id="auth-title">Sign in with an email link or code</h2>
+    <p id="auth-intro">Enter your email address and we will send you a sign-in link. Click the link in your email to open Kharcha Book instantly.</p>
+    <div class="field" id="email-field"><label for="auth-email">Email address</label><input class="input" id="auth-email" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com"></div>
+    <div class="field" id="code-field" hidden><label for="auth-code">6-Digit Code (if provided in email)</label><input class="input" id="auth-code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456"></div>
     <div class="field" id="pass-field" hidden><label for="auth-pass">Password</label><input class="input" id="auth-pass" type="password" autocomplete="current-password"></div>
     <p class="err" id="auth-err" role="alert" hidden></p>
     <p id="auth-info" role="status" hidden></p>
     <div class="add-foot">
       <button class="linkbtn" type="button" id="auth-toggle">Use a password instead</button>
-      <button class="primary" type="submit" id="auth-btn">Send code</button>
+      <button class="primary" type="submit" id="auth-btn">Send link / code</button>
     </div>
   </form>
 
   <section class="auth" id="lock" hidden>
     <h2>Kharcha Book is locked</h2>
-    <p>Use your fingerprint or your phone's PIN, pattern or password to open it.</p>
+    <p>Use your fingerprint or your phone's PIN/password to open it.</p>
     <p class="err" id="lock-err" role="alert" hidden></p>
     <div class="add-foot">
       <button class="linkbtn" type="button" id="lock-pass">Sign in with password instead</button>
@@ -56,12 +55,12 @@
   </section>
 
   <div id="main" class="app" hidden>
-  <section class="auth" id="lock-offer" hidden>
-    <h2>Open faster and keep it private</h2>
-    <p>Use your fingerprint or phone PIN to open Kharcha Book next time, instead of signing in again.</p>
+  <section class="auth lock-offer-banner" id="lock-offer" hidden>
+    <h2>Enable Fingerprint / Phone PIN Lock</h2>
+    <p>Open Kharcha Book next time using your fingerprint or phone PIN instead of signing in again.</p>
     <div class="add-foot">
       <button class="linkbtn" type="button" id="offer-no">Not now</button>
-      <button class="primary" type="button" id="offer-yes">Turn on</button>
+      <button class="primary" type="button" id="offer-yes">Enable Lock</button>
     </div>
   </section>
   <section class="hero" aria-label="Month total">
