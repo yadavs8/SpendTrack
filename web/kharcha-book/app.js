@@ -1072,8 +1072,8 @@
       box.appendChild(e2);
       return;
     }
-    days.forEach(function (g) {
-      var wrap = el('section', 'day');
+    days.forEach(function (g, i) {
+      var wrap = el('section', 'day tone-' + (i % 6));
       wrap.appendChild(dayHead(g));
       var ul = el('ul', 'entries');
       g.items.forEach(function (e) {

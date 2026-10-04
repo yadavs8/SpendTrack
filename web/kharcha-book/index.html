@@ -186,12 +186,12 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=11" onerror="void 0"></script>
-<script src="app.js?v=11"></script>
+<script src="config.js?v=12" onerror="void 0"></script>
+<script src="app.js?v=12"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('sw.js?v=11').then(function (reg) {
+      navigator.serviceWorker.register('sw.js?v=12').then(function (reg) {
         reg.update();
         reg.addEventListener('updatefound', function () {
           var newWorker = reg.installing;
