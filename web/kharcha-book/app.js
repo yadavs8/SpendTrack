@@ -131,14 +131,14 @@
       return out.map(fromRow).filter(validEntry);
     },
     add: async function (e) {
-      var payload = { amount: e.amount, description: e.desc };
+      var payload = { amount: e.amount, description: e.desc.slice(0, 60) };
       if (e.spent_at) payload.spent_at = e.spent_at;
       var res = await sb.from(TABLE).insert(payload).select(COLS).single();
       if (res.error) throw res.error;
       state.entries.push(fromRow(res.data));
     },
     update: async function (id, patch) {
-      var payload = { amount: patch.amount, description: patch.desc };
+      var payload = { amount: patch.amount, description: patch.desc.slice(0, 60) };
       if (patch.spent_at) payload.spent_at = patch.spent_at;
       var res = await sb.from(TABLE).update(payload).eq('id', id).select(COLS).single();
       if (res.error) throw res.error;
@@ -583,8 +583,9 @@
       render();
       toast('Added ' + money(amt) + ' for ' + desc);
       $('amt').focus();
-    }).catch(function () {
-      showErr('Could not save that entry. Check your connection and try again.');
+    }).catch(function (err) {
+      var msg = (err && (err.message || err.details)) || 'Check your connection and try again.';
+      showErr('Could not save entry: ' + msg);
     }).then(function () { renderSync(); });
   });
 
