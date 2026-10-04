@@ -32,21 +32,16 @@
   </div>
 
   <form class="auth" id="auth" hidden novalidate>
-    <h2 id="auth-title">Sign in with OTP code</h2>
-    <p id="auth-intro">Enter your phone number or email to receive a one-time verification code. After signing in, you can unlock with your fingerprint or phone PIN.</p>
-    <div class="auth-tabs" id="auth-tabs">
-      <button type="button" class="tabbtn active" id="tab-phone">Phone OTP</button>
-      <button type="button" class="tabbtn" id="tab-email">Email OTP</button>
-      <button type="button" class="tabbtn" id="tab-pass">Password</button>
-    </div>
-    <div class="field" id="phone-field"><label for="auth-phone">Phone number (with +91)</label><input class="input" id="auth-phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="+919876543210"></div>
-    <div class="field" id="email-field" hidden><label for="auth-email">Email address</label><input class="input" id="auth-email" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com"></div>
-    <div class="field" id="code-field" hidden><label for="auth-code">6-Digit verification code</label><input class="input" id="auth-code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456"></div>
+    <h2 id="auth-title">Sign in with an email code</h2>
+    <p id="auth-intro">Enter your email and we will send you a one-time code. After that, use your fingerprint or phone PIN to open the app.</p>
+    <div class="field" id="email-field"><label for="auth-email">Email</label><input class="input" id="auth-email" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com"></div>
+    <div class="field" id="code-field" hidden><label for="auth-code">Code from your email</label><input class="input" id="auth-code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456"></div>
     <div class="field" id="pass-field" hidden><label for="auth-pass">Password</label><input class="input" id="auth-pass" type="password" autocomplete="current-password"></div>
     <p class="err" id="auth-err" role="alert" hidden></p>
     <p id="auth-info" role="status" hidden></p>
     <div class="add-foot">
-      <button class="primary" type="submit" id="auth-btn">Send OTP Code</button>
+      <button class="linkbtn" type="button" id="auth-toggle">Use a password instead</button>
+      <button class="primary" type="submit" id="auth-btn">Send code</button>
     </div>
   </form>
 

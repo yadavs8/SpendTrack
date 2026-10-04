@@ -577,7 +577,7 @@
       var cred = await navigator.credentials.create({ publicKey: {
         challenge: rand(32),
         rp: { name: 'Kharcha Book' },
-        user: { id: rand(16), name: (who && (who.email || who.phone)) || 'kharcha', displayName: 'Kharcha Book' },
+        user: { id: rand(16), name: (who && who.email) || 'kharcha', displayName: 'Kharcha Book' },
         pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
         authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'discouraged' },
         timeout: 60000
@@ -634,91 +634,54 @@
   $('offer-no').addEventListener('click', function () { try { localStorage.setItem(OFFER_KEY, '1'); } catch (e) {} renderLockOffer(); });
   $('offer-yes').addEventListener('click', async function () { await enableLock(); renderLockOffer(); });
 
-  /* ---------- Sign In ---------- */
+  /* ---------- sign in ---------- */
   function showAuthErr(msg) { var e = $('auth-err'); e.textContent = msg; e.hidden = !msg; }
+  var authMode = 'otp', otpSent = false;
   function showAuthInfo(msg) { var i = $('auth-info'); i.textContent = msg; i.hidden = !msg; }
-
-  var authTab = 'phone';
-  var otpSent = false;
-
-  function renderAuthTabs() {
-    $('tab-phone').classList.toggle('active', authTab === 'phone');
-    $('tab-email').classList.toggle('active', authTab === 'email');
-    $('tab-pass').classList.toggle('active', authTab === 'pass');
-
-    $('phone-field').hidden = authTab !== 'phone';
-    $('email-field').hidden = authTab !== 'email';
-    $('pass-field').hidden = authTab !== 'pass';
-    $('code-field').hidden = !otpSent || authTab === 'pass';
-
-    if (authTab === 'phone') {
-      $('auth-title').textContent = otpSent ? 'Enter SMS Code' : 'Sign in with Phone OTP';
-      $('auth-intro').textContent = 'Enter your phone number with country code (e.g. +919876543210) to receive a one-time SMS code.';
-      $('auth-btn').textContent = otpSent ? 'Verify SMS Code' : 'Send SMS Code';
-    } else if (authTab === 'email') {
-      $('auth-title').textContent = otpSent ? 'Enter Email Code' : 'Sign in with Email OTP';
-      $('auth-intro').textContent = 'Enter your email address to receive a one-time code.';
-      $('auth-btn').textContent = otpSent ? 'Verify Email Code' : 'Send Email Code';
-    } else {
-      $('auth-title').textContent = 'Sign in with Password';
-      $('auth-intro').textContent = 'Enter your email and password to sign in.';
-      $('auth-btn').textContent = 'Sign in';
-    }
+  function renderAuth() {
+    var otp = authMode === 'otp';
+    $('auth-title').textContent = otp ? 'Sign in with an email code' : 'Sign in with a password';
+    $('auth-intro').hidden = !otp || otpSent;
+    $('code-field').hidden = !(otp && otpSent);
+    $('pass-field').hidden = otp;
+    $('auth-email').readOnly = otp && otpSent;
+    $('auth-btn').textContent = otp ? (otpSent ? 'Verify code' : 'Send code') : 'Sign in';
+    $('auth-toggle').textContent = otp ? 'Use a password instead' : 'Use an email code instead';
     showAuthErr(''); showAuthInfo('');
   }
-
-  $('tab-phone').addEventListener('click', function () { authTab = 'phone'; otpSent = false; renderAuthTabs(); });
-  $('tab-email').addEventListener('click', function () { authTab = 'email'; otpSent = false; renderAuthTabs(); });
-  $('tab-pass').addEventListener('click', function () { authTab = 'pass'; otpSent = false; renderAuthTabs(); });
-
+  $('auth-toggle').addEventListener('click', function () {
+    authMode = authMode === 'otp' ? 'pass' : 'otp'; otpSent = false; $('auth-code').value = ''; renderAuth();
+  });
   $('auth').addEventListener('submit', async function (ev) {
     ev.preventDefault();
-    showAuthErr(''); showAuthInfo('');
-    $('auth-btn').disabled = true;
+    var email = $('auth-email').value.trim();
+    if (!email) { showAuthErr('Enter your email address.'); return; }
+    $('auth-btn').disabled = true; showAuthErr('');
     var res;
     try {
-      if (authTab === 'pass') {
-        var email = $('auth-email').value.trim();
+      if (authMode === 'pass') {
         var pass = $('auth-pass').value;
-        if (!email || pass.length < 6) { showAuthErr('Enter your email and password.'); $('auth-btn').disabled = false; return; }
+        if (pass.length < 6) { showAuthErr('Enter your password.'); $('auth-btn').disabled = false; return; }
         res = await sb.auth.signInWithPassword({ email: email, password: pass });
-      } else if (authTab === 'phone') {
-        var phone = $('auth-phone').value.trim();
-        if (!phone) { showAuthErr('Enter your phone number with country code (e.g. +919876543210).'); $('auth-btn').disabled = false; return; }
-        if (!otpSent) {
-          res = await sb.auth.signInWithOtp({ phone: phone });
-          if (!res.error) {
-            otpSent = true; renderAuthTabs();
-            showAuthInfo('SMS code sent to ' + phone + '. Enter the 6-digit code below.');
-            $('auth-code').focus(); $('auth-btn').disabled = false; return;
-          }
-        } else {
-          var code = $('auth-code').value.replace(/\s/g, '');
-          if (code.length < 6) { showAuthErr('Enter the 6-digit SMS code.'); $('auth-btn').disabled = false; return; }
-          res = await sb.auth.verifyOtp({ phone: phone, token: code, type: 'sms' });
+      } else if (!otpSent) {
+        res = await sb.auth.signInWithOtp({ email: email, options: { shouldCreateUser: false } });
+        if (!res.error) {
+          otpSent = true; renderAuth();
+          showAuthInfo('We sent a code to ' + email + '. Enter it below. It can take a minute to arrive.');
+          $('auth-code').focus();
+          $('auth-btn').disabled = false; return;
         }
-      } else if (authTab === 'email') {
-        var email = $('auth-email').value.trim();
-        if (!email) { showAuthErr('Enter your email address.'); $('auth-btn').disabled = false; return; }
-        if (!otpSent) {
-          res = await sb.auth.signInWithOtp({ email: email, options: { shouldCreateUser: false } });
-          if (!res.error) {
-            otpSent = true; renderAuthTabs();
-            showAuthInfo('We sent a code to ' + email + '. Enter it below.');
-            $('auth-code').focus(); $('auth-btn').disabled = false; return;
-          }
-        } else {
-          var code = $('auth-code').value.replace(/\s/g, '');
-          if (code.length < 6) { showAuthErr('Enter the code from your email.'); $('auth-btn').disabled = false; return; }
-          res = await sb.auth.verifyOtp({ email: email, token: code, type: 'email' });
-        }
+      } else {
+        var code = $('auth-code').value.replace(/\s/g, '');
+        if (code.length < 6) { showAuthErr('Enter the code from your email.'); $('auth-btn').disabled = false; return; }
+        res = await sb.auth.verifyOtp({ email: email, token: code, type: 'email' });
       }
     } catch (err) {
-      res = { error: { message: err.message || 'Could not reach Supabase. Check connection.' } };
+      res = { error: { message: 'Could not reach Supabase. Check your connection.' } };
     }
     $('auth-btn').disabled = false;
     if (res.error) { showAuthErr(res.error.message); return; }
-    otpSent = false;
+    otpSent = false; renderAuth();
     await enterApp();
   });
 
@@ -736,7 +699,7 @@
     $('lock').hidden = which !== 'lock';
     $('main').hidden = which !== 'main';
     $('signout').hidden = which !== 'main';
-    if (which === 'auth') renderAuthTabs();
+    if (which === 'auth') renderAuth();
     renderLockToggle(); renderLockOffer();
     if (which !== 'main') { state.mode = which === 'auth' ? 'signedout' : which === 'lock' ? 'locked' : 'setup'; renderSync(); }
   }
