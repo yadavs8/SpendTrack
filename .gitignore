@@ -11,3 +11,6 @@ captures/
 local.properties
 *.apk
 *.aab
+
+# Kharcha Book local Supabase config
+web/kharcha-book/config.js
