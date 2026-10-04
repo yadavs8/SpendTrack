@@ -32,13 +32,16 @@
   </div>
 
   <form class="auth" id="auth" hidden novalidate>
-    <h2 id="auth-title">Sign in</h2>
-    <p>Your expenses are private to your account. Sign in to continue.</p>
-    <div class="field"><label for="auth-email">Email</label><input class="input" id="auth-email" type="email" autocomplete="email"></div>
-    <div class="field"><label for="auth-pass">Password</label><input class="input" id="auth-pass" type="password" autocomplete="current-password"></div>
+    <h2 id="auth-title">Sign in with an email code</h2>
+    <p id="auth-intro">Enter your email and we will send you a one-time code. After that, use your fingerprint or phone PIN to open the app.</p>
+    <div class="field"><label for="auth-email">Email</label><input class="input" id="auth-email" type="email" autocomplete="email" inputmode="email"></div>
+    <div class="field" id="code-field" hidden><label for="auth-code">Code from your email</label><input class="input" id="auth-code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456"></div>
+    <div class="field" id="pass-field" hidden><label for="auth-pass">Password</label><input class="input" id="auth-pass" type="password" autocomplete="current-password"></div>
     <p class="err" id="auth-err" role="alert" hidden></p>
+    <p id="auth-info" role="status" hidden></p>
     <div class="add-foot">
-      <button class="primary" type="submit" id="auth-btn">Sign in</button>
+      <button class="linkbtn" type="button" id="auth-toggle">Use a password instead</button>
+      <button class="primary" type="submit" id="auth-btn">Send code</button>
     </div>
   </form>
 
@@ -53,6 +56,14 @@
   </section>
 
   <div id="main" class="app" hidden>
+  <section class="auth" id="lock-offer" hidden>
+    <h2>Open faster and keep it private</h2>
+    <p>Use your fingerprint or phone PIN to open Kharcha Book next time, instead of signing in again.</p>
+    <div class="add-foot">
+      <button class="linkbtn" type="button" id="offer-no">Not now</button>
+      <button class="primary" type="button" id="offer-yes">Turn on</button>
+    </div>
+  </section>
   <section class="hero" aria-label="Month total">
     <div class="hero-nav">
       <button type="button" class="navbtn" id="prev" aria-label="Earlier month">

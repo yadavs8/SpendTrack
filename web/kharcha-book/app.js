@@ -436,7 +436,7 @@
         timeout: 60000
       } });
       setLockCred(b64u(cred.rawId));
-      renderLockToggle();
+      renderLockToggle(); renderLockOffer();
       toast('Lock is on. It asks for your fingerprint or PIN next time.');
     } catch (err) {
       toast('Could not turn on the lock. Make sure your phone has a screen lock set up.');
@@ -481,25 +481,65 @@
     hiddenAt = 0;
   });
 
+  var OFFER_KEY = 'kharcha_lock_declined';
+  function offerDeclined() { try { return !!localStorage.getItem(OFFER_KEY); } catch (e) { return false; } }
+  function renderLockOffer() { $('lock-offer').hidden = !(lockSupported && !lockCred() && !offerDeclined() && !$('main').hidden); }
+  $('offer-no').addEventListener('click', function () { try { localStorage.setItem(OFFER_KEY, '1'); } catch (e) {} renderLockOffer(); });
+  $('offer-yes').addEventListener('click', async function () { await enableLock(); renderLockOffer(); });
+
   /* ---------- sign in ---------- */
   function showAuthErr(msg) { var e = $('auth-err'); e.textContent = msg; e.hidden = !msg; }
+  var authMode = 'otp', otpSent = false;
+  function showAuthInfo(msg) { var i = $('auth-info'); i.textContent = msg; i.hidden = !msg; }
+  function renderAuth() {
+    var otp = authMode === 'otp';
+    $('auth-title').textContent = otp ? 'Sign in with an email code' : 'Sign in with a password';
+    $('auth-intro').hidden = !otp || otpSent;
+    $('code-field').hidden = !(otp && otpSent);
+    $('pass-field').hidden = otp;
+    $('auth-email').readOnly = otp && otpSent;
+    $('auth-btn').textContent = otp ? (otpSent ? 'Verify code' : 'Send code') : 'Sign in';
+    $('auth-toggle').textContent = otp ? 'Use a password instead' : 'Use an email code instead';
+    showAuthErr(''); showAuthInfo('');
+  }
+  $('auth-toggle').addEventListener('click', function () {
+    authMode = authMode === 'otp' ? 'pass' : 'otp'; otpSent = false; $('auth-code').value = ''; renderAuth();
+  });
   $('auth').addEventListener('submit', async function (ev) {
     ev.preventDefault();
-    var email = $('auth-email').value.trim(), pass = $('auth-pass').value;
-    if (!email || pass.length < 6) { showAuthErr('Enter your email and a password of at least 6 characters.'); return; }
+    var email = $('auth-email').value.trim();
+    if (!email) { showAuthErr('Enter your email address.'); return; }
     $('auth-btn').disabled = true; showAuthErr('');
     var res;
     try {
-      res = await sb.auth.signInWithPassword({ email: email, password: pass });
+      if (authMode === 'pass') {
+        var pass = $('auth-pass').value;
+        if (pass.length < 6) { showAuthErr('Enter your password.'); $('auth-btn').disabled = false; return; }
+        res = await sb.auth.signInWithPassword({ email: email, password: pass });
+      } else if (!otpSent) {
+        res = await sb.auth.signInWithOtp({ email: email, options: { shouldCreateUser: false } });
+        if (!res.error) {
+          otpSent = true; renderAuth();
+          showAuthInfo('We sent a code to ' + email + '. Enter it below. It can take a minute to arrive.');
+          $('auth-code').focus();
+          $('auth-btn').disabled = false; return;
+        }
+      } else {
+        var code = $('auth-code').value.replace(/\s/g, '');
+        if (code.length < 6) { showAuthErr('Enter the code from your email.'); $('auth-btn').disabled = false; return; }
+        res = await sb.auth.verifyOtp({ email: email, token: code, type: 'email' });
+      }
     } catch (err) {
       res = { error: { message: 'Could not reach Supabase. Check your connection.' } };
     }
     $('auth-btn').disabled = false;
     if (res.error) { showAuthErr(res.error.message); return; }
+    otpSent = false; renderAuth();
     await enterApp();
   });
   $('signout').addEventListener('click', async function () {
     setLockCred(null);
+    try { localStorage.removeItem(OFFER_KEY); } catch (e) {}
     await sb.auth.signOut();
     state.entries = []; state.editing = null; state.mode = 'signedout';
     showScreen('auth');
@@ -511,7 +551,7 @@
     $('lock').hidden = which !== 'lock';
     $('main').hidden = which !== 'main';
     $('signout').hidden = which !== 'main';
-    renderLockToggle();
+    renderLockToggle(); renderLockOffer();
     if (which !== 'main') { state.mode = which === 'auth' ? 'signedout' : which === 'lock' ? 'locked' : 'setup'; renderSync(); }
   }
 
