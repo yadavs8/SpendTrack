@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kharcha Book</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main class="app">
+  <header class="top">
+    <h1>Kharcha Book</h1>
+    <div class="top-r">
+      <span class="sync" id="sync" data-state="pending">Loading…</span>
+      <button type="button" class="signout" id="signout" hidden>Sign out</button>
+    </div>
+  </header>
+
+  <div class="setup" id="setup" hidden>
+    <p><strong>Supabase is not set up yet.</strong> Copy <code>config.example.js</code> to <code>config.js</code> and fill in <code>SUPABASE_URL</code> and <code>SUPABASE_ANON_KEY</code>. Then run <code>supabase/daily_expenses.sql</code> once in the Supabase SQL editor.</p>
+  </div>
+
+  <form class="auth" id="auth" hidden novalidate>
+    <h2 id="auth-title">Sign in</h2>
+    <p>Your expenses are private to your account. Sign in to continue.</p>
+    <div class="field"><label for="auth-email">Email</label><input class="input" id="auth-email" type="email" autocomplete="email"></div>
+    <div class="field"><label for="auth-pass">Password</label><input class="input" id="auth-pass" type="password" autocomplete="current-password"></div>
+    <p class="err" id="auth-err" role="alert" hidden></p>
+    <div class="add-foot">
+      <button class="primary" type="submit" id="auth-btn">Sign in</button>
+    </div>
+  </form>
+
+  <div id="main" class="app" hidden>
+  <section class="hero" aria-label="Month total">
+    <div class="hero-nav">
+      <button type="button" class="navbtn" id="prev" aria-label="Earlier month">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <h2 id="mlabel">This month</h2>
+      <button type="button" class="navbtn" id="next" aria-label="Later month">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+    <p class="total" id="mtotal">₹0</p>
+    <dl class="stats">
+      <div><dt>Entries</dt><dd id="st-count">0</dd></div>
+      <div><dt>Spent most on</dt><dd id="st-top">—</dd></div>
+      <div><dt>Highest day</dt><dd id="st-high">—</dd></div>
+    </dl>
+  </section>
+
+  <form class="add" id="add" autocomplete="off" novalidate>
+    <div class="add-row">
+      <div class="field">
+        <label for="amt">Amount</label>
+        <div class="amt-wrap"><span aria-hidden="true">₹</span><input class="input" id="amt" inputmode="decimal" placeholder="0" aria-describedby="err"></div>
+      </div>
+      <div class="field">
+        <label for="desc">Description</label>
+        <input class="input" id="desc" list="descs" maxlength="60" placeholder="Grocery, petrol, vegetables…" aria-describedby="err">
+      </div>
+    </div>
+    <div class="chips" id="chips" aria-label="Quick descriptions"></div>
+    <div class="add-foot">
+      <p class="stamp">Saved as <time id="stamp"></time></p>
+      <button class="primary" type="submit" id="addbtn" disabled>Add expense</button>
+    </div>
+    <p class="err" id="err" role="alert" hidden></p>
+  </form>
+  <datalist id="descs"></datalist>
+
+  <section id="breakdown-sec" hidden>
+    <h2 class="sec-title">Where it went, biggest first</h2>
+    <ul class="bars" id="breakdown"></ul>
+  </section>
+
+  <section>
+    <h2 class="sec-title">Day by day</h2>
+    <div id="days" aria-live="polite"></div>
+  </section>
+
+  <section id="months-sec" hidden>
+    <h2 class="sec-title">All months</h2>
+    <ul class="months" id="months"></ul>
+  </section>
+  </div>
+</main>
+<div class="toast" id="toast" role="status" hidden></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js" onerror="void 0"></script>
+<script src="app.js"></script>
+</body>
+</html>
