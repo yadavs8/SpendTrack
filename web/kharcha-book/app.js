@@ -223,6 +223,39 @@
     render();
   });
 
+  var moveBtn = $('move-all-family');
+  if (moveBtn) {
+    moveBtn.addEventListener('click', async function () {
+      var personalEntries = state.entries.filter(function (e) { return !isFamilyEntry(e.desc); });
+      if (!personalEntries.length) {
+        toast('All expenses are already under Family & Bills!');
+        return;
+      }
+      var ok = confirm('Move ' + personalEntries.length + ' personal expense(s) to Family & Bills?');
+      if (!ok) return;
+
+      moveBtn.disabled = true;
+      moveBtn.textContent = 'Moving…';
+      var count = 0;
+      try {
+        for (var i = 0; i < personalEntries.length; i++) {
+          var e = personalEntries[i];
+          var clean = e.desc.replace(/^[👤🏠]\s*/, '');
+          var newDesc = '🏠 ' + clean;
+          await store.update(e.id, { amount: e.amount, desc: newDesc, spent_at: new Date(e.ts).toISOString() });
+          count++;
+        }
+        toast('Moved ' + count + ' expenses to Family & Bills!');
+      } catch (err) {
+        toast('Moved ' + count + ' expenses before error: ' + (err.message || 'failed'));
+      } finally {
+        moveBtn.disabled = false;
+        moveBtn.textContent = '🏠 Move All to Family';
+        render();
+      }
+    });
+  }
+
   $('export-csv').addEventListener('click', function () {
     var list = state.entries.filter(function (e) { return monthKey(e.ts) === state.sel; });
     if (state.scopeFilter === 'personal') list = list.filter(function (e) { return !isFamilyEntry(e.desc); });
