@@ -452,6 +452,12 @@
       return out.map(fromRow).filter(validEntry);
     },
     add: async function (e) {
+      if (isDemoMode) {
+        var cleanDesc = safeTruncate(e.desc, 50);
+        var mockEntry = { id: 'demo-' + Date.now(), amount: e.amount, desc: cleanDesc, ts: e.spent_at ? Date.parse(e.spent_at) : Date.now(), refNo: e.ref_no || null };
+        state.entries.push(mockEntry);
+        return;
+      }
       var userRes = await sb.auth.getUser();
       if (!userRes.data || !userRes.data.user) {
         showScreen('auth');
@@ -1372,6 +1378,49 @@
         }
         deferredPrompt = null;
       });
+    });
+  }
+  /* ---------- Demo Mode & Force Update Handlers ---------- */
+  var isDemoMode = false;
+  var demoBtn = $('demo-mode-btn');
+  if (demoBtn) {
+    demoBtn.addEventListener('click', function () {
+      isDemoMode = true;
+      state.entries = [
+        { id: 'd1', amount: 450, desc: '🍔 Food & Dining (Swiggy)', ts: Date.now() - 3600000, refNo: '42781923' },
+        { id: 'd2', amount: 1250, desc: '🏠 ⚡ Electricity Bill', ts: Date.now() - 86400000, refNo: 'BESCOM98' },
+        { id: 'd3', amount: 1500, desc: '🏠 🛒 General Grocery', ts: Date.now() - 172800000, refNo: 'DMART44' },
+        { id: 'd4', amount: 600, desc: '⛽ Petrol / Fuel', ts: Date.now() - 259200000, refNo: 'HPCL712' }
+      ];
+      showScreen('main');
+      state.mode = 'db';
+      renderSync();
+      render();
+      toast('Demo Mode activated! You can test SMS parser, category budgets, & dark mode.');
+    });
+  }
+
+  var updateBtn = $('force-update-btn');
+  if (updateBtn) {
+    updateBtn.addEventListener('click', function () {
+      if (confirm('Force clear app cache and reload to latest v12?')) {
+        if ('caches' in window) {
+          caches.keys().then(function(keys) {
+            return Promise.all(keys.map(function(k) { return caches.delete(k); }));
+          }).then(function() {
+            if ('serviceWorker' in navigator) {
+              navigator.serviceWorker.getRegistrations().then(function(regs) {
+                regs.forEach(function(r) { r.unregister(); });
+                window.location.reload(true);
+              });
+            } else {
+              window.location.reload(true);
+            }
+          });
+        } else {
+          window.location.reload(true);
+        }
+      }
     });
   }
 })();

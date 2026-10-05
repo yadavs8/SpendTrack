@@ -15,6 +15,24 @@
 <meta name="apple-mobile-web-app-title" content="Kharcha">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" href="icon-192.png" type="image/png">
+<script>
+  (function() {
+    var V = '12';
+    if (localStorage.getItem('kharcha_app_v') !== V) {
+      localStorage.setItem('kharcha_app_v', V);
+      if ('caches' in window) {
+        caches.keys().then(function(keys) {
+          keys.forEach(function(k) { caches.delete(k); });
+        });
+      }
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(regs) {
+          regs.forEach(function(r) { r.unregister(); });
+        });
+      }
+    }
+  })();
+</script>
 </head>
 <body>
 <main class="app">
@@ -22,6 +40,7 @@
     <h1><img class="logo" src="icon-192.png" width="36" height="36" alt="">Kharcha Book</h1>
     <div class="top-r">
       <span class="sync" id="sync" data-state="pending">Loading…</span>
+      <button type="button" class="installbtn" id="force-update-btn" title="Force clear cache & reload latest v12">v12 🔄</button>
       <button type="button" class="installbtn" id="install-btn" hidden>📲 Install App</button>
       <button type="button" class="signout" id="signout" hidden>Sign out</button>
     </div>
@@ -42,6 +61,9 @@
     <div class="add-foot">
       <button class="linkbtn" type="button" id="auth-toggle">Use a password instead</button>
       <button class="primary" type="submit" id="auth-btn">Send link / code</button>
+    </div>
+    <div style="margin-top: 14px; text-align: center;">
+      <button class="secondary" type="button" id="demo-mode-btn" style="width: 100%; border-radius: 10px; padding: 10px; font-weight: 600;">👀 Try Demo Mode & Test SMS Parser</button>
     </div>
   </form>
 
