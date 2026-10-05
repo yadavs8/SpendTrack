@@ -45,6 +45,13 @@ class RulePackEngine(
         val fullText = "${title ?: ""} ${text ?: ""}".trim()
         if (fullText.isBlank()) return null
 
+        // Ads / offers / OTPs never count, even if a rule below would match their amount.
+        if (TransactionParser.isNonTransaction(fullText)) return null
+
+        // From an SMS app, only bank-shaped debit messages (not chats that mention "paid").
+        if (sourcePackage != null && sourcePackage in TransactionParser.MESSAGING_PACKAGES &&
+            !TransactionParser.looksLikeBankSms(fullText)) return null
+
         val senderOrPkg = sourcePackage ?: title ?: ""
 
         // 1. Check user-taught custom templates first
@@ -82,8 +89,8 @@ class RulePackEngine(
 
         // 2. Check JSON Rule Pack
         for (rule in loadedRules) {
-            // Match package if specified
-            if (rule.appPackage != null && sourcePackage != null && rule.appPackage != sourcePackage) {
+            // Match package if specified (an app's rule never applies to SMS or to other apps)
+            if (rule.appPackage != null && rule.appPackage != sourcePackage) {
                 continue
             }
             // Match sender regex if specified

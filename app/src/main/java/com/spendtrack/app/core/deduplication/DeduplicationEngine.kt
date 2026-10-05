@@ -32,6 +32,10 @@ class DeduplicationEngine(
         )
 
         for (candidate in candidates) {
+            // Different UPI references = two real payments (e.g. paying ₹90 twice), never merge them.
+            if (!parsed.upiReference.isNullOrBlank() && !candidate.upiReference.isNullOrBlank() &&
+                candidate.upiReference != parsed.upiReference) continue
+
             val isExactRefMatch = !parsed.upiReference.isNullOrBlank() &&
                     candidate.upiReference == parsed.upiReference
 
@@ -66,7 +70,8 @@ class DeduplicationEngine(
         // Check if there is an identical amount within 2 minutes to prevent accidental duplicate taps without dropping real distinct expenses:
         // Flag for user review instead of silently merging or silently ignoring!
         val hasRecentIdenticalAmount = candidates.any {
-            it.amount == parsed.amount && abs(it.dateTime - parsed.dateTime) <= (2 * 60 * 1000L)
+            it.amount == parsed.amount && abs(it.dateTime - parsed.dateTime) <= (2 * 60 * 1000L) &&
+                    (parsed.upiReference.isNullOrBlank() || it.upiReference.isNullOrBlank())
         }
 
         val needsReview = (parsed.confidenceScore < 0.90f) || hasRecentIdenticalAmount

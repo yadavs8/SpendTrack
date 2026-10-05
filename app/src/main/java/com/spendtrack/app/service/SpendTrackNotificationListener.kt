@@ -57,6 +57,8 @@ class SpendTrackNotificationListener : NotificationListenerService() {
                 val monitoredApps = ServiceLocator.settingsManager.monitoredAppsFlow.first()
                 val isMonitored = monitoredApps.contains(packageName) ||
                         TransactionParser.MONITORED_UPI_PACKAGES.contains(packageName) ||
+                        // Bank SMS shown by the SMS app; works even when SMS permission isn't granted
+                        TransactionParser.MESSAGING_PACKAGES.contains(packageName) ||
                         packageName.contains("bank", ignoreCase = true)
 
                 if (!isMonitored) return@launch
