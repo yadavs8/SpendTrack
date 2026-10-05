@@ -17,7 +17,7 @@
 <link rel="icon" href="icon-192.png" type="image/png">
 <script>
   (function() {
-    var V = '14';
+    var V = '15';
     if (localStorage.getItem('kharcha_app_v') !== V) {
       localStorage.setItem('kharcha_app_v', V);
       if ('caches' in window) {
@@ -40,7 +40,7 @@
     <h1><img class="logo" src="icon-192.png" width="36" height="36" alt="">Kharcha Book</h1>
     <div class="top-r">
       <span class="sync" id="sync" data-state="pending">Loading…</span>
-      <button type="button" class="installbtn" id="force-update-btn" title="Force clear cache & reload latest v13">v13 🔄</button>
+      <button type="button" class="installbtn" id="force-update-btn" title="Force clear cache & reload latest v15">v15 🔄</button>
       <button type="button" class="installbtn" id="install-btn" hidden>📲 Install App</button>
       <button type="button" class="signout" id="signout" hidden>Sign out</button>
     </div>
@@ -183,6 +183,14 @@
     <h2 class="sec-title">All months</h2>
     <ul class="months" id="months"></ul>
   </section>
+
+  <!-- Sticky bottom bar: the current month's total, always visible while scrolling. -->
+  <div class="sticky-month-bar" id="sticky-month-bar">
+    <div class="sticky-inner">
+      <span class="sticky-label" id="sticky-month-label">This Month</span>
+      <span class="sticky-total" id="sticky-month-total">₹0</span>
+    </div>
+  </div>
   </div>
 </main>
 <div class="toast" id="toast" role="status" hidden></div>
@@ -205,21 +213,15 @@
       <button type="button" class="primary" id="save-sms-entry" disabled>1-Tap Add Expense</button>
     </div>
   </div>
-<!-- Sticky Bottom Month Total Bar -->
-<div class="sticky-month-bar" id="sticky-month-bar" hidden>
-  <div class="sticky-inner">
-    <span class="sticky-label" id="sticky-month-label">This Month</span>
-    <span class="sticky-total" id="sticky-month-total">₹0</span>
-  </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=14" onerror="void 0"></script>
-<script src="app.js?v=14"></script>
+<script src="config.js?v=15" onerror="void 0"></script>
+<script src="app.js?v=15"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('sw.js?v=14').then(function (reg) {
+      navigator.serviceWorker.register('sw.js?v=15').then(function (reg) {
         reg.update();
         reg.addEventListener('updatefound', function () {
           var newWorker = reg.installing;

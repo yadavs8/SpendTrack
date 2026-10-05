@@ -679,6 +679,8 @@
 
     $('mlabel').textContent = monthLabel(state.sel);
     $('mtotal').textContent = money(displayTotal);
+    $('sticky-month-label').textContent = monthLabel(state.sel);
+    $('sticky-month-total').textContent = money(displayTotal);
     var vs = $('vs-last');
     if (vs) {
       vs.hidden = cmp.pct == null;
