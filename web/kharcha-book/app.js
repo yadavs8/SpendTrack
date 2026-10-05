@@ -1449,7 +1449,7 @@
   var updateBtn = $('force-update-btn');
   if (updateBtn) {
     updateBtn.addEventListener('click', function () {
-      if (confirm('Force clear app cache and reload to latest v12?')) {
+      if (confirm('Force clear app cache and reload to latest v18?')) {
         if ('caches' in window) {
           caches.keys().then(function(keys) {
             return Promise.all(keys.map(function(k) { return caches.delete(k); }));
