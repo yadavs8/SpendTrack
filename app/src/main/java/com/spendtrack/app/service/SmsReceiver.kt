@@ -53,9 +53,14 @@ class SmsReceiver : BroadcastReceiver() {
 
                 SafeLogger.i("Parsed transaction from SMS ($sender): Amount=${parsed.amount}, Type=${parsed.transactionType}")
                 val result = ServiceLocator.transactionRepository.ingestTransaction(parsed)
-                if (result is DeduplicationEngine.DeduplicationResult.NewTransaction && result.transaction.needsReview) {
-                    ExpensePromptNotifier.show(context.applicationContext, result.transaction)
-                    NudgeScheduler.scheduleFirst(context.applicationContext, result.transaction.id)
+                if (result is DeduplicationEngine.DeduplicationResult.NewTransaction) {
+                    val txn = result.transaction
+                    if (txn.needsReview) {
+                        ExpensePromptNotifier.show(context.applicationContext, txn)
+                        NudgeScheduler.scheduleFirst(context.applicationContext, txn.id)
+                    } else {
+                        ServiceLocator.cloudSyncRepository.syncPending()
+                    }
                 }
             } catch (e: Exception) {
                 SafeLogger.e("Error processing incoming SMS", e)

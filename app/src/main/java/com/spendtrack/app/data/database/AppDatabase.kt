@@ -5,6 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.spendtrack.app.data.database.converters.Converters
 import com.spendtrack.app.data.database.dao.CategoryDao
@@ -29,7 +30,7 @@ import kotlinx.coroutines.launch
         UserAccountEntity::class,
         TemplateRuleEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -53,6 +54,7 @@ abstract class AppDatabase : RoomDatabase() {
                     "spendtrack_database"
                 )
                     .addCallback(DatabaseCallback())
+                    .addMigrations(MIGRATION_1_2)
                     .fallbackToDestructiveMigration(false)
                     .build()
                 INSTANCE = instance
@@ -150,6 +152,12 @@ abstract class AppDatabase : RoomDatabase() {
                 displayOrder = 11
             )
         )
+
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE transactions ADD COLUMN syncedToCloud INTEGER NOT NULL DEFAULT 0")
+            }
+        }
 
         private class DatabaseCallback : Callback() {
             override fun onCreate(db: SupportSQLiteDatabase) {

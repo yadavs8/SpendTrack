@@ -23,6 +23,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Lock
@@ -59,6 +60,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.spendtrack.app.ui.theme.CoralRed
@@ -79,6 +81,7 @@ fun SettingsScreen(
     var showDailyLimitDialog by remember { mutableStateOf(false) }
     var showAccountsDialog by remember { mutableStateOf(false) }
     var showOemHelpDialog by remember { mutableStateOf(false) }
+    var showCloudSignInDialog by remember { mutableStateOf(false) }
 
     val oemGuidance = remember { com.spendtrack.app.core.utils.OemBatteryHelper.getGuidance(context) }
 
@@ -574,7 +577,88 @@ fun SettingsScreen(
                 }
             }
 
-            // 7. Privacy & Local-first Guarantee Card
+            // 7. Cloud Sync -- one-time link to your Kharcha Book account, then fully invisible
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.CloudSync, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Cloud Sync to Kharcha Book", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Sign in once with your Kharcha Book account. After that, every expense this app detects and resolves is pushed there automatically -- you'll only ever need to open Kharcha Book.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        val cloudSyncEmail = uiState.cloudSyncEmail
+                        if (cloudSyncEmail == null) {
+                            Button(
+                                onClick = { showCloudSignInDialog = true },
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = !uiState.isCloudSyncBusy
+                            ) {
+                                Text("Sign in to enable Cloud Sync")
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(cloudSyncEmail, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        uiState.cloudSyncLastError
+                                            ?: uiState.cloudSyncLastSuccessAt?.let { "Last synced just now" }
+                                            ?: "Not synced yet",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (uiState.cloudSyncLastError != null) CoralRed else MaterialTheme.colorScheme.outline
+                                    )
+                                }
+                                Switch(
+                                    checked = uiState.isCloudSyncEnabled,
+                                    onCheckedChange = { viewModel.setCloudSyncEnabled(it) }
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        viewModel.syncCloudNow {
+                                            coroutineScope.launch { snackbarHostState.showSnackbar("Sync complete") }
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    enabled = uiState.isCloudSyncEnabled && !uiState.isCloudSyncBusy
+                                ) {
+                                    Text("Sync Now")
+                                }
+                                OutlinedButton(
+                                    onClick = { viewModel.signOutOfCloudSync() },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Sign Out")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 8. Privacy Card
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -587,11 +671,11 @@ fun SettingsScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Security, contentDescription = null, tint = EmeraldGreen)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("100% Local-First & Private", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = EmeraldGreen)
+                            Text("Local-First & Private", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = EmeraldGreen)
                         }
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            "SpendTrack processes notifications entirely on your device. Your bank details, SMS messages, and expense data are NEVER uploaded to any cloud server or third-party service.",
+                            "SpendTrack processes notifications entirely on your device and stores them locally by default. Nothing leaves your phone unless you sign in and turn on Cloud Sync above.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -687,6 +771,68 @@ fun SettingsScreen(
                 viewModel.addAccount(bank, last4, type, nick)
             },
             onDeleteAccount = { viewModel.deleteAccount(it) }
+        )
+    }
+
+    if (showCloudSignInDialog) {
+        var email by remember { mutableStateOf("") }
+        var password by remember { mutableStateOf("") }
+        var errorText by remember { mutableStateOf<String?>(null) }
+
+        AlertDialog(
+            onDismissRequest = { showCloudSignInDialog = false },
+            title = { Text("Sign in to Cloud Sync") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Use the same email and password as your Kharcha Book web account.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                    OutlinedTextField(
+                        value = email,
+                        onValueChange = { email = it; errorText = null },
+                        label = { Text("Email") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it; errorText = null },
+                        label = { Text("Password") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    if (errorText != null) {
+                        Text(errorText!!, style = MaterialTheme.typography.bodySmall, color = CoralRed)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.signInToCloudSync(email.trim(), password) { success, message ->
+                            if (success) {
+                                showCloudSignInDialog = false
+                                coroutineScope.launch { snackbarHostState.showSnackbar("Signed in. Cloud Sync is on.") }
+                            } else {
+                                errorText = message ?: "Sign-in failed"
+                            }
+                        }
+                    },
+                    enabled = email.isNotBlank() && password.isNotBlank() && !uiState.isCloudSyncBusy
+                ) {
+                    Text(if (uiState.isCloudSyncBusy) "Signing in..." else "Sign In")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCloudSignInDialog = false }) {
+                    Text("Cancel")
+                }
+            }
         )
     }
 

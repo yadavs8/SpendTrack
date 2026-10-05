@@ -79,11 +79,15 @@ class SpendTrackNotificationListener : NotificationListenerService() {
                             // Unclear what this was for -- ask right away, then keep nudging until answered.
                             ExpensePromptNotifier.show(applicationContext, txn)
                             NudgeScheduler.scheduleFirst(applicationContext, txn.id)
-                        } else if (ServiceLocator.settingsManager.showConfirmationNotifs.first()) {
-                            showExpenseNotification(
-                                "Expense recorded: ₹${txn.amount.toInt()} at ${txn.merchantName}",
-                                "Method: ${txn.paymentMethod.displayName}"
-                            )
+                        } else {
+                            // Confident match -- good enough description already, sync it now.
+                            ServiceLocator.cloudSyncRepository.syncPending()
+                            if (ServiceLocator.settingsManager.showConfirmationNotifs.first()) {
+                                showExpenseNotification(
+                                    "Expense recorded: ₹${txn.amount.toInt()} at ${txn.merchantName}",
+                                    "Method: ${txn.paymentMethod.displayName}"
+                                )
+                            }
                         }
                     }
                     is DeduplicationEngine.DeduplicationResult.MergedWithExisting -> {

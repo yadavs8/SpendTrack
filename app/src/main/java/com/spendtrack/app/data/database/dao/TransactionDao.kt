@@ -97,4 +97,20 @@ interface TransactionDao {
 
     @Query("SELECT * FROM transactions ORDER BY dateTime DESC")
     suspend fun getAllTransactionsSync(): List<TransactionEntity>
+
+    /**
+     * Ready to push to Kharcha Book: a real description exists (confidently matched, or already
+     * answered via the categorize prompt / note), not excluded, not demo data, not still awaiting
+     * an answer from the user.
+     */
+    @Query("""
+        SELECT * FROM transactions
+        WHERE syncedToCloud = 0 AND isExcluded = 0 AND isDemo = 0 AND needsReview = 0
+            AND transactionType = 'EXPENSE'
+        ORDER BY dateTime ASC
+    """)
+    suspend fun getUnsyncedExpenses(): List<TransactionEntity>
+
+    @Query("UPDATE transactions SET syncedToCloud = 1 WHERE id = :id")
+    suspend fun markSynced(id: String)
 }

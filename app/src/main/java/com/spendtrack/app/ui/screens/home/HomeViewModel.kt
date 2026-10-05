@@ -139,12 +139,14 @@ class HomeViewModel : ViewModel() {
                 paymentMethod = method,
                 description = notes
             )
+            ServiceLocator.cloudSyncRepository.syncPending()
         }
     }
 
     fun confirmTransaction(transaction: TransactionEntity) {
         viewModelScope.launch {
             repository.confirmTransaction(transaction)
+            ServiceLocator.cloudSyncRepository.syncPending()
         }
     }
 

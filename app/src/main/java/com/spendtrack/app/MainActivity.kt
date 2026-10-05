@@ -26,6 +26,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -160,14 +161,20 @@ fun MainApp() {
     val analyticsViewModel: AnalyticsViewModel = viewModel()
     val settingsViewModel: SettingsViewModel = viewModel()
 
-    // Request POST_NOTIFICATIONS permission on Android 13+
-    val permissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { _ -> }
-
+    // Request POST_NOTIFICATIONS permission on Android 13+. Uses ActivityCompat directly with a
+    // fixed request code -- some OEM ROMs (observed on OxygenOS/ColorOS) enforce a stricter 16-bit
+    // requestCode check than AndroidX's auto-generated codes from rememberLauncherForActivityResult
+    // satisfy, crashing with "Can only use lower 16 bits for requestCode".
+    val activity = LocalContext.current as? android.app.Activity
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            activity?.let {
+                androidx.core.app.ActivityCompat.requestPermissions(
+                    it,
+                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                    1001
+                )
+            }
         }
     }
 

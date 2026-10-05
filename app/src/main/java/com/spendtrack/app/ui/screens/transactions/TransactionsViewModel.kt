@@ -164,6 +164,7 @@ class TransactionsViewModel : ViewModel() {
                 newAmount = newAmount,
                 newPaymentMethod = newMethod
             )
+            ServiceLocator.cloudSyncRepository.syncPending()
         }
     }
 

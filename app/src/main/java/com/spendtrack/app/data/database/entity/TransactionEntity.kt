@@ -44,6 +44,7 @@ data class TransactionEntity(
     val isDemo: Boolean = false,
     val isRefunded: Boolean = false,
     val refundedAmount: Double = 0.0,
+    val syncedToCloud: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )

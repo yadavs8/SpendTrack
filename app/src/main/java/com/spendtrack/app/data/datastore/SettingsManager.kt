@@ -25,6 +25,14 @@ class SettingsManager(private val context: Context) {
         val KEY_DARK_MODE = stringPreferencesKey("dark_mode") // "SYSTEM", "LIGHT", "DARK"
         val KEY_CONFIRMATION_NOTIFS = booleanPreferencesKey("confirmation_notifications")
 
+        // Cloud Sync: one-time link to the Kharcha Book Supabase account
+        val KEY_CLOUD_SYNC_ENABLED = booleanPreferencesKey("cloud_sync_enabled")
+        val KEY_CLOUD_SYNC_EMAIL = stringPreferencesKey("cloud_sync_email")
+        val KEY_CLOUD_SYNC_ACCESS_TOKEN = stringPreferencesKey("cloud_sync_access_token")
+        val KEY_CLOUD_SYNC_REFRESH_TOKEN = stringPreferencesKey("cloud_sync_refresh_token")
+        val KEY_CLOUD_SYNC_LAST_ERROR = stringPreferencesKey("cloud_sync_last_error")
+        val KEY_CLOUD_SYNC_LAST_SUCCESS_AT = stringPreferencesKey("cloud_sync_last_success_at")
+
         val DEFAULT_MONITORED_APPS = setOf(
             "com.google.android.apps.nbu.paisa.user", // Google Pay
             "com.phonepe.app",                       // PhonePe
@@ -64,6 +72,63 @@ class SettingsManager(private val context: Context) {
 
     val darkModeFlow: Flow<String> = context.dataStore.data.map { prefs ->
         prefs[KEY_DARK_MODE] ?: "SYSTEM"
+    }
+
+    val isCloudSyncEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_CLOUD_SYNC_ENABLED] ?: false
+    }
+
+    val cloudSyncEmail: Flow<String?> = context.dataStore.data.map { prefs -> prefs[KEY_CLOUD_SYNC_EMAIL] }
+
+    val cloudSyncAccessToken: Flow<String?> = context.dataStore.data.map { prefs -> prefs[KEY_CLOUD_SYNC_ACCESS_TOKEN] }
+
+    val cloudSyncRefreshToken: Flow<String?> = context.dataStore.data.map { prefs -> prefs[KEY_CLOUD_SYNC_REFRESH_TOKEN] }
+
+    val cloudSyncLastError: Flow<String?> = context.dataStore.data.map { prefs -> prefs[KEY_CLOUD_SYNC_LAST_ERROR] }
+
+    val cloudSyncLastSuccessAt: Flow<Long?> = context.dataStore.data.map { prefs ->
+        prefs[KEY_CLOUD_SYNC_LAST_SUCCESS_AT]?.toLongOrNull()
+    }
+
+    suspend fun saveCloudSyncSession(email: String, accessToken: String, refreshToken: String) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_CLOUD_SYNC_EMAIL] = email
+            prefs[KEY_CLOUD_SYNC_ACCESS_TOKEN] = accessToken
+            prefs[KEY_CLOUD_SYNC_REFRESH_TOKEN] = refreshToken
+            prefs[KEY_CLOUD_SYNC_ENABLED] = true
+            prefs.remove(KEY_CLOUD_SYNC_LAST_ERROR)
+        }
+    }
+
+    suspend fun updateCloudSyncAccessToken(accessToken: String, refreshToken: String) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_CLOUD_SYNC_ACCESS_TOKEN] = accessToken
+            prefs[KEY_CLOUD_SYNC_REFRESH_TOKEN] = refreshToken
+        }
+    }
+
+    suspend fun setCloudSyncEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[KEY_CLOUD_SYNC_ENABLED] = enabled }
+    }
+
+    suspend fun setCloudSyncError(message: String?) {
+        context.dataStore.edit { prefs ->
+            if (message == null) prefs.remove(KEY_CLOUD_SYNC_LAST_ERROR) else prefs[KEY_CLOUD_SYNC_LAST_ERROR] = message
+        }
+    }
+
+    suspend fun setCloudSyncLastSuccessAt(timestamp: Long) {
+        context.dataStore.edit { it[KEY_CLOUD_SYNC_LAST_SUCCESS_AT] = timestamp.toString() }
+    }
+
+    suspend fun clearCloudSyncSession() {
+        context.dataStore.edit { prefs ->
+            prefs.remove(KEY_CLOUD_SYNC_EMAIL)
+            prefs.remove(KEY_CLOUD_SYNC_ACCESS_TOKEN)
+            prefs.remove(KEY_CLOUD_SYNC_REFRESH_TOKEN)
+            prefs.remove(KEY_CLOUD_SYNC_LAST_ERROR)
+            prefs[KEY_CLOUD_SYNC_ENABLED] = false
+        }
     }
 
     suspend fun setMonitoredApp(packageName: String, enabled: Boolean) {

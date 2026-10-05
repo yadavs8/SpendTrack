@@ -55,6 +55,8 @@ class QuickActionReceiver : BroadcastReceiver() {
                     androidx.core.app.NotificationManagerCompat.from(appContext).cancel(notificationId)
                 }
                 NudgeScheduler.cancel(appContext, transactionId)
+                // Now has a real description -- push it to Kharcha Book.
+                ServiceLocator.cloudSyncRepository.syncPending()
             } finally {
                 pendingResult.finish()
             }

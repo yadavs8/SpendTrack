@@ -86,6 +86,9 @@ dependencies {
   // WorkManager: reliable, battery-friendly escalating reminders for uncategorized expenses
   implementation(libs.androidx.work.runtime.ktx)
 
+  // Cloud Sync: pushes resolved expenses to the Kharcha Book Supabase table
+  implementation(libs.okhttp)
+
   // Tooling
   debugImplementation(libs.androidx.compose.ui.tooling)
   // Instrumented tests
