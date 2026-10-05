@@ -83,6 +83,9 @@ dependencies {
   // DataStore Preferences
   implementation(libs.androidx.datastore.preferences)
 
+  // WorkManager: reliable, battery-friendly escalating reminders for uncategorized expenses
+  implementation(libs.androidx.work.runtime.ktx)
+
   // Tooling
   debugImplementation(libs.androidx.compose.ui.tooling)
   // Instrumented tests

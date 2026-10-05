@@ -4,7 +4,10 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.provider.Telephony
+import com.spendtrack.app.core.deduplication.DeduplicationEngine
 import com.spendtrack.app.core.logger.SafeLogger
+import com.spendtrack.app.core.notification.ExpensePromptNotifier
+import com.spendtrack.app.core.nudge.NudgeScheduler
 import com.spendtrack.app.core.parser.TransactionParser
 import com.spendtrack.app.data.di.ServiceLocator
 import kotlinx.coroutines.CoroutineScope
@@ -49,7 +52,11 @@ class SmsReceiver : BroadcastReceiver() {
                 ) ?: return@launch
 
                 SafeLogger.i("Parsed transaction from SMS ($sender): Amount=${parsed.amount}, Type=${parsed.transactionType}")
-                ServiceLocator.transactionRepository.ingestTransaction(parsed)
+                val result = ServiceLocator.transactionRepository.ingestTransaction(parsed)
+                if (result is DeduplicationEngine.DeduplicationResult.NewTransaction && result.transaction.needsReview) {
+                    ExpensePromptNotifier.show(context.applicationContext, result.transaction)
+                    NudgeScheduler.scheduleFirst(context.applicationContext, result.transaction.id)
+                }
             } catch (e: Exception) {
                 SafeLogger.e("Error processing incoming SMS", e)
             }

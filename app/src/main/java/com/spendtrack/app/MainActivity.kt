@@ -8,6 +8,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -179,24 +186,35 @@ fun MainApp() {
         }
     ) { innerPadding ->
         val modifier = Modifier.padding(innerPadding)
-        when (currentScreen) {
-            Screen.Home -> HomeScreen(
-                viewModel = homeViewModel,
-                onNavigateToTransactions = { currentScreen = Screen.Transactions },
-                modifier = modifier
-            )
-            Screen.Transactions -> TransactionsScreen(
-                viewModel = transactionsViewModel,
-                modifier = modifier
-            )
-            Screen.Analytics -> AnalyticsScreen(
-                viewModel = analyticsViewModel,
-                modifier = modifier
-            )
-            Screen.Settings -> SettingsScreen(
-                viewModel = settingsViewModel,
-                modifier = modifier
-            )
+        AnimatedContent(
+            targetState = currentScreen,
+            transitionSpec = {
+                val direction = Screen.items.indexOf(targetState) - Screen.items.indexOf(initialState)
+                val slideDistance = if (direction >= 0) 1 else -1
+                (slideInHorizontally(animationSpec = tween(220)) { it / 6 * slideDistance } + fadeIn(tween(220)))
+                    .togetherWith(slideOutHorizontally(animationSpec = tween(220)) { -it / 6 * slideDistance } + fadeOut(tween(160)))
+            },
+            label = "screen_transition"
+        ) { screen ->
+            when (screen) {
+                Screen.Home -> HomeScreen(
+                    viewModel = homeViewModel,
+                    onNavigateToTransactions = { currentScreen = Screen.Transactions },
+                    modifier = modifier
+                )
+                Screen.Transactions -> TransactionsScreen(
+                    viewModel = transactionsViewModel,
+                    modifier = modifier
+                )
+                Screen.Analytics -> AnalyticsScreen(
+                    viewModel = analyticsViewModel,
+                    modifier = modifier
+                )
+                Screen.Settings -> SettingsScreen(
+                    viewModel = settingsViewModel,
+                    modifier = modifier
+                )
+            }
         }
     }
 }

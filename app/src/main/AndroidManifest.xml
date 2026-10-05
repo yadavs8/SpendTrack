@@ -37,6 +37,11 @@
             </intent-filter>
         </service>
 
+        <!-- Handles taps/replies on the "what's this for?" categorize notification -->
+        <receiver
+            android:name=".service.QuickActionReceiver"
+            android:exported="false" />
+
         <!-- FileProvider for secure CSV / JSON file exports -->
         <provider
             android:name="androidx.core.content.FileProvider"

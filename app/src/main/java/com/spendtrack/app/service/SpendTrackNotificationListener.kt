@@ -10,6 +10,8 @@ import androidx.core.app.NotificationCompat
 import com.spendtrack.app.R
 import com.spendtrack.app.core.deduplication.DeduplicationEngine
 import com.spendtrack.app.core.logger.SafeLogger
+import com.spendtrack.app.core.notification.ExpensePromptNotifier
+import com.spendtrack.app.core.nudge.NudgeScheduler
 import com.spendtrack.app.core.parser.TransactionParser
 import com.spendtrack.app.data.di.ServiceLocator
 import kotlinx.coroutines.CoroutineScope
@@ -70,20 +72,22 @@ class SpendTrackNotificationListener : NotificationListenerService() {
 
                 val result = ServiceLocator.transactionRepository.ingestTransaction(parsed)
 
-                // Optional confirmation notification
-                val showNotif = ServiceLocator.settingsManager.showConfirmationNotifs.first()
-                if (showNotif) {
-                    when (result) {
-                        is DeduplicationEngine.DeduplicationResult.NewTransaction -> {
-                            val txn = result.transaction
+                when (result) {
+                    is DeduplicationEngine.DeduplicationResult.NewTransaction -> {
+                        val txn = result.transaction
+                        if (txn.needsReview) {
+                            // Unclear what this was for -- ask right away, then keep nudging until answered.
+                            ExpensePromptNotifier.show(applicationContext, txn)
+                            NudgeScheduler.scheduleFirst(applicationContext, txn.id)
+                        } else if (ServiceLocator.settingsManager.showConfirmationNotifs.first()) {
                             showExpenseNotification(
                                 "Expense recorded: ₹${txn.amount.toInt()} at ${txn.merchantName}",
                                 "Method: ${txn.paymentMethod.displayName}"
                             )
                         }
-                        is DeduplicationEngine.DeduplicationResult.MergedWithExisting -> {
-                            // Merged multi-source, no spam
-                        }
+                    }
+                    is DeduplicationEngine.DeduplicationResult.MergedWithExisting -> {
+                        // Merged multi-source, no spam
                     }
                 }
             } catch (e: Exception) {

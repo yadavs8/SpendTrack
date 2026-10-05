@@ -46,18 +46,69 @@ class TransactionRepository(
     suspend fun getTransactionById(id: String): TransactionEntity? =
         transactionDao.getTransactionById(id)
 
+    /** Category match confidence below this means "we're not sure what this is" -- ask the user. */
+    private val CATEGORY_REVIEW_THRESHOLD = 0.9f
+
     /**
      * Ingest an incoming parsed transaction through normalization, categorization, and deduplication.
+     * When the merchant didn't match a known rule or keyword (weak/fallback category match), the
+     * resulting transaction is flagged `needsReview` even if parsing itself was confident -- that's
+     * the signal the notification listener uses to ask "what's this for?" right away instead of
+     * silently filing it under a guessed category.
      */
     suspend fun ingestTransaction(parsed: ParsedTransaction): DeduplicationEngine.DeduplicationResult {
         val normalizedMerchant = MerchantNormalizer.normalize(parsed.merchantRaw, parsed.merchantVpa)
         val categoryResult = categoryEngine.resolveCategory(normalizedMerchant, parsed.merchantVpa)
 
-        return deduplicationEngine.process(
+        val result = deduplicationEngine.process(
             parsed = parsed,
             normalizedMerchant = normalizedMerchant,
             categoryId = categoryResult.categoryId
         )
+
+        if (result is DeduplicationEngine.DeduplicationResult.NewTransaction &&
+            categoryResult.confidence < CATEGORY_REVIEW_THRESHOLD &&
+            !result.transaction.needsReview
+        ) {
+            val flagged = result.transaction.copy(needsReview = true, updatedAt = System.currentTimeMillis())
+            transactionDao.updateTransaction(flagged)
+            return DeduplicationEngine.DeduplicationResult.NewTransaction(flagged)
+        }
+
+        return result
+    }
+
+    /**
+     * Resolves a "what's this for?" prompt: either a quick category tap, or a typed note from the
+     * notification's inline reply. Learns a merchant rule so the same vendor auto-categorizes next time.
+     */
+    suspend fun resolveNeedsReview(
+        transactionId: String,
+        categoryId: String? = null,
+        categoryName: String? = null,
+        note: String? = null
+    ) {
+        val transaction = transactionDao.getTransactionById(transactionId) ?: return
+
+        if (categoryId != null && categoryName != null) {
+            val merchant = transaction.merchantName
+            if (!merchant.isNullOrBlank()) {
+                merchantRuleRepository.saveRule(
+                    merchantPattern = merchant,
+                    categoryId = categoryId,
+                    categoryName = categoryName
+                )
+            }
+        }
+
+        val updated = transaction.copy(
+            categoryId = categoryId ?: transaction.categoryId,
+            description = note?.takeIf { it.isNotBlank() } ?: transaction.description,
+            needsReview = false,
+            isEdited = true,
+            updatedAt = System.currentTimeMillis()
+        )
+        transactionDao.updateTransaction(updated)
     }
 
     /**
