@@ -703,6 +703,20 @@
     renderSync();
   }
 
+  /* Sticky month-total bar: only shown once the hero banner (same number) has scrolled out
+     of view, so the two never compete for attention at once. */
+  (function initStickyBarVisibility() {
+    var hero = document.querySelector('.hero');
+    var bar = $('sticky-month-bar');
+    if (!hero || !bar || !('IntersectionObserver' in window)) return;
+    var observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        bar.classList.toggle('visible', !entry.isIntersecting);
+      });
+    }, { threshold: 0 });
+    observer.observe(hero);
+  })();
+
   var CAT_BUDGET_KEY = 'kharcha_category_budgets';
   function categoryBudgets() { try { return JSON.parse(localStorage.getItem(CAT_BUDGET_KEY)) || {}; } catch (e) { return {}; } }
   function setCategoryBudget(name, val) {
@@ -973,7 +987,8 @@
     });
   }
 
-  function dayHead(g, isExpanded, toggleFn) {
+  var DAY_COLOR_COUNT = 6;
+  function dayHead(g, isExpanded, toggleFn, colorIdx) {
     var head = el('button', 'day-head' + (isExpanded ? ' expanded' : ''));
     head.type = 'button';
     head.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
@@ -988,7 +1003,7 @@
     else l.appendChild(el('span', 'dname', date));
 
     var r = el('div', 'r-head');
-    r.appendChild(el('span', 'dtotal', money(g.total)));
+    r.appendChild(el('span', 'dtotal day-color-' + (colorIdx % DAY_COLOR_COUNT), money(g.total)));
     r.appendChild(el('span', 'chevron', isExpanded ? '▲' : '▼'));
 
     head.appendChild(l);
@@ -1107,7 +1122,7 @@
       var head = dayHead(g, isExpanded, function () {
         state.expandedDays[g.key] = !state.expandedDays[g.key];
         render();
-      });
+      }, idx);
 
       wrap.appendChild(head);
 

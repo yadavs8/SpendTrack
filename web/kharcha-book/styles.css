@@ -358,37 +358,84 @@ button { cursor: pointer; }
   display: none !important;
 }
 
-/* Sticky Bottom Month Total Bar */
+/* Sticky Bottom Month Total Bar -- hidden while the hero banner (same total) is in view;
+   see the IntersectionObserver in app.js that toggles the .visible class. */
 .sticky-month-bar {
   position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
+  width: 100%;
+  overflow: hidden;
   background: var(--hero-bg);
   color: var(--hero-ink);
   padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
   box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.2);
   z-index: 80;
   border-top: 1px solid var(--hero-line);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(4px);
+  pointer-events: none;
+  transition: opacity 0.18s ease, visibility 0.18s ease, transform 0.18s ease;
+}
+.sticky-month-bar.visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  pointer-events: auto;
 }
 .sticky-inner {
   max-width: 600px;
+  width: 100%;
   margin: 0 auto;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 .sticky-label {
-  font: 500 0.88rem/1.2 var(--f-body);
+  font: 500 0.82rem/1.2 var(--f-body);
   color: var(--hero-muted);
   letter-spacing: 0.02em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex-shrink: 1;
 }
 .sticky-total {
-  font: 700 1.35rem/1 var(--f-display);
+  font: 700 1.15rem/1 var(--f-display);
   color: var(--hero-ink);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 body { padding-bottom: 60px; }
+
+/* Day-total colors: a fixed categorical palette (not theme tokens) so each day in the
+   day-by-day list reads as visually distinct at a glance, independent of light/dark mode. */
+.dtotal.day-color-0 { color: #1565C0; }
+.dtotal.day-color-1 { color: #2E7D32; }
+.dtotal.day-color-2 { color: #AD1457; }
+.dtotal.day-color-3 { color: #EF6C00; }
+.dtotal.day-color-4 { color: #6A1B9A; }
+.dtotal.day-color-5 { color: #00838F; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .dtotal.day-color-0 { color: #64B5F6; }
+  :root:not([data-theme="light"]) .dtotal.day-color-1 { color: #81C784; }
+  :root:not([data-theme="light"]) .dtotal.day-color-2 { color: #F06292; }
+  :root:not([data-theme="light"]) .dtotal.day-color-3 { color: #FFB74D; }
+  :root:not([data-theme="light"]) .dtotal.day-color-4 { color: #CE93D8; }
+  :root:not([data-theme="light"]) .dtotal.day-color-5 { color: #4DD0E1; }
+}
+:root[data-theme="dark"] .dtotal.day-color-0 { color: #64B5F6; }
+:root[data-theme="dark"] .dtotal.day-color-1 { color: #81C784; }
+:root[data-theme="dark"] .dtotal.day-color-2 { color: #F06292; }
+:root[data-theme="dark"] .dtotal.day-color-3 { color: #FFB74D; }
+:root[data-theme="dark"] .dtotal.day-color-4 { color: #CE93D8; }
+:root[data-theme="dark"] .dtotal.day-color-5 { color: #4DD0E1; }
 
 .sec-title small { text-transform: none; letter-spacing: 0; opacity: 0.8; }
 
