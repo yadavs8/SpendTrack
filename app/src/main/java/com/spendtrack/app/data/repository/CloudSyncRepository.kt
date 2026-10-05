@@ -55,7 +55,11 @@ class CloudSyncRepository(
         syncMutex.withLock {
             var token = accessToken
             val pending = transactionDao.getUnsyncedExpenses()
-            if (pending.isEmpty()) return
+            if (pending.isEmpty()) {
+                // Nothing left to send, so any earlier error is no longer current.
+                settingsManager.setCloudSyncError(null)
+                return
+            }
 
             for (transaction in pending) {
                 var result = withContext(Dispatchers.IO) { syncClient.upsertExpense(token, transaction) }
@@ -69,6 +73,7 @@ class CloudSyncRepository(
                     onSuccess = {
                         transactionDao.markSynced(transaction.id)
                         settingsManager.setCloudSyncLastSuccessAt(System.currentTimeMillis())
+                        settingsManager.setCloudSyncError(null)
                     },
                     onFailure = { error ->
                         SafeLogger.e("Cloud sync failed for transaction ${transaction.id}", error as? Exception)
