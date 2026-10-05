@@ -972,7 +972,7 @@
   }
 
   function dayHead(g, isExpanded, toggleFn) {
-    var head = el('button', 'day-head-btn' + (isExpanded ? ' expanded' : ''));
+    var head = el('button', 'day-head' + (isExpanded ? ' expanded' : ''));
     head.type = 'button';
     head.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
     head.setAttribute('aria-label', (isExpanded ? 'Collapse ' : 'Expand ') + dFmt.format(keyToDate(g.key)) + ' expenses');
@@ -986,7 +986,6 @@
     else l.appendChild(el('span', 'dname', date));
 
     var r = el('div', 'r-head');
-    r.appendChild(el('span', 'dcount', g.items.length + (g.items.length === 1 ? ' item' : ' items')));
     r.appendChild(el('span', 'dtotal', money(g.total)));
     r.appendChild(el('span', 'chevron', isExpanded ? '▲' : '▼'));
 
