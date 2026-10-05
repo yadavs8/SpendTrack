@@ -971,8 +971,12 @@
     });
   }
 
-  function dayHead(g) {
-    var head = el('div', 'day-head');
+  function dayHead(g, isExpanded, toggleFn) {
+    var head = el('button', 'day-head-btn' + (isExpanded ? ' expanded' : ''));
+    head.type = 'button';
+    head.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+    head.setAttribute('aria-label', (isExpanded ? 'Collapse ' : 'Expand ') + dFmt.format(keyToDate(g.key)) + ' expenses');
+
     var l = el('div', 'l');
     var today = dayKey(Date.now());
     var yest = dayKey(Date.now() - 86400000);
@@ -980,8 +984,15 @@
     if (g.key === today) { l.appendChild(el('span', 'dname', 'Today')); l.appendChild(el('span', 'ddate', date)); }
     else if (g.key === yest) { l.appendChild(el('span', 'dname', 'Yesterday')); l.appendChild(el('span', 'ddate', date)); }
     else l.appendChild(el('span', 'dname', date));
+
+    var r = el('div', 'r-head');
+    r.appendChild(el('span', 'dcount', g.items.length + (g.items.length === 1 ? ' item' : ' items')));
+    r.appendChild(el('span', 'dtotal', money(g.total)));
+    r.appendChild(el('span', 'chevron', isExpanded ? '▲' : '▼'));
+
     head.appendChild(l);
-    head.appendChild(el('span', 'dtotal', money(g.total)));
+    head.appendChild(r);
+    head.addEventListener('click', toggleFn);
     return head;
   }
 
@@ -1063,6 +1074,8 @@
   function renderDays(days) {
     var box = $('days');
     box.textContent = '';
+    if (!state.expandedDays) state.expandedDays = {};
+
     if (!state.entries.length) {
       var em = el('div', 'empty');
       var p1 = el('p'); p1.appendChild(el('strong', null, 'No expenses yet.'));
@@ -1078,10 +1091,27 @@
       box.appendChild(e2);
       return;
     }
-    days.forEach(function (g) {
+
+    days.forEach(function (g, idx) {
       var wrap = el('section', 'day');
-      wrap.appendChild(dayHead(g));
-      var ul = el('ul', 'entries');
+      var hasEditing = g.items.some(function (e) { return e.id === state.editing; });
+      if (hasEditing) state.expandedDays[g.key] = true;
+
+      // Default expand today or first day if no expanded state stored for this month
+      if (state.expandedDays[g.key] === undefined) {
+        state.expandedDays[g.key] = (idx === 0 || g.key === dayKey(Date.now()));
+      }
+
+      var isExpanded = !!state.expandedDays[g.key];
+      var head = dayHead(g, isExpanded, function () {
+        state.expandedDays[g.key] = !state.expandedDays[g.key];
+        render();
+      });
+
+      wrap.appendChild(head);
+
+      var ul = el('ul', 'entries' + (isExpanded ? ' waterfall-open' : ' waterfall-closed'));
+      ul.hidden = !isExpanded;
       g.items.forEach(function (e) {
         var li = el('li');
         li.appendChild(state.editing === e.id && state.draft ? editRow(e) : entryRow(e));
