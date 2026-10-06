@@ -99,14 +99,18 @@ interface TransactionDao {
     suspend fun getAllTransactionsSync(): List<TransactionEntity>
 
     /**
-     * Ready to push to Kharcha Book: a real description exists (confidently matched, or already
-     * answered via the categorize prompt / note), not excluded, not demo data, not still awaiting
-     * an answer from the user.
+     * Ready to push to Kharcha Book: real (not excluded/demo) expenses that are either answered, or
+     * carry a bank/UPI ref -- those go up immediately under the merchant name, and answering the
+     * Personal/Family prompt later upserts the same row by ref_no. Unanswered ones without a ref
+     * wait, since pushing them twice would create a duplicate.
      */
     @Query("""
         SELECT * FROM transactions
-        WHERE syncedToCloud = 0 AND isExcluded = 0 AND isDemo = 0 AND needsReview = 0
+        WHERE syncedToCloud = 0 AND isExcluded = 0 AND isDemo = 0
             AND transactionType = 'EXPENSE'
+            AND (needsReview = 0
+                 OR (upiReference IS NOT NULL AND upiReference != '')
+                 OR (bankReference IS NOT NULL AND bankReference != ''))
         ORDER BY dateTime ASC
     """)
     suspend fun getUnsyncedExpenses(): List<TransactionEntity>

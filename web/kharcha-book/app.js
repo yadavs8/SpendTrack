@@ -37,13 +37,20 @@
   function money(v) { return Number.isInteger(v) ? inr0.format(v) : inr2.format(v); }
   function byTimeDesc(a, b) { return b.ts - a.ts || (a.id < b.id ? 1 : -1); }
 
+  // Plain-text incomings (no emoji tag) must *start* with one of these words...
+  var INCOME_WORD_START = /^(?:salary|pension|income)\b/;
+  // ...and not read like a payment of it ("Income tax", "LIC pension premium", "Salary to maid").
+  var PAID_OUT_WORDS = /\b(?:tax|premium|policy|plan|fund|contribution|emi|paid|to|maid)\b/;
+
   function isIncome(e) {
     if (!e || !e.desc) return false;
     var d = e.desc.trim().toLowerCase();
     // Expenses tagged with 🏠, 👤, or 🔨 (project spends) are explicitly spends
     if (d.startsWith('🏠') || d.startsWith('👤') || d.includes('🔨')) return false;
-    // Incomings start with 💼, 👵, 💰 or explicit incoming keywords
-    return d.includes('💼') || d.includes('👵') || d.startsWith('salary') || d.includes('income') || d.includes('pension') || d.includes('withdrawn from mother');
+    // Incomings added from the app carry 💼 / 👵 / 💰 tags
+    if (d.includes('💼') || d.includes('👵') || d.startsWith('💰')) return true;
+    if (d.includes('withdrawn from mother')) return true;
+    return INCOME_WORD_START.test(d) && !PAID_OUT_WORDS.test(d);
   }
 
   function isMotherSettlement(e) {
@@ -2315,7 +2322,7 @@
     updateBtn.addEventListener('click', function () {
       showConfirmModal({
         title: '🔄 Force Clear Cache & Reload',
-        message: 'Clear cached app data and reload to the latest v29?',
+        message: 'Clear cached app data and reload to the latest v30?',
         confirmText: 'Clear & Reload',
         onConfirm: function () {
           if ('caches' in window) {

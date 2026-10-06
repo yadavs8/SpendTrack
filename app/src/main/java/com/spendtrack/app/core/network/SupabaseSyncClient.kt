@@ -67,15 +67,13 @@ class SupabaseSyncClient(private val client: OkHttpClient = OkHttpClient()) {
     }
 
     /**
-     * A note the user explicitly typed into the categorize prompt (isEdited = true, description
-     * overwritten with their answer) wins -- that's a deliberate correction. Otherwise the
-     * normalized merchant name. Falls back to whatever's in `description` (raw notification/SMS
-     * text for never-reviewed transactions) only as a last resort.
+     * A user-edited description (Personal/Family answer or typed note) wins. Otherwise the merchant
+     * name -- never an unedited `description`, which for auto-detected expenses is the raw bank SMS
+     * (account digits and all).
      */
     private fun buildDescription(transaction: TransactionEntity): String {
-        val note = transaction.description?.takeIf { it.isNotBlank() }
+        val edited = transaction.description?.takeIf { transaction.isEdited && it.isNotBlank() }
         val merchant = transaction.merchantName?.takeIf { it.isNotBlank() }
-        val best = if (transaction.isEdited && note != null) note else (merchant ?: note) ?: "Expense"
-        return best.take(60)
+        return (edited ?: merchant ?: "Expense").take(60)
     }
 }

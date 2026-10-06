@@ -12,3 +12,6 @@ local.properties
 *.apk
 *.aab
 
+# Device screenshots taken while testing
+/test_*.png
+

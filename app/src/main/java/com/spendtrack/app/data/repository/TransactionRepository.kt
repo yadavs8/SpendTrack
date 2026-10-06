@@ -2,6 +2,7 @@ package com.spendtrack.app.data.repository
 
 import com.spendtrack.app.core.categorizer.CategoryEngine
 import com.spendtrack.app.core.deduplication.DeduplicationEngine
+import com.spendtrack.app.core.model.ExpenseScope
 import com.spendtrack.app.core.model.ParsedTransaction
 import com.spendtrack.app.core.model.PaymentMethod
 import com.spendtrack.app.core.model.TransactionType
@@ -46,15 +47,11 @@ class TransactionRepository(
     suspend fun getTransactionById(id: String): TransactionEntity? =
         transactionDao.getTransactionById(id)
 
-    /** Category match confidence below this means "we're not sure what this is" -- ask the user. */
-    private val CATEGORY_REVIEW_THRESHOLD = 0.9f
-
     /**
      * Ingest an incoming parsed transaction through normalization, categorization, and deduplication.
-     * When the merchant didn't match a known rule or keyword (weak/fallback category match), the
-     * resulting transaction is flagged `needsReview` even if parsing itself was confident -- that's
-     * the signal the notification listener uses to ask "what's this for?" right away instead of
-     * silently filing it under a guessed category.
+     * Every new real expense is flagged `needsReview` -- the signal the notification listener uses to
+     * ask "Personal or Family?". Refunds and own-account transfers (isExcluded) never count toward
+     * spending, so they are never asked about.
      */
     suspend fun ingestTransaction(parsed: ParsedTransaction): DeduplicationEngine.DeduplicationResult {
         val normalizedMerchant = MerchantNormalizer.normalize(parsed.merchantRaw, parsed.merchantVpa)
@@ -67,7 +64,9 @@ class TransactionRepository(
         )
 
         if (result is DeduplicationEngine.DeduplicationResult.NewTransaction &&
-            !result.transaction.needsReview
+            !result.transaction.needsReview &&
+            !result.transaction.isExcluded &&
+            result.transaction.transactionType == TransactionType.EXPENSE
         ) {
             val flagged = result.transaction.copy(needsReview = true, updatedAt = System.currentTimeMillis())
             transactionDao.updateTransaction(flagged)
@@ -104,38 +103,42 @@ class TransactionRepository(
             categoryId = categoryId ?: transaction.categoryId,
             description = note?.takeIf { it.isNotBlank() } ?: transaction.description,
             needsReview = false,
+            isEdited = note?.isNotBlank() == true || transaction.isEdited,
+            syncedToCloud = keepSyncedFlagAfterEdit(transaction),
+            updatedAt = System.currentTimeMillis()
+        )
+        transactionDao.updateTransaction(updated)
+    }
+
+    /** Resolves the "Personal or Family?" prompt for an auto-detected expense. */
+    suspend fun resolveScope(
+        transactionId: String,
+        scope: String
+    ) {
+        val transaction = transactionDao.getTransactionById(transactionId) ?: return
+        val updated = transaction.copy(
+            description = ExpenseScope.describe(
+                merchantName = transaction.merchantName,
+                description = transaction.description,
+                isEdited = transaction.isEdited,
+                scope = scope
+            ),
+            needsReview = false,
             isEdited = true,
+            syncedToCloud = keepSyncedFlagAfterEdit(transaction),
             updatedAt = System.currentTimeMillis()
         )
         transactionDao.updateTransaction(updated)
     }
 
     /**
-     * Resolves the scope of an auto-detected transaction as either "personal" or "family".
-     * In Kharcha Book, family expenses are prefixed with "🏠 ".
+     * An expense with a bank/UPI ref may already be in Kharcha Book (synced before it was answered);
+     * re-pushing it upserts the same row by ref_no, so clear the flag. Without a ref a re-push would
+     * insert a duplicate -- those are only ever synced after being answered, so leave them alone.
      */
-    suspend fun resolveScope(
-        transactionId: String,
-        scope: String
-    ) {
-        val transaction = transactionDao.getTransactionById(transactionId) ?: return
-        val currentDesc = (transaction.description?.takeIf { it.isNotBlank() }
-            ?: transaction.merchantName?.takeIf { it.isNotBlank() }
-            ?: "Expense").replace(Regex("^[🏠👤]\\s*"), "")
-
-        val newDesc = if (scope.equals("family", ignoreCase = true)) {
-            "🏠 $currentDesc"
-        } else {
-            currentDesc
-        }
-
-        val updated = transaction.copy(
-            description = newDesc,
-            needsReview = false,
-            isEdited = true,
-            updatedAt = System.currentTimeMillis()
-        )
-        transactionDao.updateTransaction(updated)
+    private fun keepSyncedFlagAfterEdit(transaction: TransactionEntity): Boolean {
+        val hasRef = !transaction.upiReference.isNullOrBlank() || !transaction.bankReference.isNullOrBlank()
+        return if (hasRef) false else transaction.syncedToCloud
     }
 
     /**

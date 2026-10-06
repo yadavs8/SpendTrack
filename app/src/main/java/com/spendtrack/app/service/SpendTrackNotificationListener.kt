@@ -34,7 +34,7 @@ class SpendTrackNotificationListener : NotificationListenerService() {
 
     override fun onListenerConnected() {
         super.onListenerConnected()
-        android.util.Log.i("SpendTrack", "SpendTrackNotificationListener connected to notification manager!")
+        SafeLogger.i("Notification listener connected")
     }
 
     override fun onDestroy() {
@@ -46,7 +46,6 @@ class SpendTrackNotificationListener : NotificationListenerService() {
         if (sbn == null) return
 
         val packageName = sbn.packageName
-        android.util.Log.d("SpendTrack", "onNotificationPosted: pkg=$packageName")
         val extras = sbn.notification?.extras ?: return
 
         // Extract text fields
@@ -55,8 +54,8 @@ class SpendTrackNotificationListener : NotificationListenerService() {
         val bigText = extras.getCharSequence("android.bigText")?.toString()
         val subText = extras.getCharSequence("android.subText")?.toString()
 
+        // Never log notification text: this listener sees every app's notifications (chats, OTPs).
         val fullText = listOfNotNull(text, bigText, subText).joinToString(" ")
-        android.util.Log.d("SpendTrack", "Notification content ($packageName): title=$title, text=$fullText")
 
         serviceScope.launch {
             try {
@@ -68,10 +67,7 @@ class SpendTrackNotificationListener : NotificationListenerService() {
                         TransactionParser.MESSAGING_PACKAGES.contains(packageName) ||
                         packageName.contains("bank", ignoreCase = true)
 
-                if (!isMonitored) {
-                    android.util.Log.d("SpendTrack", "Package $packageName is not monitored")
-                    return@launch
-                }
+                if (!isMonitored) return@launch
 
                 val parsed = ServiceLocator.rulePackEngine.parse(
                     title = title,
@@ -91,6 +87,9 @@ class SpendTrackNotificationListener : NotificationListenerService() {
                             // Unclear what this was for -- ask right away, then keep nudging until answered.
                             ExpensePromptNotifier.show(applicationContext, txn)
                             NudgeScheduler.scheduleFirst(applicationContext, txn.id)
+                            // Lands in Kharcha Book now if it has a bank/UPI ref (answering later
+                            // updates the same row); see TransactionDao.getUnsyncedExpenses.
+                            ServiceLocator.cloudSyncRepository.syncPending()
                         } else {
                             // Confident match -- good enough description already, sync it now.
                             ServiceLocator.cloudSyncRepository.syncPending()

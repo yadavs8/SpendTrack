@@ -213,6 +213,13 @@ assert(isIncome({ desc: '👵 Mother’s Pension' }) === true, 'isIncome identif
 assert(isIncome({ desc: '👵 Withdrawn from Mother (Family Settlement)' }) === true, 'isIncome identifies Mother settlement withdrawal');
 assert(isIncome({ desc: '🛒 Grocery' }) === false, 'isIncome rejects regular grocery expense');
 assert(isExpense({ desc: '🛒 Grocery' }) === true, 'isExpense accepts regular grocery expense');
+assert(isIncome({ desc: '💰 Other / UPI (Refund from Rahul)' }) === true, 'isIncome identifies 💰 Other / UPI incoming');
+assert(isIncome({ desc: 'Salary October' }) === true, 'isIncome accepts plain-text salary entry');
+assert(isIncome({ desc: 'Pension' }) === true, 'isIncome accepts plain-text pension entry');
+assert(isIncome({ desc: 'Income tax payment' }) === false, 'isIncome rejects income tax (an expense)');
+assert(isIncome({ desc: 'LIC pension plan premium' }) === false, 'isIncome rejects pension premium (an expense)');
+assert(isIncome({ desc: 'Salary to maid Sunita' }) === false, 'isIncome rejects salary paid to maid (an expense)');
+assert(isIncome({ desc: 'Milk and income' }) === false, 'isIncome ignores income word not at start');
 assert(isExpense({ desc: '💼 Salary 1' }) === false, 'isExpense rejects salary');
 
 assert(isSalary({ desc: '💼 Salary 1' }) === true, 'isSalary identifies salary');

@@ -58,9 +58,8 @@ class SmsReceiver : BroadcastReceiver() {
                     if (txn.needsReview) {
                         ExpensePromptNotifier.show(context.applicationContext, txn)
                         NudgeScheduler.scheduleFirst(context.applicationContext, txn.id)
-                    } else {
-                        ServiceLocator.cloudSyncRepository.syncPending()
                     }
+                    ServiceLocator.cloudSyncRepository.syncPending()
                 }
             } catch (e: Exception) {
                 SafeLogger.e("Error processing incoming SMS", e)
