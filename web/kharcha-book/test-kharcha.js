@@ -199,5 +199,12 @@ assert(catRes.categories[0].name === '🛒 Grocery' && catRes.categories[0].tota
 const cmp = monthCompare([{ amount: 1200, desc: '🛒 General Grocery' }], [{ amount: 1000, desc: '🛒 General Grocery' }]);
 assert(cmp.pct === 20 && cmp.prevCats['🛒 Grocery'] === 1000, 'monthCompare gives % change and last month per category');
 
+// 10. Smart telecom/wifi categorization
+const telecomRes = categoryBreakdown([
+  { amount: 975.62, desc: 'WWW AIRTEL (ICICI Card XX1014)' },
+  { amount: 399, desc: 'Jio Prepaid Recharge' }
+]);
+assert(telecomRes.categories[0].name === '📱 Mobile & WiFi' && telecomRes.categories[0].total === 1374.62, 'Airtel and Jio map to 📱 Mobile & WiFi category');
+
 console.log(`\nResults: ${passed} passed, ${failed} failed.`);
 if (failed > 0) process.exit(1);

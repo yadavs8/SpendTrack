@@ -341,20 +341,25 @@
       var categoryName = clean;
 
       var lower = clean.toLowerCase();
-      if (clean.includes('🛒') || lower.includes('grocery') || lower.includes('supermarket')) categoryName = '🛒 Grocery';
-      else if (clean.includes('🥦') || lower.includes('vegetable')) categoryName = '🥦 Vegetables';
-      else if (clean.includes('🥛') || lower.includes('milk') || lower.includes('doodh')) categoryName = '🥛 Milk & Dairy';
-      else if (clean.includes('⚡') || lower.includes('electricity')) categoryName = '⚡ Electricity Bill';
-      else if (clean.includes('🔥') || lower.includes('gas')) categoryName = '🔥 Gas Bill';
-      else if (clean.includes('📱') || lower.includes('recharge') || lower.includes('wifi')) categoryName = '📱 Mobile & WiFi';
-      else if (clean.includes('⛽') || lower.includes('petrol') || lower.includes('fuel')) categoryName = '⛽ Fuel';
-      else if (clean.includes('🍔') || lower.includes('swiggy') || lower.includes('zomato') || lower.includes('food')) categoryName = '🍔 Food & Dining';
-      else if (clean.includes('🛍️') || lower.includes('shopping') || lower.includes('amazon')) categoryName = '🛍️ Online Shopping';
-      else if (clean.includes('👧') || lower.includes('niece')) categoryName = '👧 Niece Allowance';
-      else if (clean.includes('💊') || lower.includes('medicine') || lower.includes('doctor')) categoryName = '💊 Health & Medicines';
-      else if (clean.includes('🧹') || lower.includes('maid') || lower.includes('house help')) categoryName = '🧹 House Help';
-      else if (clean.includes('🛺') || lower.includes('auto') || lower.includes('cab')) categoryName = '🛺 Travel & Cab';
-      else categoryName = firstSymbol + ' Other Spends';
+      if (clean.includes('🛒') || lower.includes('grocery') || lower.includes('supermarket') || lower.includes('dmart') || lower.includes('zepto') || lower.includes('blinkit') || lower.includes('instamart') || lower.includes('bigbasket')) categoryName = '🛒 Grocery';
+      else if (clean.includes('🥦') || lower.includes('vegetable') || lower.includes('sabzi') || lower.includes('fruits')) categoryName = '🥦 Vegetables';
+      else if (clean.includes('🥛') || lower.includes('milk') || lower.includes('doodh') || lower.includes('dairy') || lower.includes('paneer') || lower.includes('curd')) categoryName = '🥛 Milk & Dairy';
+      else if (clean.includes('⚡') || lower.includes('electricity') || lower.includes('power') || lower.includes('bescom') || lower.includes('light bill')) categoryName = '⚡ Electricity Bill';
+      else if (clean.includes('🔥') || lower.includes('gas') || lower.includes('cylinder') || lower.includes('indane') || lower.includes('hp gas') || lower.includes('bharat gas')) categoryName = '🔥 Gas Bill';
+      else if (clean.includes('📱') || lower.includes('airtel') || lower.includes('jio') || lower.includes('vodafone') || lower.includes('vi ') || lower.includes('wifi') || lower.includes('wi-fi') || lower.includes('broadband') || lower.includes('recharge') || lower.includes('fiber') || lower.includes('telecom')) categoryName = '📱 Mobile & WiFi';
+      else if (clean.includes('⛽') || lower.includes('petrol') || lower.includes('fuel') || lower.includes('diesel') || lower.includes('cng') || lower.includes('hpcl') || lower.includes('bpcl') || lower.includes('iocl') || lower.includes('shell')) categoryName = '⛽ Fuel';
+      else if (clean.includes('🍔') || lower.includes('swiggy') || lower.includes('zomato') || lower.includes('food') || lower.includes('restaurant') || lower.includes('cafe') || lower.includes('pizza') || lower.includes('burger') || lower.includes('chai') || lower.includes('tea') || lower.includes('coffee') || lower.includes('snacks')) categoryName = '🍔 Food & Dining';
+      else if (clean.includes('🛍️') || lower.includes('shopping') || lower.includes('amazon') || lower.includes('flipkart') || lower.includes('myntra') || lower.includes('meesho') || lower.includes('nykaa') || lower.includes('ajio')) categoryName = '🛍️ Online Shopping';
+      else if (clean.includes('👧') || lower.includes('niece') || lower.includes('allowance')) categoryName = '👧 Niece Allowance';
+      else if (clean.includes('💊') || lower.includes('medicine') || lower.includes('doctor') || lower.includes('pharmacy') || lower.includes('apollo') || lower.includes('1mg') || lower.includes('clinic') || lower.includes('hospital')) categoryName = '💊 Health & Medicines';
+      else if (clean.includes('🧹') || lower.includes('maid') || lower.includes('house help') || lower.includes('kamwali')) categoryName = '🧹 House Help';
+      else if (clean.includes('🛺') || lower.includes('auto') || lower.includes('cab') || lower.includes('taxi') || lower.includes('uber') || lower.includes('ola') || lower.includes('rapido') || lower.includes('metro')) categoryName = '🛺 Travel & Cab';
+      else if (lower.includes('cash') || lower.includes('atm') || lower.includes('withdrawal')) categoryName = '💵 Cash Withdrawal';
+      else if (lower.includes('transfer') || lower.includes('diye') || lower.includes('given to') || lower.includes('sent to')) categoryName = '🤝 Personal Transfers';
+      else {
+        var cleanNoPunct = clean.replace(/^[^\p{L}\p{N}]+/u, '').trim();
+        categoryName = '💳 ' + (cleanNoPunct || 'Other Spends');
+      }
 
       if (!map.has(categoryName)) map.set(categoryName, { name: categoryName, paise: 0, count: 0 });
       var item = map.get(categoryName);
