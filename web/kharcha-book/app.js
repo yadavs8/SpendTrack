@@ -37,9 +37,77 @@
   function money(v) { return Number.isInteger(v) ? inr0.format(v) : inr2.format(v); }
   function byTimeDesc(a, b) { return b.ts - a.ts || (a.id < b.id ? 1 : -1); }
 
+  function isIncome(e) {
+    if (!e || !e.desc) return false;
+    var d = e.desc.trim().toLowerCase();
+    // Expenses tagged with 🏠 or 👤 are explicitly spends (e.g. 🏠 🧹 Maid Salary, 🏠 Electricity Bill)
+    if (d.startsWith('🏠') || d.startsWith('👤')) return false;
+    // Incomings start with 💼, 👵, 💰 or explicit incoming keywords
+    return d.includes('💼') || d.includes('👵') || d.startsWith('salary') || d.includes('income') || d.includes('pension') || d.includes('withdrawn from mother');
+  }
+
+  function isMotherSettlement(e) {
+    if (!e || !e.desc) return false;
+    var d = e.desc.toLowerCase();
+    return d.includes('withdrawn from mother') || (d.includes('👵') && d.includes('withdraw'));
+  }
+
+  function isMotherPension(e) {
+    if (!e || !e.desc) return false;
+    var d = e.desc.toLowerCase();
+    return (d.includes('👵') && (d.includes('pension') || !d.includes('withdraw'))) || (d.includes('pension') && !d.includes('withdrawn'));
+  }
+
+  function isSalary(e) {
+    if (!e || !e.desc || !isIncome(e)) return false;
+    var d = e.desc.toLowerCase();
+    return (d.includes('💼') || d.includes('salary')) && !isMotherSettlement(e) && !d.includes('maid');
+  }
+
+  function isExpense(e) {
+    return !isIncome(e);
+  }
+
   function isFamilyEntry(desc) {
-    var d = desc.toLowerCase();
+    var d = (desc || '').toLowerCase();
     return d.includes('🏠') || d.includes('family') || d.includes('niece') || d.includes('electricity') || d.includes('gas') || d.includes('bill');
+  }
+
+  function getFamilySettlement(monthEntries) {
+    var list = monthEntries || [];
+    var familyExpenses = list.filter(function (e) { return isExpense(e) && isFamilyEntry(e.desc); });
+    var familySpent = familyExpenses.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
+
+    var motherSettledEntries = list.filter(function (e) { return isIncome(e) && isMotherSettlement(e); });
+    var motherWithdrawn = motherSettledEntries.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
+
+    var pending = Math.max(0, (familySpent * 100 - motherWithdrawn * 100) / 100);
+    var status = pending === 0 ? 'settled' : 'pending';
+
+    return {
+      familyExpenses: familyExpenses,
+      familySpent: familySpent,
+      motherSettledEntries: motherSettledEntries,
+      motherWithdrawn: motherWithdrawn,
+      pending: pending,
+      status: status
+    };
+  }
+
+  function getPersonalCashFlow(monthEntries) {
+    var list = monthEntries || [];
+    var salaries = list.filter(function (e) { return isSalary(e); }).reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
+    var personalExpenses = list.filter(function (e) { return isExpense(e) && !isFamilyEntry(e.desc); });
+    var personalSpent = personalExpenses.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
+    var personalSavings = (salaries * 100 - personalSpent * 100) / 100;
+    var savingsRate = salaries > 0 ? Math.round((personalSavings / salaries) * 100) : 0;
+
+    return {
+      salaries: salaries,
+      personalSpent: personalSpent,
+      personalSavings: personalSavings,
+      savingsRate: savingsRate
+    };
   }
 
   function groupByDay(list) {
@@ -64,7 +132,7 @@
   }
   function monthTotals(entries) {
     var map = new Map();
-    entries.forEach(function (e) {
+    (entries || []).filter(isExpense).forEach(function (e) {
       var k = monthKey(e.ts);
       if (!map.has(k)) map.set(k, { key: k, items: [] });
       map.get(k).items.push(e);
@@ -398,7 +466,8 @@
     store: store,
     enterApp: enterApp,
     getSb: function () { return sb; },
-    parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, parseSMSDate: parseSMSDate, findDuplicate: findDuplicate, categoryBreakdown: categoryBreakdown, monthCompare: monthCompare
+    parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, parseSMSDate: parseSMSDate, findDuplicate: findDuplicate, categoryBreakdown: categoryBreakdown, monthCompare: monthCompare,
+    isIncome: isIncome, isMotherSettlement: isMotherSettlement, isMotherPension: isMotherPension, isSalary: isSalary, isExpense: isExpense, getFamilySettlement: getFamilySettlement, getPersonalCashFlow: getPersonalCashFlow
   };
 
   var TABLE = 'daily_expenses';
@@ -429,7 +498,7 @@
     { label: 'Auto / Cab / Bus', emoji: '🛺' }
   ];
 
-  var state = { mode: 'pending', entries: [], sel: null, editing: null, draft: null, scopeFilter: 'all' };
+  var state = { mode: 'pending', entries: [], sel: null, editing: null, draft: null, scopeFilter: 'all', activeStream: 'spends', expandedDays: {} };
   var searchQuery = '';
   var sb = null;
 
@@ -882,14 +951,25 @@
   }
 
   /* ---------- render ---------- */
-  // Entries of one month after the scope tab and search box are applied.
+  // Expenses of one month after the scope tab and search box are applied.
   function visibleEntries(key) {
-    var list = state.entries.filter(function (e) { return monthKey(e.ts) === key; });
+    var list = state.entries.filter(function (e) { return monthKey(e.ts) === key && isExpense(e); });
     if (state.scopeFilter === 'personal') {
       list = list.filter(function (e) { return !isFamilyEntry(e.desc); });
     } else if (state.scopeFilter === 'family') {
       list = list.filter(function (e) { return isFamilyEntry(e.desc); });
     }
+    if (searchQuery) {
+      list = list.filter(function (e) {
+        return e.desc.toLowerCase().includes(searchQuery) || dFmt.format(new Date(e.ts)).toLowerCase().includes(searchQuery);
+      });
+    }
+    return list;
+  }
+
+  // Incomings of selected month
+  function visibleIncomings(key) {
+    var list = state.entries.filter(function (e) { return monthKey(e.ts) === key && isIncome(e); });
     if (searchQuery) {
       list = list.filter(function (e) {
         return e.desc.toLowerCase().includes(searchQuery) || dFmt.format(new Date(e.ts)).toLowerCase().includes(searchQuery);
@@ -932,13 +1012,304 @@
     $('prev').disabled = idx >= months.length - 1;
     $('next').disabled = idx <= 0;
 
+    // Cash Flow & Streams calculation for state.sel month
+    var allMonthEntries = state.entries.filter(function (e) { return monthKey(e.ts) === state.sel; });
+    var monthExpenses = allMonthEntries.filter(isExpense);
+    var monthIncomings = allMonthEntries.filter(isIncome);
+    var settlement = getFamilySettlement(allMonthEntries);
+    var cashFlow = getPersonalCashFlow(allMonthEntries);
+
+    renderCashFlow(cashFlow, settlement);
+    renderStreamSwitcher(monthExpenses.length, monthIncomings.length);
+
     renderBudget(cur.total);
     renderSuggestions();
     renderCategoryBreakdown(list, cmp, prevKey);
     renderBreakdown(list, displayTotal);
     renderDays(days);
     renderMonths(months);
+
+    // Stream Views Rendering
+    renderIncomingsView(monthIncomings);
+    renderSettlementView(settlement);
+
     renderSync();
+  }
+
+  /* ---------- Cash Flow Cards on Hero ---------- */
+  function renderCashFlow(cf, setl) {
+    var pSavings = $('cf-personal-savings');
+    var pSub = $('cf-personal-sub');
+    var famSpent = $('cf-family-spent');
+    var famCount = $('cf-family-count');
+    var mothStatus = $('cf-mother-status');
+    var mothSub = $('cf-mother-sub');
+
+    if (pSavings) {
+      pSavings.textContent = money(cf.personalSavings);
+      pSavings.style.color = cf.personalSavings >= 0 ? 'var(--fg)' : 'var(--danger)';
+    }
+    if (pSub) {
+      pSub.textContent = cf.salaries > 0 ? (cf.savingsRate + '% saved of ' + money(cf.salaries)) : (money(cf.personalSpent) + ' personal spent');
+    }
+
+    if (famSpent) famSpent.textContent = money(setl.familySpent);
+    if (famCount) famCount.textContent = setl.familyExpenses.length + (setl.familyExpenses.length === 1 ? ' item' : ' items');
+
+    if (mothStatus) {
+      if (setl.pending > 0) {
+        mothStatus.textContent = money(setl.pending);
+        mothStatus.style.color = 'var(--danger)';
+      } else {
+        mothStatus.textContent = money(setl.motherWithdrawn);
+        mothStatus.style.color = 'var(--success, #10b981)';
+      }
+    }
+    if (mothSub) {
+      mothSub.textContent = setl.pending > 0 ? 'Pending to withdraw' : 'Settled from Mother';
+    }
+  }
+
+  /* ---------- Stream Switcher Tabs ---------- */
+  function renderStreamSwitcher(spendsCount, incomingsCount) {
+    var spCountEl = $('spends-count');
+    var incCountEl = $('incomings-count');
+    if (spCountEl) spCountEl.textContent = String(spendsCount);
+    if (incCountEl) incCountEl.textContent = String(incomingsCount);
+
+    var spendsView = $('spends-view');
+    var incomingsSec = $('incomings-sec');
+    var settlementSec = $('settlement-sec');
+
+    var stream = state.activeStream || 'spends';
+    if (spendsView) spendsView.hidden = (stream !== 'spends');
+    if (incomingsSec) incomingsSec.hidden = (stream !== 'incomings');
+    if (settlementSec) settlementSec.hidden = (stream !== 'settlement');
+
+    document.querySelectorAll('.streambtn').forEach(function (btn) {
+      btn.classList.toggle('active', btn.dataset.stream === stream);
+    });
+  }
+
+  document.querySelectorAll('.streambtn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      state.activeStream = btn.dataset.stream || 'spends';
+      render();
+    });
+  });
+
+  /* ---------- Incomings View Rendering ---------- */
+  function renderIncomingsView(monthIncomings) {
+    var totalInc = sumRupees(monthIncomings);
+    var salaries = monthIncomings.filter(isSalary).reduce(function (s, e) { return s + paise(e.amount); }, 0) / 100;
+    var motherInc = monthIncomings.filter(function (e) { return isMotherPension(e) || isMotherSettlement(e); }).reduce(function (s, e) { return s + paise(e.amount); }, 0) / 100;
+    var otherInc = monthIncomings.filter(function (e) { return !isSalary(e) && !isMotherPension(e) && !isMotherSettlement(e); }).reduce(function (s, e) { return s + paise(e.amount); }, 0) / 100;
+
+    var totalEl = $('inc-total-amt');
+    var salEl = $('inc-salaries-amt');
+    var mothEl = $('inc-mother-amt');
+    var othEl = $('inc-others-amt');
+
+    if (totalEl) totalEl.textContent = money(totalInc);
+    if (salEl) salEl.textContent = money(salaries);
+    if (mothEl) mothEl.textContent = money(motherInc);
+    if (othEl) othEl.textContent = money(otherInc);
+
+    var daysBox = $('income-days');
+    if (!daysBox) return;
+    daysBox.textContent = '';
+
+    if (!monthIncomings.length) {
+      var em = el('div', 'empty');
+      em.appendChild(el('p', null, 'No incomings logged for ' + monthLabel(state.sel) + '. Add salary, pension, or credits above!'));
+      daysBox.appendChild(em);
+      return;
+    }
+
+    var days = groupByDay(monthIncomings);
+    days.forEach(function (g, idx) {
+      var wrap = el('section', 'day');
+      var isExpanded = true;
+      var wrapper = el('div', 'entries-wrapper expanded');
+      var ul = el('ul', 'entries');
+      g.items.forEach(function (e) {
+        var li = el('li');
+        li.appendChild(entryRow(e));
+        ul.appendChild(li);
+      });
+      wrapper.appendChild(ul);
+
+      var head = dayHead(g, isExpanded, function () {
+        var nextExpanded = !wrapper.classList.contains('expanded');
+        head.classList.toggle('expanded', nextExpanded);
+        wrapper.classList.toggle('expanded', nextExpanded);
+      }, idx);
+
+      wrap.appendChild(head);
+      wrap.appendChild(wrapper);
+      daysBox.appendChild(wrap);
+    });
+  }
+
+  /* ---------- Family Settlement View Rendering ---------- */
+  function renderSettlementView(setl) {
+    var badge = $('settle-badge');
+    var title = $('settle-title');
+    var msg = $('settle-msg');
+    var settleBtn = $('settle-now-btn');
+    var spentVal = $('settle-spent-val');
+    var spentCount = $('settle-spent-count');
+    var withVal = $('settle-withdrawn-val');
+    var withCount = $('settle-withdrawn-count');
+    var entriesBox = $('settle-family-entries');
+
+    if (spentVal) spentVal.textContent = money(setl.familySpent);
+    if (spentCount) spentCount.textContent = setl.familyExpenses.length + (setl.familyExpenses.length === 1 ? ' family expense' : ' family expenses');
+    if (withVal) withVal.textContent = money(setl.motherWithdrawn);
+    if (withCount) withCount.textContent = setl.motherSettledEntries.length + ' reimbursement entries';
+
+    if (badge && title && msg && settleBtn) {
+      if (setl.pending > 0) {
+        badge.textContent = 'Action Required';
+        badge.className = 'settle-badge pending';
+        title.textContent = 'Pending Withdrawal: ' + money(setl.pending);
+        msg.textContent = 'You spent ' + money(setl.familySpent) + ' on family expenses this month. Withdraw ' + money(setl.pending) + ' from Mother’s account to settle.';
+        settleBtn.hidden = false;
+        settleBtn.textContent = '📥 Settle ' + money(setl.pending) + ' from Mother';
+      } else {
+        badge.textContent = 'All Clear';
+        badge.className = 'settle-badge settled';
+        title.textContent = 'Family Expenses Settled! 🎉';
+        msg.textContent = setl.familySpent > 0 ? ('All ' + money(setl.familySpent) + ' in family expenses have been reimbursed from Mother’s account.') : 'No family expenses recorded this month.';
+        settleBtn.hidden = true;
+      }
+    }
+
+    if (entriesBox) {
+      entriesBox.textContent = '';
+      if (!setl.familyExpenses.length) {
+        var em = el('div', 'empty');
+        em.appendChild(el('p', null, 'No family expenses logged for ' + monthLabel(state.sel) + '. Tap "🏠 Family / Bill" when adding an expense.'));
+        entriesBox.appendChild(em);
+        return;
+      }
+
+      var ul = el('ul', 'entries');
+      setl.familyExpenses.sort(byTimeDesc).forEach(function (e) {
+        var li = el('li');
+        li.appendChild(entryRow(e));
+        ul.appendChild(li);
+      });
+      entriesBox.appendChild(ul);
+    }
+  }
+
+  /* ---------- 1-Tap Settle Button Action ---------- */
+  var settleNowBtn = $('settle-now-btn');
+  if (settleNowBtn) {
+    settleNowBtn.addEventListener('click', function () {
+      var allMonthEntries = state.entries.filter(function (e) { return monthKey(e.ts) === state.sel; });
+      var setl = getFamilySettlement(allMonthEntries);
+      if (setl.pending <= 0) {
+        toast('Already fully settled for this month!');
+        return;
+      }
+      showConfirmModal({
+        title: '👵 Settle from Mother’s Account',
+        message: 'Record ' + money(setl.pending) + ' as withdrawn from Mother’s account to reimburse family expenses for ' + monthLabel(state.sel) + '?',
+        confirmText: 'Record Settlement',
+        onConfirm: function () {
+          settleNowBtn.disabled = true;
+          settleNowBtn.textContent = 'Recording…';
+          var desc = '👵 Withdrawn from Mother (Family Settlement)';
+          store.add({ amount: setl.pending, desc: desc, spent_at: new Date().toISOString() }).then(function () {
+            toast('Recorded settlement of ' + money(setl.pending) + '!');
+            render();
+          }).catch(function (err) {
+            toast('Failed to record settlement: ' + (err.message || 'error'));
+          }).finally(function () {
+            settleNowBtn.disabled = false;
+            settleNowBtn.textContent = '📥 Settle from Mother';
+          });
+        }
+      });
+    });
+  }
+
+  /* ---------- Add Income Form Handling ---------- */
+  function getSelectedIncomeSource() {
+    var checked = document.querySelector('input[name="income-source"]:checked');
+    return checked ? checked.value : 'salary1';
+  }
+  function setSelectedIncomeSource(val) {
+    var radios = document.querySelectorAll('input[name="income-source"]');
+    radios.forEach(function (r) {
+      r.checked = (r.value === val);
+      r.parentElement.classList.toggle('active', r.checked);
+    });
+  }
+  document.querySelectorAll('#income-source-chips .scope-pill').forEach(function (pill) {
+    pill.addEventListener('click', function () {
+      var input = pill.querySelector('input');
+      if (input) setSelectedIncomeSource(input.value);
+    });
+  });
+
+  var addIncomeForm = $('add-income');
+  var incomeAmtInput = $('income-amt');
+  var addIncomeBtn = $('add-income-btn');
+  var incomeErr = $('income-err');
+
+  if (incomeAmtInput && addIncomeBtn) {
+    incomeAmtInput.addEventListener('input', function () {
+      var a = parseAmount(incomeAmtInput.value);
+      addIncomeBtn.disabled = (a == null);
+    });
+  }
+
+  if (addIncomeForm) {
+    addIncomeForm.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      if (incomeErr) incomeErr.hidden = true;
+      var amt = parseAmount(incomeAmtInput.value);
+      if (amt == null) {
+        if (incomeErr) { incomeErr.textContent = 'Enter an amount greater than zero, like 50000 or 12000.'; incomeErr.hidden = false; }
+        incomeAmtInput.focus();
+        return;
+      }
+
+      var source = getSelectedIncomeSource();
+      var note = ($('income-note') ? $('income-note').value.trim() : '');
+      var prefix = '';
+      if (source === 'salary1') prefix = '💼 Salary 1';
+      else if (source === 'salary2') prefix = '💼 Salary 2';
+      else if (source === 'mother-pension') prefix = '👵 Mother’s Pension';
+      else if (source === 'mother-withdraw') prefix = '👵 Withdrawn from Mother';
+      else prefix = '💰 Other / UPI';
+
+      var desc = note ? (prefix + ' (' + note + ')') : prefix;
+
+      var spentVal = $('income-date') ? $('income-date').value : '';
+      var spentAt = spentVal ? new Date(spentVal).toISOString() : null;
+
+      addIncomeBtn.disabled = true;
+      store.add({ amount: amt, desc: desc, spent_at: spentAt }).then(function () {
+        incomeAmtInput.value = '';
+        if ($('income-note')) $('income-note').value = '';
+        if ($('income-date')) $('income-date').value = '';
+        var ts = spentAt ? Date.parse(spentAt) : Date.now();
+        state.sel = monthKey(ts);
+        render();
+        toast('Logged income ' + money(amt) + ' (' + prefix + ')');
+        incomeAmtInput.focus();
+      }).catch(function (err) {
+        var msg = (err && (err.message || 'Check your connection.')) || 'Failed to save.';
+        if (incomeErr) { incomeErr.textContent = 'Could not save income: ' + msg; incomeErr.hidden = false; }
+      }).finally(function () {
+        addIncomeBtn.disabled = false;
+        renderSync();
+      });
+    });
   }
 
   /* Sticky month-total bar: only shown once the hero banner (same number) has scrolled out

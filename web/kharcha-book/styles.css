@@ -161,6 +161,63 @@ button { cursor: pointer; border: 0; }
 .stats dt { font-size: 0.65rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--hero-muted); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .stats dd { margin: 2px 0 0; font-size: 0.86rem; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
+/* Cash Flow Grid on Hero */
+.cashflow-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin: 10px 0 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--hero-line);
+}
+.cashflow-card {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  min-width: 0;
+}
+.cf-title { font-size: 0.65rem; color: var(--hero-muted); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cf-amount { font: 700 0.88rem/1.2 var(--f-display); color: #FFFFFF; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cf-sub { font-size: 0.65rem; color: var(--hero-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cf-amount.positive { color: #86EFAC; }
+.cf-amount.warning { color: #FDE047; }
+.cf-amount.danger { color: #FCA5A5; }
+
+/* Stream Switcher */
+.stream-switcher {
+  display: flex;
+  gap: 4px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  padding: 4px;
+  border-radius: 14px;
+  margin-bottom: 12px;
+  box-shadow: var(--shadow-sm);
+}
+.streambtn {
+  flex: 1;
+  padding: 8px 6px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font: 600 0.8rem/1.2 var(--f-display);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  text-align: center;
+}
+.streambtn.active {
+  background: var(--accent);
+  color: #FFFFFF;
+  box-shadow: 0 2px 6px rgba(11, 93, 117, 0.25);
+}
+
 /* Add Expense Form - Compact & Refined */
 .add {
   background: var(--surface);
@@ -507,8 +564,112 @@ button.cat-row { width: 100%; text-align: left; background: none; border: 0; pad
   font-size: 0.84rem;
   font-weight: 500;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
-  z-index: 120;
+/* Incomings Section */
+.income-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
 }
+.income-btn {
+  background: #059669 !important;
+  border-color: #059669 !important;
+  color: #FFFFFF !important;
+}
+.income-btn:hover { background: #047857 !important; }
+.income-row .a { color: #059669 !important; font-weight: 700; }
+:root[data-theme="dark"] .income-row .a { color: #34D399 !important; }
+
+.incomings-summary {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 14px;
+  margin: 14px 0 10px;
+  box-shadow: var(--shadow-sm);
+}
+.inc-sum-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 10px;
+}
+.inc-sum-head h3 { margin: 0; font-size: 0.95rem; font-family: var(--f-display); color: var(--ink); }
+.inc-sum-total { font: 700 1.25rem/1 var(--f-display); color: #059669; font-variant-numeric: tabular-nums; }
+:root[data-theme="dark"] .inc-sum-total { color: #34D399; }
+.inc-sum-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+.inc-pill {
+  display: flex;
+  justify-content: space-between;
+  background: var(--bg);
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.inc-pill strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* Family Settlement Dashboard */
+.settle-banner {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 18px 14px;
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.settle-badge {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.settle-badge.pending { background: #FEF3C7; color: #92400E; }
+.settle-badge.settled { background: #D1FAE5; color: #065F46; }
+.settle-title { margin: 0; font: 700 1.25rem/1.2 var(--f-display); color: var(--ink); }
+.settle-msg { margin: 0; font-size: 0.84rem; color: var(--muted); max-width: 380px; }
+.settle-action-btn {
+  margin-top: 6px;
+  background: #D97706 !important;
+  border-color: #D97706 !important;
+  font-weight: 700;
+  color: #FFFFFF !important;
+}
+.settle-action-btn:hover { background: #B45309 !important; }
+
+.settle-cards-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.settle-stat-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  box-shadow: var(--shadow-sm);
+}
+.settle-stat-label { font-size: 0.72rem; color: var(--muted); font-weight: 500; }
+.settle-stat-num { font: 700 1.15rem/1.2 var(--f-display); font-variant-numeric: tabular-nums; }
+.settle-stat-num.danger { color: #DC2626; }
+.settle-stat-num.success { color: #059669; }
+:root[data-theme="dark"] .settle-stat-num.success { color: #34D399; }
+.settle-stat-hint { font-size: 0.68rem; color: var(--muted); }
 
 @keyframes modalFadeIn {
   from { opacity: 0; }

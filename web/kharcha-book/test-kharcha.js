@@ -49,7 +49,7 @@ windowMock.window = windowMock;
 const code = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8');
 vm.runInNewContext(code, windowMock);
 
-const { parseAmount, normDesc, money, groupByDay, byDescription, monthTotals, toLocalISOString, isFamilyEntry, parseBankSMS, parseSMSDate, findDuplicate, categoryBreakdown, monthCompare } = windowMock.__kharcha;
+const { parseAmount, normDesc, money, groupByDay, byDescription, monthTotals, toLocalISOString, isFamilyEntry, parseBankSMS, parseSMSDate, findDuplicate, categoryBreakdown, monthCompare, isIncome, isMotherSettlement, isMotherPension, isSalary, isExpense, getFamilySettlement, getPersonalCashFlow } = windowMock.__kharcha;
 
 let passed = 0;
 let failed = 0;
@@ -205,6 +205,60 @@ const telecomRes = categoryBreakdown([
   { amount: 399, desc: 'Jio Prepaid Recharge' }
 ]);
 assert(telecomRes.categories[0].name === '📱 Mobile & WiFi' && telecomRes.categories[0].total === 1374.62, 'Airtel and Jio map to 📱 Mobile & WiFi category');
+
+// 11. Incomings, Salaries, and Pension identification
+assert(isIncome({ desc: '💼 Salary 1' }) === true, 'isIncome identifies Salary 1');
+assert(isIncome({ desc: '💼 Salary 2 (Secondary)' }) === true, 'isIncome identifies Salary 2');
+assert(isIncome({ desc: '👵 Mother’s Pension' }) === true, 'isIncome identifies Mother pension');
+assert(isIncome({ desc: '👵 Withdrawn from Mother (Family Settlement)' }) === true, 'isIncome identifies Mother settlement withdrawal');
+assert(isIncome({ desc: '🛒 Grocery' }) === false, 'isIncome rejects regular grocery expense');
+assert(isExpense({ desc: '🛒 Grocery' }) === true, 'isExpense accepts regular grocery expense');
+assert(isExpense({ desc: '💼 Salary 1' }) === false, 'isExpense rejects salary');
+
+assert(isSalary({ desc: '💼 Salary 1' }) === true, 'isSalary identifies salary');
+assert(isSalary({ desc: '👵 Withdrawn from Mother' }) === false, 'isSalary rejects mother withdrawal');
+assert(isMotherSettlement({ desc: '👵 Withdrawn from Mother (Family Settlement)' }) === true, 'isMotherSettlement identifies settlement');
+assert(isMotherSettlement({ desc: '💼 Salary 1' }) === false, 'isMotherSettlement rejects salary');
+
+// 12. Family Settlement Reconciliation calculations
+const octEntries = [
+  // User personal salaries
+  { id: 'i1', amount: 80000, desc: '💼 Salary 1', ts: new Date('2026-10-01T10:00:00Z').getTime() },
+  { id: 'i2', amount: 25000, desc: '💼 Salary 2', ts: new Date('2026-10-05T10:00:00Z').getTime() },
+  // Mother pension
+  { id: 'i3', amount: 30000, desc: '👵 Mother’s Pension', ts: new Date('2026-10-02T10:00:00Z').getTime() },
+  // Family expenses paid upfront by user
+  { id: 'e1', amount: 3200, desc: '🏠 ⚡ Electricity Bill', ts: new Date('2026-10-03T10:00:00Z').getTime() },
+  { id: 'e2', amount: 4500, desc: '🏠 🛒 Monthly Grocery', ts: new Date('2026-10-03T12:00:00Z').getTime() },
+  { id: 'e3', amount: 2000, desc: '🏠 🧹 Maid Salary', ts: new Date('2026-10-04T10:00:00Z').getTime() },
+  // Personal expenses of user
+  { id: 'e4', amount: 5000, desc: '💊 Health Insurance / Medical', ts: new Date('2026-10-04T14:00:00Z').getTime() },
+  { id: 'e5', amount: 1500, desc: '🍔 Weekend Dining / Party', ts: new Date('2026-10-04T20:00:00Z').getTime() }
+];
+
+const setlBefore = getFamilySettlement(octEntries);
+assert(setlBefore.familySpent === 9700, 'getFamilySettlement sums family spent: 3200+4500+2000 = 9700');
+assert(setlBefore.motherWithdrawn === 0, 'getFamilySettlement has 0 withdrawn initially');
+assert(setlBefore.pending === 9700, 'getFamilySettlement shows 9700 pending to withdraw');
+assert(setlBefore.status === 'pending', 'getFamilySettlement status is pending');
+
+// Simulate user withdrawing / settling 9700 from Mother's account
+const octEntriesSettled = octEntries.concat([
+  { id: 'i4', amount: 9700, desc: '👵 Withdrawn from Mother (Family Settlement)', ts: new Date('2026-10-06T10:00:00Z').getTime() }
+]);
+
+const setlAfter = getFamilySettlement(octEntriesSettled);
+assert(setlAfter.familySpent === 9700, 'familySpent stays 9700 after settlement');
+assert(setlAfter.motherWithdrawn === 9700, 'motherWithdrawn becomes 9700');
+assert(setlAfter.pending === 0, 'pending becomes 0 after full settlement');
+assert(setlAfter.status === 'settled', 'settlement status becomes settled');
+
+// 13. Personal Cash Flow calculations
+const cf = getPersonalCashFlow(octEntriesSettled);
+assert(cf.salaries === 105000, 'Personal salaries = 80000 + 25000 = 105000');
+assert(cf.personalSpent === 6500, 'Personal spent = 5000 + 1500 = 6500 (family 9700 excluded!)');
+assert(cf.personalSavings === 98500, 'Personal savings = 105000 - 6500 = 98500');
+assert(cf.savingsRate === 94, 'Savings rate = 94%');
 
 console.log(`\nResults: ${passed} passed, ${failed} failed.`);
 if (failed > 0) process.exit(1);
