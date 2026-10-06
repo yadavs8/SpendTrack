@@ -1,26 +1,20 @@
 package com.spendtrack.app
 
 import android.Manifest
-import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import androidx.activity.compose.rememberLauncherForActivityResult
+import android.webkit.WebView
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -35,16 +29,9 @@ import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.spendtrack.app.core.security.BiometricAuthManager
 import com.spendtrack.app.data.di.ServiceLocator
-import com.spendtrack.app.ui.navigation.Screen
-import com.spendtrack.app.ui.screens.analytics.AnalyticsScreen
-import com.spendtrack.app.ui.screens.analytics.AnalyticsViewModel
-import com.spendtrack.app.ui.screens.home.HomeScreen
-import com.spendtrack.app.ui.screens.home.HomeViewModel
-import com.spendtrack.app.ui.screens.onboarding.OnboardingScreen
 import com.spendtrack.app.ui.screens.settings.SettingsScreen
 import com.spendtrack.app.ui.screens.settings.SettingsViewModel
-import com.spendtrack.app.ui.screens.transactions.TransactionsScreen
-import com.spendtrack.app.ui.screens.transactions.TransactionsViewModel
+import com.spendtrack.app.ui.screens.webview.KharchaWebViewScreen
 import com.spendtrack.app.ui.theme.SpendTrackTheme
 
 class MainActivity : FragmentActivity() {
@@ -119,7 +106,7 @@ fun LockScreen(onUnlockClick: () -> Unit) {
         }
         Spacer(modifier = Modifier.height(24.dp))
         Text(
-            text = "SpendTrack is Locked",
+            text = "Kharcha Book is Locked",
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground
@@ -144,22 +131,25 @@ fun LockScreen(onUnlockClick: () -> Unit) {
     }
 }
 
+/**
+ * The whole app is now just Kharcha Book (the web app) plus a settings gear that opens
+ * SpendTrack's native screens -- notification/SMS access, Cloud Sync sign-in, biometric lock --
+ * none of which a web page can grant itself. Detection/categorize/sync keep running in the
+ * background regardless of which of these two is on screen.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainApp() {
     var isOnboarded by remember { mutableStateOf(false) }
 
     if (!isOnboarded) {
-        OnboardingScreen(onFinished = { isOnboarded = true })
+        com.spendtrack.app.ui.screens.onboarding.OnboardingScreen(onFinished = { isOnboarded = true })
         return
     }
 
-    var currentScreen by remember { mutableStateOf<Screen>(Screen.Home) }
-
-    // ViewModels
-    val homeViewModel: HomeViewModel = viewModel()
-    val transactionsViewModel: TransactionsViewModel = viewModel()
-    val analyticsViewModel: AnalyticsViewModel = viewModel()
     val settingsViewModel: SettingsViewModel = viewModel()
+    var showSettings by remember { mutableStateOf(false) }
+    var webView by remember { mutableStateOf<WebView?>(null) }
 
     // Request POST_NOTIFICATIONS permission on Android 13+. Uses ActivityCompat directly with a
     // fixed request code -- some OEM ROMs (observed on OxygenOS/ColorOS) enforce a stricter 16-bit
@@ -178,48 +168,40 @@ fun MainApp() {
         }
     }
 
-    Scaffold(
-        bottomBar = {
-            NavigationBar {
-                Screen.items.forEach { screen ->
-                    NavigationBarItem(
-                        icon = { Icon(screen.icon, contentDescription = screen.title) },
-                        label = { Text(screen.title) },
-                        selected = currentScreen == screen,
-                        onClick = { currentScreen = screen }
-                    )
-                }
+    BackHandler(enabled = showSettings) { showSettings = false }
+    BackHandler(enabled = !showSettings && webView?.canGoBack() == true) { webView?.goBack() }
+
+    if (showSettings) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text("Settings") },
+                    navigationIcon = {
+                        IconButton(onClick = { showSettings = false }) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Back to Kharcha Book")
+                        }
+                    }
+                )
             }
+        ) { padding ->
+            SettingsScreen(viewModel = settingsViewModel, modifier = Modifier.padding(padding))
         }
-    ) { innerPadding ->
-        val modifier = Modifier.padding(innerPadding)
-        AnimatedContent(
-            targetState = currentScreen,
-            transitionSpec = {
-                val direction = Screen.items.indexOf(targetState) - Screen.items.indexOf(initialState)
-                val slideDistance = if (direction >= 0) 1 else -1
-                (slideInHorizontally(animationSpec = tween(220)) { it / 6 * slideDistance } + fadeIn(tween(220)))
-                    .togetherWith(slideOutHorizontally(animationSpec = tween(220)) { -it / 6 * slideDistance } + fadeOut(tween(160)))
-            },
-            label = "screen_transition"
-        ) { screen ->
-            when (screen) {
-                Screen.Home -> HomeScreen(
-                    viewModel = homeViewModel,
-                    onNavigateToTransactions = { currentScreen = Screen.Transactions },
-                    modifier = modifier
-                )
-                Screen.Transactions -> TransactionsScreen(
-                    viewModel = transactionsViewModel,
-                    modifier = modifier
-                )
-                Screen.Analytics -> AnalyticsScreen(
-                    viewModel = analyticsViewModel,
-                    modifier = modifier
-                )
-                Screen.Settings -> SettingsScreen(
-                    viewModel = settingsViewModel,
-                    modifier = modifier
+    } else {
+        Box(modifier = Modifier.fillMaxSize()) {
+            KharchaWebViewScreen(webViewRef = { webView = it })
+            IconButton(
+                onClick = { showSettings = true },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(12.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer)
+            ) {
+                Icon(
+                    Icons.Default.Settings,
+                    contentDescription = "App settings",
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer
                 )
             }
         }
