@@ -32,6 +32,11 @@ class SpendTrackNotificationListener : NotificationListenerService() {
         createNotificationChannel()
     }
 
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        android.util.Log.i("SpendTrack", "SpendTrackNotificationListener connected to notification manager!")
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         serviceScope.cancel()
@@ -41,6 +46,7 @@ class SpendTrackNotificationListener : NotificationListenerService() {
         if (sbn == null) return
 
         val packageName = sbn.packageName
+        android.util.Log.d("SpendTrack", "onNotificationPosted: pkg=$packageName")
         val extras = sbn.notification?.extras ?: return
 
         // Extract text fields
@@ -50,6 +56,7 @@ class SpendTrackNotificationListener : NotificationListenerService() {
         val subText = extras.getCharSequence("android.subText")?.toString()
 
         val fullText = listOfNotNull(text, bigText, subText).joinToString(" ")
+        android.util.Log.d("SpendTrack", "Notification content ($packageName): title=$title, text=$fullText")
 
         serviceScope.launch {
             try {
@@ -61,7 +68,10 @@ class SpendTrackNotificationListener : NotificationListenerService() {
                         TransactionParser.MESSAGING_PACKAGES.contains(packageName) ||
                         packageName.contains("bank", ignoreCase = true)
 
-                if (!isMonitored) return@launch
+                if (!isMonitored) {
+                    android.util.Log.d("SpendTrack", "Package $packageName is not monitored")
+                    return@launch
+                }
 
                 val parsed = ServiceLocator.rulePackEngine.parse(
                     title = title,
