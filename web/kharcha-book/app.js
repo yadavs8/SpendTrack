@@ -1022,7 +1022,7 @@
 
     var r = el('div', 'r-head');
     r.appendChild(el('span', 'dtotal day-color-' + (colorIdx % DAY_COLOR_COUNT), money(g.total)));
-    r.appendChild(el('span', 'chevron', isExpanded ? '▲' : '▼'));
+    r.appendChild(el('span', 'chevron', '▼'));
 
     head.appendChild(l);
     head.appendChild(r);
@@ -1137,21 +1137,26 @@
       }
 
       var isExpanded = !!state.expandedDays[g.key];
-      var head = dayHead(g, isExpanded, function () {
-        state.expandedDays[g.key] = !state.expandedDays[g.key];
-        render();
-      }, idx);
-
-      wrap.appendChild(head);
-
-      var ul = el('ul', 'entries' + (isExpanded ? ' waterfall-open' : ' waterfall-closed'));
-      ul.hidden = !isExpanded;
+      var wrapper = el('div', 'entries-wrapper' + (isExpanded ? ' expanded' : ''));
+      var ul = el('ul', 'entries');
       g.items.forEach(function (e) {
         var li = el('li');
         li.appendChild(state.editing === e.id && state.draft ? editRow(e) : entryRow(e));
         ul.appendChild(li);
       });
-      wrap.appendChild(ul);
+      wrapper.appendChild(ul);
+
+      var head = dayHead(g, isExpanded, function () {
+        var nextExpanded = !wrapper.classList.contains('expanded');
+        state.expandedDays[g.key] = nextExpanded;
+        head.classList.toggle('expanded', nextExpanded);
+        head.setAttribute('aria-expanded', nextExpanded ? 'true' : 'false');
+        head.setAttribute('aria-label', (nextExpanded ? 'Collapse ' : 'Expand ') + dFmt.format(keyToDate(g.key)) + ' expenses');
+        wrapper.classList.toggle('expanded', nextExpanded);
+      }, idx);
+
+      wrap.appendChild(head);
+      wrap.appendChild(wrapper);
       box.appendChild(wrap);
     });
   }
