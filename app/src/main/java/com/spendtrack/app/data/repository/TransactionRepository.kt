@@ -67,7 +67,6 @@ class TransactionRepository(
         )
 
         if (result is DeduplicationEngine.DeduplicationResult.NewTransaction &&
-            categoryResult.confidence < CATEGORY_REVIEW_THRESHOLD &&
             !result.transaction.needsReview
         ) {
             val flagged = result.transaction.copy(needsReview = true, updatedAt = System.currentTimeMillis())
@@ -104,6 +103,34 @@ class TransactionRepository(
         val updated = transaction.copy(
             categoryId = categoryId ?: transaction.categoryId,
             description = note?.takeIf { it.isNotBlank() } ?: transaction.description,
+            needsReview = false,
+            isEdited = true,
+            updatedAt = System.currentTimeMillis()
+        )
+        transactionDao.updateTransaction(updated)
+    }
+
+    /**
+     * Resolves the scope of an auto-detected transaction as either "personal" or "family".
+     * In Kharcha Book, family expenses are prefixed with "🏠 ".
+     */
+    suspend fun resolveScope(
+        transactionId: String,
+        scope: String
+    ) {
+        val transaction = transactionDao.getTransactionById(transactionId) ?: return
+        val currentDesc = (transaction.description?.takeIf { it.isNotBlank() }
+            ?: transaction.merchantName?.takeIf { it.isNotBlank() }
+            ?: "Expense").replace(Regex("^[🏠👤]\\s*"), "")
+
+        val newDesc = if (scope.equals("family", ignoreCase = true)) {
+            "🏠 $currentDesc"
+        } else {
+            currentDesc
+        }
+
+        val updated = transaction.copy(
+            description = newDesc,
             needsReview = false,
             isEdited = true,
             updatedAt = System.currentTimeMillis()

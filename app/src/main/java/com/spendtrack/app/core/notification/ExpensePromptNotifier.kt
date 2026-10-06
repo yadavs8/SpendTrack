@@ -23,15 +23,12 @@ object ExpensePromptNotifier {
     const val EXTRA_TRANSACTION_ID = "transaction_id"
     const val EXTRA_CATEGORY_ID = "category_id"
     const val EXTRA_CATEGORY_NAME = "category_name"
+    const val EXTRA_SCOPE = "expense_scope"
     const val EXTRA_NOTIFICATION_ID = "notification_id"
     const val REMOTE_INPUT_KEY = "note_reply"
 
-    /** Default, always-present categories (see AppDatabase.DEFAULT_CATEGORIES) offered as one-tap picks. */
-    private val QUICK_CATEGORIES = listOf(
-        "cat_food" to "Food & Dining",
-        "cat_transport" to "Transport",
-        "cat_shopping" to "Shopping"
-    )
+    const val SCOPE_PERSONAL = "personal"
+    const val SCOPE_FAMILY = "family"
 
     fun notificationIdFor(transactionId: String): Int = transactionId.hashCode()
 
@@ -39,7 +36,7 @@ object ExpensePromptNotifier {
         ensureChannel(context)
 
         val notificationId = notificationIdFor(transaction.id)
-        val amountLabel = "₹${transaction.amount.toInt()}"
+        val amountLabel = "₹${if (transaction.amount % 1.0 == 0.0) transaction.amount.toInt().toString() else String.format(java.util.Locale.US, "%.2f", transaction.amount)}"
         val merchantLabel = transaction.merchantName?.takeIf { it.isNotBlank() }
 
         val contentIntent = PendingIntent.getActivity(
@@ -51,19 +48,24 @@ object ExpensePromptNotifier {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val title = if (merchantLabel != null) "$amountLabel at $merchantLabel" else "$amountLabel spent"
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_menu_agenda)
-            .setContentTitle(if (merchantLabel != null) "$amountLabel at $merchantLabel — what's this for?" else "$amountLabel spent — what's this for?")
-            .setContentText("Tap a category, or reply with a note")
+            .setContentTitle(title)
+            .setContentText("Is this Personal or Family expense?")
             .setContentIntent(contentIntent)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
-            .setAutoCancel(false)
+            .setAutoCancel(true)
             .setOnlyAlertOnce(false)
 
-        QUICK_CATEGORIES.forEach { (categoryId, categoryName) ->
-            builder.addAction(quickCategoryAction(context, transaction.id, notificationId, categoryId, categoryName))
-        }
+        // 1. "Personal" one-tap action
+        builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_PERSONAL, "👤 Personal"))
+
+        // 2. "Family" one-tap action
+        builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_FAMILY, "🏠 Family"))
+
+        // 3. "Add note" inline reply action
         builder.addAction(addNoteAction(context, transaction.id, notificationId))
 
         androidx.core.app.NotificationManagerCompat.from(context).notify(notificationId, builder.build())
@@ -73,27 +75,26 @@ object ExpensePromptNotifier {
         androidx.core.app.NotificationManagerCompat.from(context).cancel(notificationIdFor(transactionId))
     }
 
-    private fun quickCategoryAction(
+    private fun scopeAction(
         context: Context,
         transactionId: String,
         notificationId: Int,
-        categoryId: String,
-        categoryName: String
+        scope: String,
+        label: String
     ): NotificationCompat.Action {
         val intent = Intent(context, QuickActionReceiver::class.java).apply {
-            action = QuickActionReceiver.ACTION_QUICK_CATEGORIZE
+            action = QuickActionReceiver.ACTION_SET_SCOPE
             putExtra(EXTRA_TRANSACTION_ID, transactionId)
-            putExtra(EXTRA_CATEGORY_ID, categoryId)
-            putExtra(EXTRA_CATEGORY_NAME, categoryName)
+            putExtra(EXTRA_SCOPE, scope)
             putExtra(EXTRA_NOTIFICATION_ID, notificationId)
         }
         val pendingIntent = PendingIntent.getBroadcast(
             context,
-            (transactionId + categoryId).hashCode(),
+            (transactionId + "_" + scope).hashCode(),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        return NotificationCompat.Action.Builder(0, categoryName, pendingIntent).build()
+        return NotificationCompat.Action.Builder(0, label, pendingIntent).build()
     }
 
     private fun addNoteAction(context: Context, transactionId: String, notificationId: Int): NotificationCompat.Action {
@@ -109,9 +110,9 @@ object ExpensePromptNotifier {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
         )
         val remoteInput = RemoteInput.Builder(REMOTE_INPUT_KEY)
-            .setLabel("What was this for? (e.g. Milk, Vegetables)")
+            .setLabel("Add note (e.g. Milk, Groceries)")
             .build()
-        return NotificationCompat.Action.Builder(0, "Add note", pendingIntent)
+        return NotificationCompat.Action.Builder(0, "Add Note", pendingIntent)
             .addRemoteInput(remoteInput)
             .build()
     }

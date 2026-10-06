@@ -20,6 +20,7 @@ class QuickActionReceiver : BroadcastReceiver() {
     companion object {
         const val ACTION_QUICK_CATEGORIZE = "com.spendtrack.app.ACTION_QUICK_CATEGORIZE"
         const val ACTION_ADD_NOTE = "com.spendtrack.app.ACTION_ADD_NOTE"
+        const val ACTION_SET_SCOPE = "com.spendtrack.app.ACTION_SET_SCOPE"
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -32,6 +33,13 @@ class QuickActionReceiver : BroadcastReceiver() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 when (intent.action) {
+                    ACTION_SET_SCOPE -> {
+                        val scope = intent.getStringExtra(ExpensePromptNotifier.EXTRA_SCOPE) ?: ExpensePromptNotifier.SCOPE_PERSONAL
+                        ServiceLocator.transactionRepository.resolveScope(
+                            transactionId = transactionId,
+                            scope = scope
+                        )
+                    }
                     ACTION_QUICK_CATEGORIZE -> {
                         val categoryId = intent.getStringExtra(ExpensePromptNotifier.EXTRA_CATEGORY_ID)
                         val categoryName = intent.getStringExtra(ExpensePromptNotifier.EXTRA_CATEGORY_NAME)
