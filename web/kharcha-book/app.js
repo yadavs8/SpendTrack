@@ -1425,11 +1425,17 @@
     await detectLock();
     console.log('Kharcha: detectLock done, lockSupported=' + lockSupported);
 
-    sb.auth.onAuthStateChange(async function (event, session) {
+    sb.auth.onAuthStateChange(function (event, session) {
       console.log('Kharcha: auth state changed: ' + event + ', session=' + !!session);
+      if (event === 'INITIAL_SESSION') return;
       if (session && ($('main').hidden || state.mode === 'signedout')) {
-        if (lockCred() && lockSupported) { showScreen('lock'); unlock(); }
-        else await enterApp();
+        setTimeout(function () {
+          if (lockCred() && lockSupported) { showScreen('lock'); unlock(); }
+          else enterApp();
+        }, 0);
+      } else if (!session && event === 'SIGNED_OUT') {
+        state.entries = []; state.editing = null; state.mode = 'signedout';
+        showScreen('auth');
       }
     });
 
