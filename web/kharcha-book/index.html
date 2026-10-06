@@ -7,17 +7,17 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="styles.css?v=30">
+<link rel="stylesheet" href="styles.css?v=31">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0B5D75">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Kharcha">
-<link rel="apple-touch-icon" href="apple-touch-icon.png?v=30">
-<link rel="icon" href="icon-192.png?v=30" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=31">
+<link rel="icon" href="icon-192.png?v=31" type="image/png">
 <script>
   (function() {
-    var V = '30';
+    var V = '31';
     if (localStorage.getItem('kharcha_app_v') !== V) {
       localStorage.setItem('kharcha_app_v', V);
       if ('caches' in window) {
@@ -40,7 +40,7 @@
     <h1><img class="logo" src="icon-192.png?v=28" width="36" height="36" alt="">Kharcha Book</h1>
     <div class="top-r">
       <span class="sync" id="sync" data-state="pending">Loading…</span>
-      <button type="button" class="installbtn" id="force-update-btn" title="Force clear cache & reload latest v30">v30 🔄</button>
+      <button type="button" class="installbtn" id="force-update-btn" title="Force clear cache & reload latest v31">v31 🔄</button>
       <button type="button" class="installbtn" id="install-btn" hidden>📲 Install App</button>
       <button type="button" class="signout" id="signout" hidden>Sign out</button>
     </div>
@@ -444,12 +444,12 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=30" onerror="void 0"></script>
-<script src="app.js?v=30"></script>
+<script src="config.js?v=31" onerror="void 0"></script>
+<script src="app.js?v=31"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('sw.js?v=30').then(function (reg) {
+      navigator.serviceWorker.register('sw.js?v=31').then(function (reg) {
         reg.update();
         reg.addEventListener('updatefound', function () {
           var newWorker = reg.installing;

@@ -1246,7 +1246,7 @@
       var ul = el('ul', 'entries');
       setl.familyExpenses.sort(byTimeDesc).forEach(function (e) {
         var li = el('li');
-        li.appendChild(entryRow(e));
+        li.appendChild(entryRow(e, true));
         ul.appendChild(li);
       });
       entriesBox.appendChild(ul);
@@ -1846,11 +1846,13 @@
     return head;
   }
 
-  function entryRow(e) {
+  // Lists grouped under a day header show the time; flat month-long lists (settlement) show the date.
+  var rowDateFmt = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short' });
+  function entryRow(e, showDate) {
     var b = el('button', 'row');
     b.type = 'button';
     b.setAttribute('aria-label', 'Edit ' + e.desc + ', ' + money(e.amount));
-    b.appendChild(el('span', 't', tFmt.format(new Date(e.ts))));
+    b.appendChild(el('span', 't', (showDate ? rowDateFmt : tFmt).format(new Date(e.ts))));
     b.appendChild(el('span', 'd', e.desc));
     b.appendChild(el('span', 'a', money(e.amount)));
     b.addEventListener('click', function () {
@@ -2322,7 +2324,7 @@
     updateBtn.addEventListener('click', function () {
       showConfirmModal({
         title: '🔄 Force Clear Cache & Reload',
-        message: 'Clear cached app data and reload to the latest v30?',
+        message: 'Clear cached app data and reload to the latest v31?',
         confirmText: 'Clear & Reload',
         onConfirm: function () {
           if ('caches' in window) {
