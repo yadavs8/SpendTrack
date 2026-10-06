@@ -63,6 +63,22 @@ object TransactionParser {
         "pending", "in progress", "processing"
     )
 
+    // Money that hasn't actually left the account yet: scheduled/future mandate debits, autopay
+    // reminders, payment or collect *requests* still awaiting approval, and the PIN/approval prompt
+    // itself. These commonly contain the same "debited"/"paid"/"payment" words as a completed
+    // transaction, so the debit-intent check alone cannot tell them apart -- only the tense/status
+    // words below can. When in doubt here, the right call is to NOT record it: a missed real expense
+    // is far less harmful than a phantom one that never happened.
+    private val NOT_YET_COMPLETED_REGEX = Regex(
+        """(?i)\b(?:will\s+be\s+(?:debited|deducted|charged|executed)|scheduled\s+(?:on|for)|due\s+on|upcoming\s+payment|payment\s+reminder|collect\s+request|payment\s+request|has\s+requested|requested\s+(?:a\s+payment\s+of|rs\.?|inr|₹)|awaiting\s+(?:your\s+)?approval|enter\s+(?:your\s+)?upi\s+pin|approve\s+(?:this\s+|the\s+)?(?:payment|transaction|request)|tap\s+to\s+pay)\b"""
+    )
+
+    /** True for scheduled/pending/requested payments that have not actually completed yet. */
+    fun isNotYetCompleted(text: String): Boolean {
+        val lower = text.lowercase(Locale.ROOT)
+        return NOT_YET_COMPLETED_REGEX.containsMatchIn(text) || PENDING_KEYWORDS.any { lower.contains(it) }
+    }
+
     // Ads and offers from payment apps (e.g. CRED's "roadside assistance at ₹1. tap to claim it now.")
     // and OTPs. These mention a rupee amount but no money moved.
     private val NON_TRANSACTION_REGEX = Regex(
@@ -126,6 +142,12 @@ object TransactionParser {
             if (lowerContent.contains(failedKey)) {
                 return null
             }
+        }
+
+        // 1.5. Scheduled/future debits, payment & collect requests, pending/processing status,
+        // and PIN-approval prompts -> the money has not actually moved yet. DO NOT RECORD.
+        if (isNotYetCompleted(fullContent)) {
+            return null
         }
 
         // 2. Check for Refunds
