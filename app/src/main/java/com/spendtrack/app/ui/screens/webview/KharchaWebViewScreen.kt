@@ -1,9 +1,12 @@
 package com.spendtrack.app.ui.screens.webview
 
 import android.annotation.SuppressLint
+import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
+import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import com.spendtrack.app.core.logger.SafeLogger
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -46,7 +49,47 @@ fun KharchaWebViewScreen(
                 settings.databaseEnabled = true
                 CookieManager.getInstance().setAcceptCookie(true)
                 CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-                webViewClient = WebViewClient()
+                if (com.spendtrack.app.BuildConfig.DEBUG) {
+                    WebView.setWebContentsDebuggingEnabled(true)
+                    webChromeClient = object : WebChromeClient() {
+                        override fun onConsoleMessage(message: ConsoleMessage): Boolean {
+                            SafeLogger.i("WebConsole [${message.messageLevel()}] ${message.message()} (${message.sourceId()}:${message.lineNumber()})")
+                            return true
+                        }
+                    }
+                }
+                webViewClient = object : WebViewClient() {
+                    override fun onReceivedError(
+                        view: WebView,
+                        errorCode: Int,
+                        description: String?,
+                        failingUrl: String?
+                    ) {
+                        SafeLogger.e("WebView load error ($errorCode) on $failingUrl: $description")
+                    }
+
+                    override fun onPageFinished(view: WebView, url: String?) {
+                        SafeLogger.i("WebView page finished: $url")
+                        if (com.spendtrack.app.BuildConfig.DEBUG) {
+                            view.evaluateJavascript(
+                                """
+                                (function(){
+                                  console.log('DIAG navigator.onLine=' + navigator.onLine);
+                                  try {
+                                    var raw = Object.keys(localStorage).filter(function(k){return k.indexOf('supabase')>=0 || k.indexOf('sb-')===0});
+                                    console.log('DIAG localStorage supabase keys=' + JSON.stringify(raw));
+                                  } catch(e) { console.log('DIAG localStorage err=' + e); }
+                                  fetch('${com.spendtrack.app.core.network.SupabaseConfig.SUPABASE_URL}/auth/v1/health', {
+                                    headers: {apikey: '${com.spendtrack.app.core.network.SupabaseConfig.SUPABASE_ANON_KEY}'}
+                                  }).then(function(r){ return r.text().then(function(t){ console.log('DIAG fetch status=' + r.status + ' body=' + t); }); })
+                                    .catch(function(e){ console.log('DIAG fetch error=' + e); });
+                                })();
+                                """.trimIndent(),
+                                null
+                            )
+                        }
+                    }
+                }
                 loadUrl(KHARCHA_BOOK_URL)
                 webView = this
                 webViewRef(this)

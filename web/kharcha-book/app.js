@@ -445,8 +445,8 @@
           .order('spent_at', { ascending: false }).order('id').range(from, from + size - 1);
         if (res.error && hasExtCols && isMissingColumn(res.error)) { hasExtCols = false; continue; }
         if (res.error) throw res.error;
-        out = out.concat(res.data);
-        if (res.data.length < size) break;
+        out = out.concat(res.data || []);
+        if (!res.data || res.data.length < size) break;
         from += size;
       }
       return out.map(fromRow).filter(validEntry);
@@ -1387,7 +1387,13 @@
 
   (async function init() {
     if (!CFG.SUPABASE_URL || !CFG.SUPABASE_ANON_KEY || !window.supabase) { showScreen('setup'); return; }
-    sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
+    sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, {
+      auth: {
+        lock: async function (name, acquireTimeout, fn) {
+          return await fn();
+        }
+      }
+    });
     await detectLock();
 
     sb.auth.onAuthStateChange(async function (event, session) {

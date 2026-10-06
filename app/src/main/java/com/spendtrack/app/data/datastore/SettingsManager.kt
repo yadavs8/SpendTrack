@@ -24,6 +24,7 @@ class SettingsManager(private val context: Context) {
         val KEY_BIOMETRIC_LOCK = booleanPreferencesKey("biometric_lock")
         val KEY_DARK_MODE = stringPreferencesKey("dark_mode") // "SYSTEM", "LIGHT", "DARK"
         val KEY_CONFIRMATION_NOTIFS = booleanPreferencesKey("confirmation_notifications")
+        val KEY_ONBOARDED = booleanPreferencesKey("onboarded")
 
         // Cloud Sync: one-time link to the Kharcha Book Supabase account
         val KEY_CLOUD_SYNC_ENABLED = booleanPreferencesKey("cloud_sync_enabled")
@@ -72,6 +73,14 @@ class SettingsManager(private val context: Context) {
 
     val darkModeFlow: Flow<String> = context.dataStore.data.map { prefs ->
         prefs[KEY_DARK_MODE] ?: "SYSTEM"
+    }
+
+    val isOnboarded: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_ONBOARDED] ?: false
+    }
+
+    suspend fun setOnboarded() {
+        context.dataStore.edit { it[KEY_ONBOARDED] = true }
     }
 
     val isCloudSyncEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->

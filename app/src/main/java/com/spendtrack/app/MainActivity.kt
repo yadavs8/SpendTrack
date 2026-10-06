@@ -35,6 +35,7 @@ import com.spendtrack.app.ui.screens.settings.SettingsScreen
 import com.spendtrack.app.ui.screens.settings.SettingsViewModel
 import com.spendtrack.app.ui.screens.webview.KharchaWebViewScreen
 import com.spendtrack.app.ui.theme.SpendTrackTheme
+import kotlinx.coroutines.launch
 
 class MainActivity : FragmentActivity() {
 
@@ -142,11 +143,22 @@ fun LockScreen(onUnlockClick: () -> Unit) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainApp() {
-    var isOnboarded by remember { mutableStateOf(false) }
+    // Persisted, so onboarding shows once -- not on every cold start. null = still reading DataStore.
+    val isOnboarded by ServiceLocator.settingsManager.isOnboarded.collectAsState(initial = null)
+    val scope = rememberCoroutineScope()
 
-    if (!isOnboarded) {
-        com.spendtrack.app.ui.screens.onboarding.OnboardingScreen(onFinished = { isOnboarded = true })
-        return
+    when (isOnboarded) {
+        null -> {
+            Box(Modifier.fillMaxSize().background(Color(0xFF0B5D75)))
+            return
+        }
+        false -> {
+            com.spendtrack.app.ui.screens.onboarding.OnboardingScreen(
+                onFinished = { scope.launch { ServiceLocator.settingsManager.setOnboarded() } }
+            )
+            return
+        }
+        true -> Unit
     }
 
     val settingsViewModel: SettingsViewModel = viewModel()
