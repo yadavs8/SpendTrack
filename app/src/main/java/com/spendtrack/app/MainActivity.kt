@@ -25,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.spendtrack.app.core.security.BiometricAuthManager
@@ -191,10 +192,13 @@ fun MainApp() {
             KharchaWebViewScreen(webViewRef = { webView = it })
             IconButton(
                 onClick = { showSettings = true },
+                // zIndex is required here: an embedded AndroidView (the WebView) can otherwise
+                // render above sibling Compose content regardless of composition order.
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .statusBarsPadding()
                     .padding(12.dp)
+                    .zIndex(10f)
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.primaryContainer)
             ) {
