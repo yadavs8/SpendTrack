@@ -72,7 +72,7 @@ class DataImportExportManager(
     fun exportCsvToFile(context: Context, transactions: List<TransactionEntity>): Uri {
         val csv = exportToCsv(transactions)
         val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
-        val file = File(exportDir, "SpendTrack_Expenses_${System.currentTimeMillis()}.csv")
+        val file = File(exportDir, "KharchaBook_Expenses_${System.currentTimeMillis()}.csv")
         file.writeText(csv)
         return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
     }
@@ -80,7 +80,7 @@ class DataImportExportManager(
     fun exportJsonToFile(context: Context, transactions: List<TransactionEntity>): Uri {
         val json = exportToJson(transactions)
         val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
-        val file = File(exportDir, "SpendTrack_Backup_${System.currentTimeMillis()}.json")
+        val file = File(exportDir, "KharchaBook_Backup_${System.currentTimeMillis()}.json")
         file.writeText(json)
         return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
     }

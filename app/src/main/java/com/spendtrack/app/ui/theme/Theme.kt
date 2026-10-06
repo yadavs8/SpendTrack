@@ -10,23 +10,30 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
 private val DarkColorScheme = darkColorScheme(
-    primary = Purple80,
-    secondary = PurpleGrey80,
-    tertiary = Pink80,
+    primary = KharchaTeal80,
+    onPrimary = Color(0xFF072028),
+    primaryContainer = KharchaDeepTeal80,
+    onPrimaryContainer = Color(0xFFEAF6FA),
+    secondary = KharchaTealGrey80,
+    tertiary = KharchaDeepTeal80,
     background = DarkSurface,
     surface = DarkCard
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40,
+    primary = KharchaTeal40,
+    onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = Color(0xFFDCEBEF),
+    onPrimaryContainer = KharchaTeal40,
+    secondary = KharchaTealGrey40,
+    tertiary = KharchaDeepTeal40,
     background = LightSurface,
     surface = LightCard
 )
@@ -34,7 +41,9 @@ private val LightColorScheme = lightColorScheme(
 @Composable
 fun SpendTrackTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = true,
+    // Branded, not wallpaper-derived: the native Settings/lock screens should always match
+    // Kharcha Book's own teal palette, the same on every phone.
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val colorScheme = when {

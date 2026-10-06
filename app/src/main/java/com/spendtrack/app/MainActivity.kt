@@ -20,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -188,8 +189,15 @@ fun MainApp() {
             SettingsScreen(viewModel = settingsViewModel, modifier = Modifier.padding(padding))
         }
     } else {
-        Box(modifier = Modifier.fillMaxSize()) {
-            KharchaWebViewScreen(webViewRef = { webView = it })
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color(0xFF0B5D75)) // Kharcha Book's --hero-bg: no flash before the page paints
+        ) {
+            KharchaWebViewScreen(
+                webViewRef = { webView = it },
+                modifier = Modifier.statusBarsPadding()
+            )
             IconButton(
                 onClick = { showSettings = true },
                 // zIndex is required here: an embedded AndroidView (the WebView) can otherwise

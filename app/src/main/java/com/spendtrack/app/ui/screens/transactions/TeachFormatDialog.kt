@@ -53,7 +53,7 @@ fun TeachFormatDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    "Teach SpendTrack how to parse messages from this sender for future automatic detection:",
+                    "Teach Kharcha Book how to parse messages from this sender for future automatic detection:",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

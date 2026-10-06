@@ -677,7 +677,7 @@ fun SettingsScreen(
                         }
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            "SpendTrack processes notifications entirely on your device and stores them locally by default. Nothing leaves your phone unless you sign in and turn on Cloud Sync above.",
+                            "Kharcha Book processes notifications entirely on your device and stores them locally by default. Nothing leaves your phone unless you sign in and turn on Cloud Sync above.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

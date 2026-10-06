@@ -30,10 +30,10 @@ object OemBatteryHelper {
                 OemGuidance(
                     title = "Xiaomi / MIUI / HyperOS Setup",
                     steps = listOf(
-                        "1. Open Settings -> Apps -> Manage Apps -> SpendTrack.",
+                        "1. Open Settings -> Apps -> Manage Apps -> Kharcha Book.",
                         "2. Enable 'Autostart'.",
                         "3. Tap 'Battery saver' and select 'No restrictions'.",
-                        "4. Lock SpendTrack in the Recent Apps tray."
+                        "4. Lock Kharcha Book in the Recent Apps tray."
                     )
                 )
             }
@@ -42,8 +42,8 @@ object OemBatteryHelper {
                     title = "Vivo / FuntouchOS Setup",
                     steps = listOf(
                         "1. Open Settings -> Battery -> Background power consumption management.",
-                        "2. Find SpendTrack and select 'Allow high background power consumption'.",
-                        "3. In Settings -> Apps -> SpendTrack, enable 'Autostart'."
+                        "2. Find Kharcha Book and select 'Allow high background power consumption'.",
+                        "3. In Settings -> Apps -> Kharcha Book, enable 'Autostart'."
                     )
                 )
             }
@@ -51,9 +51,9 @@ object OemBatteryHelper {
                 OemGuidance(
                     title = "Oppo / Realme / OnePlus Setup",
                     steps = listOf(
-                        "1. Open Settings -> Apps -> App management -> SpendTrack.",
+                        "1. Open Settings -> Apps -> App management -> Kharcha Book.",
                         "2. Tap 'Battery usage' and enable 'Allow background activity' and 'Allow auto-launch'.",
-                        "3. Lock SpendTrack in the Recent Apps screen."
+                        "3. Lock Kharcha Book in the Recent Apps screen."
                     )
                 )
             }
@@ -61,9 +61,9 @@ object OemBatteryHelper {
                 OemGuidance(
                     title = "Samsung One UI Setup",
                     steps = listOf(
-                        "1. Open Settings -> Apps -> SpendTrack -> Battery.",
+                        "1. Open Settings -> Apps -> Kharcha Book -> Battery.",
                         "2. Select 'Unrestricted'.",
-                        "3. Ensure SpendTrack is NOT in 'Sleeping apps' or 'Deep sleeping apps'."
+                        "3. Ensure Kharcha Book is NOT in 'Sleeping apps' or 'Deep sleeping apps'."
                     )
                 )
             }
@@ -71,7 +71,7 @@ object OemBatteryHelper {
                 OemGuidance(
                     title = "Battery Optimization Setup",
                     steps = listOf(
-                        "1. Open Settings -> Apps -> SpendTrack -> Battery.",
+                        "1. Open Settings -> Apps -> Kharcha Book -> Battery.",
                         "2. Set Battery usage to 'Unrestricted' so Android does not stop transaction detection."
                     )
                 )
