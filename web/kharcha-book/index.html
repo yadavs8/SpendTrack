@@ -7,17 +7,17 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="styles.css?v=28">
+<link rel="stylesheet" href="styles.css?v=29">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0B5D75">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Kharcha">
-<link rel="apple-touch-icon" href="apple-touch-icon.png?v=28">
-<link rel="icon" href="icon-192.png?v=28" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=29">
+<link rel="icon" href="icon-192.png?v=29" type="image/png">
 <script>
   (function() {
-    var V = '28';
+    var V = '29';
     if (localStorage.getItem('kharcha_app_v') !== V) {
       localStorage.setItem('kharcha_app_v', V);
       if ('caches' in window) {
@@ -40,7 +40,7 @@
     <h1><img class="logo" src="icon-192.png?v=28" width="36" height="36" alt="">Kharcha Book</h1>
     <div class="top-r">
       <span class="sync" id="sync" data-state="pending">Loading…</span>
-      <button type="button" class="installbtn" id="force-update-btn" title="Force clear cache & reload latest v28">v28 🔄</button>
+      <button type="button" class="installbtn" id="force-update-btn" title="Force clear cache & reload latest v29">v29 🔄</button>
       <button type="button" class="installbtn" id="install-btn" hidden>📲 Install App</button>
       <button type="button" class="signout" id="signout" hidden>Sign out</button>
     </div>
@@ -137,7 +137,8 @@
   <div class="stream-switcher" id="stream-switcher">
     <button type="button" class="streambtn active" id="stream-spends-btn" data-stream="spends">💳 Spends (<span id="spends-count">0</span>)</button>
     <button type="button" class="streambtn" id="stream-incomings-btn" data-stream="incomings">💰 Incomings (<span id="incomings-count">0</span>)</button>
-    <button type="button" class="streambtn" id="stream-settlement-btn" data-stream="settlement">👵 Family Settlement</button>
+    <button type="button" class="streambtn" id="stream-settlement-btn" data-stream="settlement">👵 Settlement</button>
+    <button type="button" class="streambtn" id="stream-projects-btn" data-stream="projects">🔨 Projects (<span id="projects-count">0</span>)</button>
   </div>
 
   <div id="spends-view">
@@ -282,6 +283,89 @@
 
     <h2 class="sec-title">Family Expenses Included in Settlement</h2>
     <div id="settle-family-entries"></div>
+  </section>
+
+  <!-- Projects & Renovation Tracking View -->
+  <section class="project-sec" id="project-sec" hidden>
+    <div class="project-hero-card">
+      <div class="project-card-top">
+        <div class="proj-badge" id="project-active-badge">Active Project</div>
+        <button type="button" class="project-rename-btn" id="project-change-btn" title="Change Project Name">✏️ Renovation</button>
+      </div>
+      <h3 class="project-title" id="project-display-name">🔨 House Renovation</h3>
+      <p class="project-subtitle">Track labour wages, materials & contractor payments</p>
+      <div class="project-total-banner">
+        <span class="proj-tot-lbl">Total Spent This Month</span>
+        <span class="proj-tot-amt" id="proj-total-spent">₹0</span>
+      </div>
+      <div class="project-payer-grid">
+        <div class="proj-payer-box payer-me">
+          <span class="ppb-title">👤 Paid by Me</span>
+          <span class="ppb-amt" id="proj-me-spent">₹0</span>
+          <span class="ppb-sub">Reimbursed via Settlement</span>
+        </div>
+        <div class="proj-payer-box payer-mother">
+          <span class="ppb-title">👵 Paid by Mother</span>
+          <span class="ppb-amt" id="proj-mother-spent">₹0</span>
+          <span class="ppb-sub">Directly from Mother cash/a/c</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick Project Entry Form -->
+    <form class="add add-project" id="add-project" autocomplete="off" novalidate>
+      <div class="payer-picker-wrap">
+        <span class="scope-label">Who Paid?</span>
+        <div class="payer-chips" id="proj-payer-chips">
+          <label class="scope-pill active"><input type="radio" name="proj-payer" value="me" checked> 👤 My Account</label>
+          <label class="scope-pill"><input type="radio" name="proj-payer" value="mother"> 👵 Mother's Account / Cash</label>
+        </div>
+      </div>
+      <div class="add-row">
+        <div class="field">
+          <label for="proj-amt">Amount</label>
+          <div class="amt-wrap"><span aria-hidden="true">₹</span><input class="input" id="proj-amt" inputmode="decimal" placeholder="0"></div>
+        </div>
+        <div class="field">
+          <label for="proj-desc">Work / Worker / Item</label>
+          <input class="input" id="proj-desc" list="proj-presets" maxlength="60" placeholder="e.g. Ramesh Labour wage, Tiles, Cement…">
+          <datalist id="proj-presets">
+            <option value="Labour daily wage">
+            <option value="Mason / Mistri wage">
+            <option value="Cement bags">
+            <option value="Sand & Bricks">
+            <option value="Tiles & Granite">
+            <option value="Plumbing labour & pipes">
+            <option value="Electrical fittings & wire">
+            <option value="Paint & Putty">
+            <option value="Carpenter & Woodwork">
+          </datalist>
+        </div>
+      </div>
+      <div class="quick-proj-chips" id="quick-proj-chips">
+        <button type="button" class="chip" data-item="Labour daily wage">👷 Labour wage</button>
+        <button type="button" class="chip" data-item="Mason / Mistri wage">🧱 Mistri wage</button>
+        <button type="button" class="chip" data-item="Cement & Sand">🏗️ Cement/Sand</button>
+        <button type="button" class="chip" data-item="Plumbing work">🚰 Plumbing</button>
+        <button type="button" class="chip" data-item="Electrical fittings">⚡ Electricals</button>
+      </div>
+      <div class="add-row add-row-extra">
+        <div class="field">
+          <label for="proj-date">Date & Time (Optional)</label>
+          <input class="input" id="proj-date" type="datetime-local">
+        </div>
+      </div>
+      <div class="add-foot">
+        <p class="stamp" id="proj-stamp-note">Auto-syncs to cloud</p>
+        <button class="primary proj-add-btn" type="submit" id="add-proj-btn" disabled>+ Add Renovation Spend</button>
+      </div>
+      <p class="err" id="proj-err" role="alert" hidden></p>
+    </form>
+
+    <div class="proj-history-head">
+      <h2 class="sec-title" style="margin: 16px 0 8px;">Project Expenses Timeline</h2>
+    </div>
+    <div id="project-days" aria-live="polite"></div>
   </section>
 
   <!-- Sticky bottom bar: the current month's total, always visible while scrolling. -->

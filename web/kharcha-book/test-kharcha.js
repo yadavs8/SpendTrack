@@ -49,7 +49,7 @@ windowMock.window = windowMock;
 const code = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8');
 vm.runInNewContext(code, windowMock);
 
-const { parseAmount, normDesc, money, groupByDay, byDescription, monthTotals, toLocalISOString, isFamilyEntry, parseBankSMS, parseSMSDate, findDuplicate, categoryBreakdown, monthCompare, isIncome, isMotherSettlement, isMotherPension, isSalary, isExpense, getFamilySettlement, getPersonalCashFlow } = windowMock.__kharcha;
+const { parseAmount, normDesc, money, groupByDay, byDescription, monthTotals, toLocalISOString, isFamilyEntry, parseBankSMS, parseSMSDate, findDuplicate, categoryBreakdown, monthCompare, isIncome, isMotherSettlement, isMotherPension, isSalary, isExpense, getFamilySettlement, getPersonalCashFlow, isProjectEntry, isProjectMotherPaid, getProjectSummary } = windowMock.__kharcha;
 
 let passed = 0;
 let failed = 0;
@@ -259,6 +259,38 @@ assert(cf.salaries === 105000, 'Personal salaries = 80000 + 25000 = 105000');
 assert(cf.personalSpent === 6500, 'Personal spent = 5000 + 1500 = 6500 (family 9700 excluded!)');
 assert(cf.personalSavings === 98500, 'Personal savings = 105000 - 6500 = 98500');
 assert(cf.savingsRate === 94, 'Savings rate = 94%');
+
+// 14. Project & Renovation Tracking (Labour, Materials, Payer separation)
+assert(isProjectEntry('🔨 House Renovation 👤 Labour daily wage') === true, 'isProjectEntry identifies renovation hammer tag');
+assert(isProjectEntry('Tiles and Granite for renovation') === true, 'isProjectEntry identifies renovation keyword');
+assert(isProjectEntry('Ramesh labour wage') === true, 'isProjectEntry identifies labour keyword');
+assert(isProjectEntry('🛒 Grocery') === false, 'isProjectEntry rejects non-project spend');
+
+assert(isProjectMotherPaid('🔨 House Renovation 👵 Cement bags from Mother cash') === true, 'isProjectMotherPaid detects mother paid project entry');
+assert(isProjectMotherPaid('🔨 House Renovation 👤 Labour wage') === false, 'isProjectMotherPaid rejects user paid project entry');
+
+// Project entry paid by User flows into Family Settlement!
+assert(isFamilyEntry('🔨 House Renovation 👤 Labour daily wage') === true, 'Renovation entry paid by User is counted as Family spend for reimbursement');
+// Project entry paid directly by Mother does NOT create reimbursement debt
+assert(isFamilyEntry('🔨 House Renovation 👵 Cement bags from Mother cash') === false, 'Renovation entry paid by Mother does not create reimbursement debt');
+
+const projectEntries = [
+  { id: 'p1', amount: 1500, desc: '🔨 House Renovation 👤 Labour daily wage', ts: Date.now() },
+  { id: 'p2', amount: 3000, desc: '🔨 House Renovation 👤 Mistri / Mason wage', ts: Date.now() },
+  { id: 'p3', amount: 5000, desc: '🔨 House Renovation 👵 Tiles and Cement bags', ts: Date.now() },
+  { id: 'p4', amount: 200, desc: '🛒 Regular snacks', ts: Date.now() }
+];
+
+const projSummary = getProjectSummary(projectEntries);
+assert(projSummary.entries.length === 3, 'getProjectSummary extracts 3 project entries (ignores snacks)');
+assert(projSummary.totalSpent === 9500, 'getProjectSummary sums total spent = 1500 + 3000 + 5000 = 9500');
+assert(projSummary.meSpent === 4500, 'getProjectSummary sums paid by me = 1500 + 3000 = 4500');
+assert(projSummary.motherSpent === 5000, 'getProjectSummary sums paid by mother = 5000');
+
+// Verify that user-paid renovation (4500) automatically adds to Family Settlement pending balance
+const setlWithProj = getFamilySettlement(projectEntries);
+assert(setlWithProj.familySpent === 4500, 'Family settlement includes user-paid renovation (4500) and excludes mother-paid (5000)');
+assert(setlWithProj.pending === 4500, 'Family settlement shows 4500 pending reimbursement to user');
 
 console.log(`\nResults: ${passed} passed, ${failed} failed.`);
 if (failed > 0) process.exit(1);

@@ -703,6 +703,145 @@ button.cat-row { width: 100%; text-align: left; background: none; border: 0; pad
 :root[data-theme="dark"] .settle-stat-num.success { color: #34D399; }
 .settle-stat-hint { font-size: 0.68rem; color: var(--muted); }
 
+/* Projects & Renovation Tracking Dashboard */
+.project-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.project-hero-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 16px 14px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.project-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.proj-badge {
+  background: var(--accent-soft);
+  color: var(--accent);
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.project-rename-btn {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.project-rename-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.project-title {
+  margin: 0;
+  font: 700 1.25rem/1.2 var(--f-display);
+  color: var(--ink);
+}
+.project-subtitle {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.project-total-banner {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 4px 0 2px;
+}
+.proj-tot-lbl {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.proj-tot-amt {
+  font: 700 1.35rem/1.1 var(--f-display);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.project-payer-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.proj-payer-box {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.proj-payer-box.payer-me {
+  border-left: 3px solid var(--accent);
+}
+.proj-payer-box.payer-mother {
+  border-left: 3px solid #059669;
+}
+:root[data-theme="dark"] .proj-payer-box.payer-mother {
+  border-left: 3px solid #34D399;
+}
+.ppb-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+.ppb-amt {
+  font: 700 1.05rem/1.2 var(--f-display);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.ppb-sub {
+  font-size: 0.64rem;
+  color: var(--muted);
+  line-height: 1.2;
+}
+
+.payer-picker-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 2px;
+}
+.payer-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.quick-proj-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 2px;
+}
+.proj-add-btn {
+  background: #0B5D75 !important;
+  color: #FFFFFF !important;
+}
+
 @keyframes modalFadeIn {
   from { opacity: 0; }
   to { opacity: 1; }

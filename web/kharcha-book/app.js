@@ -40,8 +40,8 @@
   function isIncome(e) {
     if (!e || !e.desc) return false;
     var d = e.desc.trim().toLowerCase();
-    // Expenses tagged with 🏠 or 👤 are explicitly spends (e.g. 🏠 🧹 Maid Salary, 🏠 Electricity Bill)
-    if (d.startsWith('🏠') || d.startsWith('👤')) return false;
+    // Expenses tagged with 🏠, 👤, or 🔨 (project spends) are explicitly spends
+    if (d.startsWith('🏠') || d.startsWith('👤') || d.includes('🔨')) return false;
     // Incomings start with 💼, 👵, 💰 or explicit incoming keywords
     return d.includes('💼') || d.includes('👵') || d.startsWith('salary') || d.includes('income') || d.includes('pension') || d.includes('withdrawn from mother');
   }
@@ -68,9 +68,42 @@
     return !isIncome(e);
   }
 
+  function isProjectEntry(desc) {
+    var d = (desc || '').toLowerCase();
+    return d.includes('🔨') || d.includes('renovation') || d.includes('labour') || d.includes('mistri');
+  }
+
+  function isProjectMotherPaid(desc) {
+    var d = (desc || '').toLowerCase();
+    return isProjectEntry(d) && (d.includes('👵') || d.includes('mother'));
+  }
+
   function isFamilyEntry(desc) {
     var d = (desc || '').toLowerCase();
+    // If it's a project entry paid directly by Mother, it does NOT create a family reimbursement debt
+    if (isProjectMotherPaid(d)) return false;
+    // If it's a project entry paid by User, it IS included in family settlement reimbursement!
+    if (isProjectEntry(d)) return true;
     return d.includes('🏠') || d.includes('family') || d.includes('niece') || d.includes('electricity') || d.includes('gas') || d.includes('bill');
+  }
+
+  function getProjectSummary(monthEntries) {
+    var list = (monthEntries || []).filter(function (e) {
+      return isExpense(e) && isProjectEntry(e.desc);
+    });
+    var totalSpent = list.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
+    var meEntries = list.filter(function (e) { return !isProjectMotherPaid(e.desc); });
+    var motherEntries = list.filter(function (e) { return isProjectMotherPaid(e.desc); });
+    var meSpent = meEntries.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
+    var motherSpent = motherEntries.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
+    return {
+      entries: list,
+      totalSpent: totalSpent,
+      meEntries: meEntries,
+      meSpent: meSpent,
+      motherEntries: motherEntries,
+      motherSpent: motherSpent
+    };
   }
 
   function getFamilySettlement(monthEntries) {
@@ -467,7 +500,8 @@
     enterApp: enterApp,
     getSb: function () { return sb; },
     parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, parseSMSDate: parseSMSDate, findDuplicate: findDuplicate, categoryBreakdown: categoryBreakdown, monthCompare: monthCompare,
-    isIncome: isIncome, isMotherSettlement: isMotherSettlement, isMotherPension: isMotherPension, isSalary: isSalary, isExpense: isExpense, getFamilySettlement: getFamilySettlement, getPersonalCashFlow: getPersonalCashFlow
+    isIncome: isIncome, isMotherSettlement: isMotherSettlement, isMotherPension: isMotherPension, isSalary: isSalary, isExpense: isExpense, getFamilySettlement: getFamilySettlement, getPersonalCashFlow: getPersonalCashFlow,
+    isProjectEntry: isProjectEntry, isProjectMotherPaid: isProjectMotherPaid, getProjectSummary: getProjectSummary
   };
 
   var TABLE = 'daily_expenses';
@@ -1018,9 +1052,10 @@
     var monthIncomings = allMonthEntries.filter(isIncome);
     var settlement = getFamilySettlement(allMonthEntries);
     var cashFlow = getPersonalCashFlow(allMonthEntries);
+    var projSummary = getProjectSummary(allMonthEntries);
 
     renderCashFlow(cashFlow, settlement);
-    renderStreamSwitcher(monthExpenses.length, monthIncomings.length);
+    renderStreamSwitcher(monthExpenses.length, monthIncomings.length, projSummary.entries.length);
 
     renderBudget(cur.total);
     renderSuggestions();
@@ -1032,6 +1067,7 @@
     // Stream Views Rendering
     renderIncomingsView(monthIncomings);
     renderSettlementView(settlement);
+    renderProjectView(projSummary);
 
     renderSync();
   }
@@ -1073,20 +1109,24 @@
   }
 
   /* ---------- Stream Switcher Tabs ---------- */
-  function renderStreamSwitcher(spendsCount, incomingsCount) {
+  function renderStreamSwitcher(spendsCount, incomingsCount, projCount) {
     var spCountEl = $('spends-count');
     var incCountEl = $('incomings-count');
+    var projCountEl = $('projects-count');
     if (spCountEl) spCountEl.textContent = String(spendsCount);
     if (incCountEl) incCountEl.textContent = String(incomingsCount);
+    if (projCountEl) projCountEl.textContent = String(projCount || 0);
 
     var spendsView = $('spends-view');
     var incomingsSec = $('incomings-sec');
     var settlementSec = $('settlement-sec');
+    var projectSec = $('project-sec');
 
     var stream = state.activeStream || 'spends';
     if (spendsView) spendsView.hidden = (stream !== 'spends');
     if (incomingsSec) incomingsSec.hidden = (stream !== 'incomings');
     if (settlementSec) settlementSec.hidden = (stream !== 'settlement');
+    if (projectSec) projectSec.hidden = (stream !== 'projects');
 
     document.querySelectorAll('.streambtn').forEach(function (btn) {
       btn.classList.toggle('active', btn.dataset.stream === stream);
@@ -1309,6 +1349,170 @@
         if (incomeErr) { incomeErr.textContent = 'Could not save income: ' + msg; incomeErr.hidden = false; }
       }).finally(function () {
         addIncomeBtn.disabled = false;
+        renderSync();
+      });
+    });
+  }
+
+  /* ---------- Projects & Renovation View Rendering ---------- */
+  var PROJ_NAME_KEY = 'kharcha_active_project_name';
+  function getActiveProjectName() {
+    try { return localStorage.getItem(PROJ_NAME_KEY) || 'House Renovation'; } catch (e) { return 'House Renovation'; }
+  }
+  function setActiveProjectName(name) {
+    try { localStorage.setItem(PROJ_NAME_KEY, name || 'House Renovation'); } catch (e) {}
+  }
+
+  function renderProjectView(proj) {
+    var curName = getActiveProjectName();
+    var displayEl = $('project-display-name');
+    var changeBtn = $('project-change-btn');
+    if (displayEl) displayEl.textContent = '🔨 ' + curName;
+    if (changeBtn) changeBtn.textContent = '✏️ ' + curName;
+
+    var totSpentEl = $('proj-total-spent');
+    var meSpentEl = $('proj-me-spent');
+    var motherSpentEl = $('proj-mother-spent');
+
+    if (totSpentEl) totSpentEl.textContent = money(proj.totalSpent);
+    if (meSpentEl) meSpentEl.textContent = money(proj.meSpent);
+    if (motherSpentEl) motherSpentEl.textContent = money(proj.motherSpent);
+
+    var daysBox = $('project-days');
+    if (!daysBox) return;
+    daysBox.textContent = '';
+
+    if (!proj.entries.length) {
+      var em = el('div', 'empty');
+      em.appendChild(el('p', null, 'No ' + curName + ' expenses logged for ' + monthLabel(state.sel) + '. Add labour, mistri or materials above!'));
+      daysBox.appendChild(em);
+      return;
+    }
+
+    var days = groupByDay(proj.entries);
+    days.forEach(function (g, idx) {
+      var wrap = el('section', 'day');
+      var isExpanded = true;
+      var wrapper = el('div', 'entries-wrapper expanded');
+      var ul = el('ul', 'entries');
+      g.items.forEach(function (e) {
+        var li = el('li');
+        li.appendChild(entryRow(e));
+        ul.appendChild(li);
+      });
+      wrapper.appendChild(ul);
+
+      var head = dayHead(g, isExpanded, function () {
+        var nextExpanded = !wrapper.classList.contains('expanded');
+        head.classList.toggle('expanded', nextExpanded);
+        wrapper.classList.toggle('expanded', nextExpanded);
+      }, idx);
+
+      wrap.appendChild(head);
+      wrap.appendChild(wrapper);
+      daysBox.appendChild(wrap);
+    });
+  }
+
+  /* Project Payer Radio Pills */
+  function getSelectedProjectPayer() {
+    var checked = document.querySelector('input[name="proj-payer"]:checked');
+    return checked ? checked.value : 'me';
+  }
+  function setSelectedProjectPayer(val) {
+    var radios = document.querySelectorAll('input[name="proj-payer"]');
+    radios.forEach(function (r) {
+      r.checked = (r.value === val);
+      r.parentElement.classList.toggle('active', r.checked);
+    });
+  }
+  document.querySelectorAll('#proj-payer-chips .scope-pill').forEach(function (pill) {
+    pill.addEventListener('click', function () {
+      var input = pill.querySelector('input');
+      if (input) setSelectedProjectPayer(input.value);
+    });
+  });
+
+  /* Quick project item chips */
+  document.querySelectorAll('#quick-proj-chips .chip').forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      var item = chip.dataset.item || chip.textContent.trim();
+      var descInput = $('proj-desc');
+      if (descInput) {
+        descInput.value = item;
+        if (!$('proj-amt').value) $('proj-amt').focus(); else descInput.focus();
+      }
+    });
+  });
+
+  /* Project Rename Button */
+  var projChangeBtn = $('project-change-btn');
+  if (projChangeBtn) {
+    projChangeBtn.addEventListener('click', function () {
+      var cur = getActiveProjectName();
+      var next = window.prompt('Enter project name (e.g. House Renovation, Shop Setup, Event):', cur);
+      if (next && next.trim() && next.trim() !== cur) {
+        setActiveProjectName(next.trim());
+        render();
+        toast('Project set to ' + next.trim());
+      }
+    });
+  }
+
+  /* Add Project Form Submission */
+  var addProjForm = $('add-project');
+  var projAmtInput = $('proj-amt');
+  var addProjBtn = $('add-proj-btn');
+  var projErr = $('proj-err');
+
+  if (projAmtInput && addProjBtn) {
+    projAmtInput.addEventListener('input', function () {
+      var a = parseAmount(projAmtInput.value);
+      addProjBtn.disabled = (a == null);
+    });
+  }
+
+  if (addProjForm) {
+    addProjForm.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      if (projErr) projErr.hidden = true;
+      var amt = parseAmount(projAmtInput.value);
+      if (amt == null) {
+        if (projErr) { projErr.textContent = 'Enter an amount greater than zero, like 800 or 1500.'; projErr.hidden = false; }
+        projAmtInput.focus();
+        return;
+      }
+
+      var payer = getSelectedProjectPayer(); // 'me' or 'mother'
+      var rawItem = $('proj-desc') ? $('proj-desc').value.trim() : '';
+      var item = rawItem || 'Labour / Work';
+      var projName = getActiveProjectName();
+
+      // Tag format:
+      // If paid by Me: 🔨 Renovation 👤 Labour daily wage - Ramesh
+      // If paid by Mother: 🔨 Renovation 👵 Cement & sand bags
+      var payerEmoji = payer === 'mother' ? '👵' : '👤';
+      var desc = '🔨 ' + projName + ' ' + payerEmoji + ' ' + item;
+
+      var spentVal = $('proj-date') ? $('proj-date').value : '';
+      var spentAt = spentVal ? new Date(spentVal).toISOString() : null;
+
+      addProjBtn.disabled = true;
+      store.add({ amount: amt, desc: desc, spent_at: spentAt }).then(function () {
+        projAmtInput.value = '';
+        if ($('proj-desc')) $('proj-desc').value = '';
+        if ($('proj-date')) $('proj-date').value = '';
+        var ts = spentAt ? Date.parse(spentAt) : Date.now();
+        state.sel = monthKey(ts);
+        render();
+        var payerLabel = payer === 'mother' ? "Paid from Mother's Account" : "Paid from My Account (added to Settlement)";
+        toast('Logged ' + money(amt) + ' (' + payerLabel + ')');
+        projAmtInput.focus();
+      }).catch(function (err) {
+        var msg = (err && (err.message || 'Check your connection.')) || 'Failed to save.';
+        if (projErr) { projErr.textContent = 'Could not save project spend: ' + msg; projErr.hidden = false; }
+      }).finally(function () {
+        addProjBtn.disabled = false;
         renderSync();
       });
     });
