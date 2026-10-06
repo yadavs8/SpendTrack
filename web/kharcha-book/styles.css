@@ -594,6 +594,8 @@ button.cat-row { width: 100%; text-align: left; background: none; border: 0; pad
   font-size: 0.84rem;
   font-weight: 500;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
 /* Incomings Section */
 .income-chips {
   display: flex;
