@@ -7,17 +7,17 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="styles.css?v=25">
+<link rel="stylesheet" href="styles.css?v=26">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0B5D75">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Kharcha">
-<link rel="apple-touch-icon" href="apple-touch-icon.png?v=25">
-<link rel="icon" href="icon-192.png?v=25" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=26">
+<link rel="icon" href="icon-192.png?v=26" type="image/png">
 <script>
   (function() {
-    var V = '25';
+    var V = '26';
     if (localStorage.getItem('kharcha_app_v') !== V) {
       localStorage.setItem('kharcha_app_v', V);
       if ('caches' in window) {
@@ -37,10 +37,10 @@
 <body>
 <main class="app">
   <header class="top">
-    <h1><img class="logo" src="icon-192.png?v=25" width="36" height="36" alt="">Kharcha Book</h1>
+    <h1><img class="logo" src="icon-192.png?v=26" width="36" height="36" alt="">Kharcha Book</h1>
     <div class="top-r">
       <span class="sync" id="sync" data-state="pending">Loading…</span>
-      <button type="button" class="installbtn" id="force-update-btn" title="Force clear cache & reload latest v25">v25 🔄</button>
+      <button type="button" class="installbtn" id="force-update-btn" title="Force clear cache & reload latest v26">v26 🔄</button>
       <button type="button" class="installbtn" id="install-btn" hidden>📲 Install App</button>
       <button type="button" class="signout" id="signout" hidden>Sign out</button>
     </div>
@@ -212,13 +212,57 @@
   </div>
 </div>
 
+<!-- In-App Budget Setter Modal -->
+<div class="modal-backdrop" id="budget-modal" hidden>
+  <div class="modal-card">
+    <div class="modal-head">
+      <h3 id="budget-modal-title">🎯 Set Monthly Budget</h3>
+      <button type="button" class="close-btn" id="close-budget-modal" aria-label="Close">&times;</button>
+    </div>
+    <p class="modal-intro" id="budget-modal-intro">Set your spending limit in ₹. Leave blank or enter 0 to remove.</p>
+    <div class="budget-stat-box" id="budget-modal-spent-wrap">
+      <span class="budget-stat-label">Current Spend:</span>
+      <span class="budget-stat-val" id="budget-modal-spent">₹0</span>
+    </div>
+    <div class="field budget-input-field">
+      <label for="budget-modal-input">Budget Limit (₹)</label>
+      <div class="budget-input-wrap">
+        <span class="budget-symbol">₹</span>
+        <input class="input budget-input" id="budget-modal-input" type="number" step="any" min="0" inputmode="decimal" placeholder="0">
+      </div>
+      <p class="budget-err" id="budget-modal-err" role="alert" hidden></p>
+    </div>
+    <div class="budget-presets" id="budget-modal-presets"></div>
+    <div class="modal-foot">
+      <button type="button" class="ghost" id="cancel-budget-modal-btn">Cancel</button>
+      <button type="button" class="ghost" id="clear-budget-modal-btn" style="color:var(--danger)">Clear</button>
+      <button type="button" class="primary" id="save-budget-modal-btn">Save Budget</button>
+    </div>
+  </div>
+</div>
+
+<!-- In-App Confirmation Modal -->
+<div class="modal-backdrop" id="confirm-modal" hidden>
+  <div class="modal-card modal-confirm">
+    <div class="modal-head">
+      <h3 id="confirm-modal-title">Confirm Action</h3>
+      <button type="button" class="close-btn" id="close-confirm-modal" aria-label="Close">&times;</button>
+    </div>
+    <p class="modal-intro" id="confirm-modal-msg">Are you sure you want to proceed?</p>
+    <div class="modal-foot">
+      <button type="button" class="ghost" id="cancel-confirm-modal-btn">Cancel</button>
+      <button type="button" class="primary" id="ok-confirm-modal-btn">Confirm</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=25" onerror="void 0"></script>
-<script src="app.js?v=25"></script>
+<script src="config.js?v=26" onerror="void 0"></script>
+<script src="app.js?v=26"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('sw.js?v=25').then(function (reg) {
+      navigator.serviceWorker.register('sw.js?v=26').then(function (reg) {
         reg.update();
         reg.addEventListener('updatefound', function () {
           var newWorker = reg.installing;

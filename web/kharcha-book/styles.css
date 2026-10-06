@@ -510,28 +510,43 @@ button.cat-row { width: 100%; text-align: left; background: none; border: 0; pad
   z-index: 120;
 }
 
-/* Bank SMS Modal */
+@keyframes modalFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes modalScaleIn {
+  from { opacity: 0; transform: translateY(16px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Modal Backdrops & Cards */
 .modal-backdrop {
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
   background: rgba(15, 23, 42, 0.65);
-  backdrop-filter: blur(6px);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 14px;
+  padding: 16px;
   z-index: 100;
+  animation: modalFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.modal-backdrop[hidden] {
+  display: none !important;
 }
 .modal-card {
   background: var(--surface);
   border-radius: 20px;
-  padding: 18px;
+  padding: 20px;
   width: 100%;
-  max-width: 460px;
+  max-width: 440px;
   box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
+  animation: modalScaleIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .modal-head { display: flex; justify-content: space-between; align-items: center; }
 .modal-head h3 { font-size: 1.1rem; margin: 0; color: var(--ink); font-family: var(--f-display); }
@@ -552,7 +567,83 @@ button.cat-row { width: 100%; text-align: left; background: none; border: 0; pad
 .sms-field { display: flex; flex-direction: column; gap: 2px; font-size: 0.72rem; font-weight: 600; min-width: 0; }
 .sms-field.wide { grid-column: 1 / -1; }
 .sms-field .input { height: 36px; background: #FFFFFF; color: #12232A; font-size: 0.84rem; }
-.modal-foot { display: flex; justify-content: flex-end; gap: 8px; }
+.modal-foot { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 4px; }
+
+/* Custom In-App Budget & Confirm Modals */
+.budget-stat-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 0.85rem;
+}
+.budget-stat-label { color: var(--muted); font-weight: 500; }
+.budget-stat-val { font-weight: 700; color: var(--accent); font-family: var(--f-display); font-size: 1rem; }
+
+.budget-input-field { display: flex; flex-direction: column; gap: 6px; }
+.budget-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.budget-symbol {
+  position: absolute;
+  left: 14px;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--accent);
+  pointer-events: none;
+  font-family: var(--f-display);
+}
+.budget-input {
+  padding-left: 38px !important;
+  font-size: 1.35rem !important;
+  font-weight: 700 !important;
+  font-family: var(--f-display) !important;
+  letter-spacing: -0.01em;
+  height: 52px;
+  border-radius: 14px;
+  border: 1.5px solid var(--line);
+}
+.budget-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.budget-err {
+  font-size: 0.78rem;
+  color: var(--danger);
+  margin: 2px 0 0;
+  font-weight: 500;
+}
+.budget-presets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.budget-chip {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-family: var(--f-display);
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.budget-chip:hover, .budget-chip:focus {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.modal-confirm {
+  max-width: 380px;
+}
 
 /* Auth Views */
 .auth { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 16px; display: grid; gap: 12px; box-shadow: var(--shadow-sm); }

@@ -575,14 +575,229 @@
     else fill.className = 'budget-progress-fill';
   }
 
+  /* ---------- In-App Budget Modal ---------- */
+  var currentBudgetSaveCallback = null;
+  var currentBudgetClearCallback = null;
+
+  function openBudgetModal(options) {
+    var modal = $('budget-modal');
+    if (!modal) return;
+
+    var titleEl = $('budget-modal-title');
+    if (titleEl) titleEl.textContent = options.title || '🎯 Set Budget';
+
+    var introEl = $('budget-modal-intro');
+    if (introEl) introEl.textContent = options.intro || 'Set your spending limit in ₹. Leave blank or enter 0 to remove.';
+
+    var spentWrap = $('budget-modal-spent-wrap');
+    var spentVal = $('budget-modal-spent');
+    if (spentWrap && spentVal) {
+      if (options.spentText) {
+        spentWrap.hidden = false;
+        spentVal.textContent = options.spentText;
+      } else {
+        spentWrap.hidden = true;
+      }
+    }
+
+    var input = $('budget-modal-input');
+    if (input) {
+      input.value = (options.currentValue && options.currentValue > 0) ? options.currentValue : '';
+    }
+
+    var errEl = $('budget-modal-err');
+    if (errEl) errEl.hidden = true;
+
+    var presetsWrap = $('budget-modal-presets');
+    if (presetsWrap) {
+      presetsWrap.textContent = '';
+      var presets = options.presets || [1000, 2500, 5000, 10000];
+      presets.forEach(function (amt) {
+        var chip = el('button', 'budget-chip', '₹' + amt.toLocaleString('en-IN'));
+        chip.type = 'button';
+        chip.addEventListener('click', function () {
+          if (input) {
+            input.value = amt;
+            if (errEl) errEl.hidden = true;
+            input.focus();
+          }
+        });
+        presetsWrap.appendChild(chip);
+      });
+    }
+
+    var clearBtn = $('clear-budget-modal-btn');
+    if (clearBtn) {
+      clearBtn.style.display = (options.currentValue && options.currentValue > 0) ? 'inline-block' : 'none';
+    }
+
+    currentBudgetSaveCallback = options.onSave;
+    currentBudgetClearCallback = options.onClear;
+
+    modal.hidden = false;
+    if (input) {
+      setTimeout(function () {
+        input.focus();
+        input.select();
+      }, 100);
+    }
+  }
+
+  function closeBudgetModal() {
+    var modal = $('budget-modal');
+    if (modal) modal.hidden = true;
+    currentBudgetSaveCallback = null;
+    currentBudgetClearCallback = null;
+  }
+
+  (function initBudgetModalEvents() {
+    var modal = $('budget-modal');
+    if (!modal) return;
+
+    var closeBtn = $('close-budget-modal');
+    if (closeBtn) closeBtn.addEventListener('click', closeBudgetModal);
+
+    var cancelBtn = $('cancel-budget-modal-btn');
+    if (cancelBtn) cancelBtn.addEventListener('click', closeBudgetModal);
+
+    var clearBtn = $('clear-budget-modal-btn');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', function () {
+        var cb = currentBudgetClearCallback;
+        closeBudgetModal();
+        if (cb) cb();
+      });
+    }
+
+    var input = $('budget-modal-input');
+    var saveBtn = $('save-budget-modal-btn');
+    var errEl = $('budget-modal-err');
+
+    function handleSave() {
+      if (!input) return;
+      var raw = input.value.trim();
+      if (!raw || raw === '0') {
+        var cb = currentBudgetClearCallback;
+        closeBudgetModal();
+        if (cb) cb();
+        return;
+      }
+      var n = Number(raw.replace(/[,\s₹]/g, ''));
+      if (isNaN(n) || n < 0) {
+        if (errEl) {
+          errEl.textContent = 'Please enter a valid positive number.';
+          errEl.hidden = false;
+        }
+        input.focus();
+        return;
+      }
+      var rounded = Math.round(n * 100) / 100;
+      var saveCb = currentBudgetSaveCallback;
+      closeBudgetModal();
+      if (saveCb) saveCb(rounded);
+    }
+
+    if (saveBtn) saveBtn.addEventListener('click', handleSave);
+
+    if (input) {
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          handleSave();
+        } else if (e.key === 'Escape') {
+          closeBudgetModal();
+        }
+      });
+    }
+
+    modal.addEventListener('click', function (e) {
+      if (e.target === modal) closeBudgetModal();
+    });
+  })();
+
+  /* ---------- In-App Confirm Modal ---------- */
+  var confirmModalCallback = null;
+
+  function showConfirmModal(options) {
+    var modal = $('confirm-modal');
+    if (!modal) {
+      if (confirm(options.message)) {
+        if (options.onConfirm) options.onConfirm();
+      }
+      return;
+    }
+
+    var titleEl = $('confirm-modal-title');
+    if (titleEl) titleEl.textContent = options.title || 'Confirm Action';
+
+    var msgEl = $('confirm-modal-msg');
+    if (msgEl) msgEl.textContent = options.message || 'Are you sure?';
+
+    var okBtn = $('ok-confirm-modal-btn');
+    if (okBtn) {
+      okBtn.textContent = options.confirmText || 'Confirm';
+      if (options.isDanger) {
+        okBtn.style.background = 'var(--danger)';
+      } else {
+        okBtn.style.background = '';
+      }
+    }
+
+    confirmModalCallback = options.onConfirm;
+    modal.hidden = false;
+  }
+
+  function closeConfirmModal() {
+    var modal = $('confirm-modal');
+    if (modal) modal.hidden = true;
+    confirmModalCallback = null;
+  }
+
+  (function initConfirmModalEvents() {
+    var modal = $('confirm-modal');
+    if (!modal) return;
+
+    var closeBtn = $('close-confirm-modal');
+    if (closeBtn) closeBtn.addEventListener('click', closeConfirmModal);
+
+    var cancelBtn = $('cancel-confirm-modal-btn');
+    if (cancelBtn) cancelBtn.addEventListener('click', closeConfirmModal);
+
+    var okBtn = $('ok-confirm-modal-btn');
+    if (okBtn) {
+      okBtn.addEventListener('click', function () {
+        var cb = confirmModalCallback;
+        closeConfirmModal();
+        if (cb) cb();
+      });
+    }
+
+    modal.addEventListener('click', function (e) {
+      if (e.target === modal) closeConfirmModal();
+    });
+  })();
+
   $('budget-edit-btn').addEventListener('click', function () {
     var cur = getBudget();
-    var val = prompt('Enter your monthly budget limit in ₹ (enter 0 to clear):', cur || '');
-    if (val === null) return;
-    var n = Number(val.replace(/[,\s₹]/g, ''));
-    if (isNaN(n) || n < 0) { alert('Please enter a valid positive number.'); return; }
-    setBudget(n);
-    render();
+    var list = visibleEntries(state.sel);
+    var curTotal = list.reduce(function (s, e) { return s + e.amount; }, 0);
+    openBudgetModal({
+      title: '🎯 Monthly Budget',
+      intro: 'Set your overall monthly spending limit. You will see real-time progress and alerts as you spend.',
+      spentText: money(curTotal),
+      currentValue: cur || 0,
+      presets: [10000, 20000, 30000, 50000],
+      onSave: function (n) {
+        setBudget(n);
+        render();
+        toast('Monthly budget set to ' + money(n));
+      },
+      onClear: function () {
+        setBudget(0);
+        render();
+        toast('Monthly budget cleared');
+      }
+    });
   });
 
   /* ---------- Search & CSV Export ---------- */
@@ -593,34 +808,39 @@
 
   var moveBtn = $('move-all-family');
   if (moveBtn) {
-    moveBtn.addEventListener('click', async function () {
+    moveBtn.addEventListener('click', function () {
       var personalEntries = state.entries.filter(function (e) { return !isFamilyEntry(e.desc); });
       if (!personalEntries.length) {
         toast('All expenses are already under Family & Bills!');
         return;
       }
-      var ok = confirm('Move ' + personalEntries.length + ' personal expense(s) to Family & Bills?');
-      if (!ok) return;
-
-      moveBtn.disabled = true;
-      moveBtn.textContent = 'Moving…';
-      var count = 0;
-      try {
-        for (var i = 0; i < personalEntries.length; i++) {
-          var e = personalEntries[i];
-          var clean = e.desc.replace(/^[👤🏠]\s*/, '');
-          var newDesc = '🏠 ' + clean;
-          await store.update(e.id, { amount: e.amount, desc: newDesc, spent_at: new Date(e.ts).toISOString() });
-          count++;
+      showConfirmModal({
+        title: '🏠 Move to Family & Bills',
+        message: 'Move ' + personalEntries.length + ' personal expense(s) to Family & Bills?',
+        confirmText: 'Move All',
+        onConfirm: async function () {
+          moveBtn.disabled = true;
+          moveBtn.textContent = 'Moving…';
+          var count = 0;
+          try {
+            for (var i = 0; i < personalEntries.length; i++) {
+              var e = personalEntries[i];
+              var clean = e.desc.replace(/^[👤🏠]\s*/, '');
+              var newDesc = '🏠 ' + clean;
+              await store.update(e.id, { amount: e.amount, desc: newDesc, spent_at: new Date(e.ts).toISOString() });
+              count++;
+            }
+            toast('Moved ' + count + ' expenses to Family & Bills!');
+          } catch (err) {
+            toast('Moved ' + count + ' expenses before error: ' + (err.message || 'failed'));
+          } finally {
+            moveBtn.disabled = false;
+            moveBtn.textContent = '🏠 Move All to Family';
+            state.entries = await store.loadAll();
+            render();
+          }
         }
-        toast('Moved ' + count + ' expenses to Family & Bills!');
-      } catch (err) {
-        toast('Moved ' + count + ' expenses before error: ' + (err.message || 'failed'));
-      } finally {
-        moveBtn.disabled = false;
-        moveBtn.textContent = '🏠 Move All to Family';
-        render();
-      }
+      });
     });
   }
 
@@ -787,12 +1007,24 @@
       row.appendChild(track);
       if (notes.length) row.appendChild(el('div', 'cat-note', notes.join(' · ')));
       row.addEventListener('click', function () {
-        var val = prompt('Monthly budget for ' + c.name + ' in ₹ (0 to clear):', budget || '');
-        if (val === null) return;
-        var n = Number(val.replace(/[,\s₹]/g, ''));
-        if (isNaN(n) || n < 0) { alert('Please enter a valid positive number.'); return; }
-        setCategoryBudget(c.name, n);
-        render();
+        var curBudget = budgets[c.name] || 0;
+        openBudgetModal({
+          title: c.name + ' Budget',
+          intro: 'Set a monthly spending limit for ' + c.name + '. You will get warned when spending approaches this limit.',
+          spentText: money(c.total) + ' (' + c.pct + '% of month total)',
+          currentValue: curBudget,
+          presets: [500, 1000, 2500, 5000],
+          onSave: function (n) {
+            setCategoryBudget(c.name, n);
+            render();
+            toast('Budget for ' + c.name + ' set to ' + money(n));
+          },
+          onClear: function () {
+            setCategoryBudget(c.name, 0);
+            render();
+            toast('Budget for ' + c.name + ' cleared');
+          }
+        });
       });
       container.appendChild(row);
     });
@@ -931,9 +1163,9 @@
       var draft = parsedSMSDraft;
       if (!draft || !draft.valid) return;
       var amt = parseAmount($('sms-amt').value);
-      if (!amt) { alert('Please enter a valid amount.'); return; }
+      if (!amt) { toast('Please enter a valid amount.'); return; }
       var desc = normDesc($('sms-desc').value);
-      if (!desc) { alert('Please enter a description.'); return; }
+      if (!desc) { toast('Please enter a description.'); return; }
       var dateVal = $('sms-date').value;
       var spentAt = dateVal ? new Date(dateVal).toISOString() : null;
       if (desc !== draft.desc) rememberMerchant(draft.rawPayee, desc);
@@ -946,7 +1178,7 @@
         render();
         toast('Added ' + money(amt) + ' from ' + draft.bank + ' SMS!');
       }).catch(function (err) {
-        alert('Could not save SMS entry: ' + (err.message || 'Error'));
+        toast('Could not save SMS entry: ' + (err.message || 'Error'));
       }).then(function () {
         saveBtn.disabled = false;
         saveBtn.textContent = '1-Tap Add Expense';
@@ -1504,24 +1736,29 @@
   var updateBtn = $('force-update-btn');
   if (updateBtn) {
     updateBtn.addEventListener('click', function () {
-      if (confirm('Force clear app cache and reload to latest v18?')) {
-        if ('caches' in window) {
-          caches.keys().then(function(keys) {
-            return Promise.all(keys.map(function(k) { return caches.delete(k); }));
-          }).then(function() {
-            if ('serviceWorker' in navigator) {
-              navigator.serviceWorker.getRegistrations().then(function(regs) {
-                regs.forEach(function(r) { r.unregister(); });
+      showConfirmModal({
+        title: '🔄 Force Clear Cache & Reload',
+        message: 'Clear cached app data and reload to the latest v26?',
+        confirmText: 'Clear & Reload',
+        onConfirm: function () {
+          if ('caches' in window) {
+            caches.keys().then(function(keys) {
+              return Promise.all(keys.map(function(k) { return caches.delete(k); }));
+            }).then(function() {
+              if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.getRegistrations().then(function(regs) {
+                  regs.forEach(function(r) { r.unregister(); });
+                  window.location.reload(true);
+                });
+              } else {
                 window.location.reload(true);
-              });
-            } else {
-              window.location.reload(true);
-            }
-          });
-        } else {
-          window.location.reload(true);
+              }
+            });
+          } else {
+            window.location.reload(true);
+          }
         }
-      }
+      });
     });
   }
 })();
