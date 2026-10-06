@@ -617,7 +617,9 @@ fun SettingsScreen(
                                     Text(cloudSyncEmail, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                                     Text(
                                         uiState.cloudSyncLastError
-                                            ?: uiState.cloudSyncLastSuccessAt?.let { "Last synced just now" }
+                                            ?: uiState.cloudSyncLastSuccessAt?.let {
+                                                "Last synced " + java.text.SimpleDateFormat("d MMM, h:mm a", java.util.Locale.getDefault()).format(java.util.Date(it))
+                                            }
                                             ?: "Not synced yet",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = if (uiState.cloudSyncLastError != null) CoralRed else MaterialTheme.colorScheme.outline

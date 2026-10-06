@@ -11,9 +11,10 @@
 alter table public.daily_expenses add column if not exists ref_no  text check (char_length(ref_no) <= 40);
 alter table public.daily_expenses add column if not exists raw_sms text check (char_length(raw_sms) <= 500);
 
-create unique index if not exists daily_expenses_user_ref_uidx
-  on public.daily_expenses (user_id, ref_no)
-  where ref_no is not null;
+-- Not a partial index: SpendTrack's upsert (on_conflict=user_id,ref_no) can't use one.
+-- NULL ref_no values never conflict, so manual entries are unaffected.
+create unique index if not exists daily_expenses_user_ref_key
+  on public.daily_expenses (user_id, ref_no);
 
 -- Make the API see the new columns immediately.
 notify pgrst, 'reload schema';
