@@ -387,8 +387,14 @@
   function monthLabel(key) { var p = key.split('-'); return mFmt.format(new Date(+p[0], +p[1] - 1, 1)); }
   function keyToDate(key) { var p = key.split('-'); return new Date(+p[0], +p[1] - 1, +p[2], 12); }
 
-  /* Exposed for tests only. */
-  window.__kharcha = { parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, parseSMSDate: parseSMSDate, findDuplicate: findDuplicate, categoryBreakdown: categoryBreakdown, monthCompare: monthCompare };
+  /* Exposed for tests and diagnostics. */
+  window.__kharcha = {
+    state: state,
+    store: store,
+    enterApp: enterApp,
+    getSb: function () { return sb; },
+    parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, parseSMSDate: parseSMSDate, findDuplicate: findDuplicate, categoryBreakdown: categoryBreakdown, monthCompare: monthCompare
+  };
 
   var TABLE = 'daily_expenses';
   var COLS = 'id, amount, description, spent_at';
@@ -439,17 +445,24 @@
   /* ---------- storage ---------- */
   var store = {
     loadAll: async function () {
+      console.log('Kharcha: store.loadAll begin, selectCols=' + selectCols());
       var out = [], from = 0, size = 1000;
       while (true) {
         var res = await sb.from(TABLE).select(selectCols())
           .order('spent_at', { ascending: false }).order('id').range(from, from + size - 1);
-        if (res.error && hasExtCols && isMissingColumn(res.error)) { hasExtCols = false; continue; }
+        console.log('Kharcha: query batch res error=' + (res.error ? JSON.stringify(res.error) : 'null') + ' dataCount=' + (res.data ? res.data.length : 'null'));
+        if (res.error && hasExtCols && isMissingColumn(res.error)) {
+          console.warn('Kharcha: missing ext cols, retrying with basic COLS');
+          hasExtCols = false; continue;
+        }
         if (res.error) throw res.error;
         out = out.concat(res.data || []);
         if (!res.data || res.data.length < size) break;
         from += size;
       }
-      return out.map(fromRow).filter(validEntry);
+      var filtered = out.map(fromRow).filter(validEntry);
+      console.log('Kharcha: store.loadAll done, total=' + filtered.length);
+      return filtered;
     },
     add: async function (e) {
       if (isDemoMode) {
@@ -1365,19 +1378,29 @@
     if (which !== 'main') { state.mode = which === 'auth' ? 'signedout' : which === 'lock' ? 'locked' : 'setup'; renderSync(); }
   }
 
+  var isLoadingApp = false;
   async function enterApp() {
+    console.log('Kharcha: enterApp called, isLoading=' + isLoadingApp);
+    if (isLoadingApp) return;
+    isLoadingApp = true;
     showScreen('main');
     state.mode = 'pending'; renderSync();
     try {
+      console.log('Kharcha: calling store.loadAll()');
       state.entries = await store.loadAll();
+      console.log('Kharcha: store.loadAll completed with ' + state.entries.length + ' entries');
       state.mode = 'db';
     } catch (err) {
+      console.error('Kharcha: store.loadAll failed:', err);
       state.mode = 'error';
       render();
       showErr('Could not load your expenses: ' + (err.message || 'check the Supabase table and policies') + '. Run supabase/daily_expenses.sql in the Supabase SQL editor if you have not yet.');
+      isLoadingApp = false;
       return;
     }
+    isLoadingApp = false;
     render();
+    console.log('Kharcha: render completed successfully, total entries=' + state.entries.length);
   }
 
   /* ---------- start ---------- */
@@ -1386,7 +1409,11 @@
   render();
 
   (async function init() {
-    if (!CFG.SUPABASE_URL || !CFG.SUPABASE_ANON_KEY || !window.supabase) { showScreen('setup'); return; }
+    console.log('Kharcha: init starting');
+    if (!CFG.SUPABASE_URL || !CFG.SUPABASE_ANON_KEY || !window.supabase) {
+      console.warn('Kharcha: Supabase config or script missing');
+      showScreen('setup'); return;
+    }
     sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, {
       auth: {
         lock: async function (name, acquireTimeout, fn) {
@@ -1394,9 +1421,12 @@
         }
       }
     });
+    console.log('Kharcha: Supabase client created');
     await detectLock();
+    console.log('Kharcha: detectLock done, lockSupported=' + lockSupported);
 
     sb.auth.onAuthStateChange(async function (event, session) {
+      console.log('Kharcha: auth state changed: ' + event + ', session=' + !!session);
       if (session && ($('main').hidden || state.mode === 'signedout')) {
         if (lockCred() && lockSupported) { showScreen('lock'); unlock(); }
         else await enterApp();
@@ -1404,9 +1434,12 @@
     });
 
     var got = await sb.auth.getSession();
+    console.log('Kharcha: getSession returned session=' + !!got.data?.session);
     if (got.data && got.data.session) {
       if (lockCred() && lockSupported) { showScreen('lock'); unlock(); } else await enterApp();
-    } else showScreen('auth');
+    } else {
+      showScreen('auth');
+    }
   })();
 
   /* ---------- PWA Installation Handler ---------- */
