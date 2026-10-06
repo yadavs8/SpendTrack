@@ -2315,7 +2315,7 @@
     updateBtn.addEventListener('click', function () {
       showConfirmModal({
         title: '🔄 Force Clear Cache & Reload',
-        message: 'Clear cached app data and reload to the latest v26?',
+        message: 'Clear cached app data and reload to the latest v29?',
         confirmText: 'Clear & Reload',
         onConfirm: function () {
           if ('caches' in window) {
