@@ -1047,7 +1047,8 @@
 
     if (pSavings) {
       pSavings.textContent = money(cf.personalSavings);
-      pSavings.style.color = cf.personalSavings >= 0 ? 'var(--fg)' : 'var(--danger)';
+      pSavings.style.color = '';
+      pSavings.className = 'cf-amount ' + (cf.personalSavings >= 0 ? (cf.salaries > 0 ? 'positive' : '') : 'danger-soft');
     }
     if (pSub) {
       pSub.textContent = cf.salaries > 0 ? (cf.savingsRate + '% saved of ' + money(cf.salaries)) : (money(cf.personalSpent) + ' personal spent');
@@ -1057,12 +1058,13 @@
     if (famCount) famCount.textContent = setl.familyExpenses.length + (setl.familyExpenses.length === 1 ? ' item' : ' items');
 
     if (mothStatus) {
+      mothStatus.style.color = '';
       if (setl.pending > 0) {
         mothStatus.textContent = money(setl.pending);
-        mothStatus.style.color = 'var(--danger)';
+        mothStatus.className = 'cf-amount pending-debt';
       } else {
         mothStatus.textContent = money(setl.motherWithdrawn);
-        mothStatus.style.color = 'var(--success, #10b981)';
+        mothStatus.className = 'cf-amount positive';
       }
     }
     if (mothSub) {
