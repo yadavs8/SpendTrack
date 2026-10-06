@@ -2,5 +2,5 @@
 <!-- Not visible in practice: ic_launcher_foreground_kharcha.png is full-bleed opaque. Kept as a
      solid fallback matching Kharcha Book's brand color (the hero banner teal). -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="#0B5D75" />
+    <solid android:color="#FFFFFF" />
 </shape>
