@@ -45,21 +45,43 @@ class DeduplicationEngine(
             val isSameAccount = !parsed.accountLast4.isNullOrBlank() &&
                     candidate.accountLast4 == parsed.accountLast4
 
-            // Strict auto-merge condition:
+            // Candidate and parsed source analysis for dual ingestion pairing
+            val candidateIsUpiApp = candidate.sourcePackage != null && com.spendtrack.app.core.parser.TransactionParser.MONITORED_UPI_PACKAGES.contains(candidate.sourcePackage)
+            val parsedIsUpiApp = parsed.sourcePackage != null && com.spendtrack.app.core.parser.TransactionParser.MONITORED_UPI_PACKAGES.contains(parsed.sourcePackage)
+            val candidateIsBankOrSms = candidate.sourcePackage == null ||
+                    com.spendtrack.app.core.parser.TransactionParser.MESSAGING_PACKAGES.contains(candidate.sourcePackage) ||
+                    candidate.sourcePackage.contains("bank", ignoreCase = true)
+            val parsedIsBankOrSms = parsed.sourcePackage == null ||
+                    com.spendtrack.app.core.parser.TransactionParser.MESSAGING_PACKAGES.contains(parsed.sourcePackage) ||
+                    parsed.sourcePackage.contains("bank", ignoreCase = true)
+
+            val isUpiAndBankPair = isSameAmount && isWithinWindow && (
+                (candidateIsUpiApp && parsedIsBankOrSms) || (candidateIsBankOrSms && parsedIsUpiApp)
+            ) && (isExactMerchant || candidate.merchantName.isNullOrBlank() || normalizedMerchant.isBlank() || isFuzzyMerchantMatch(candidate.merchantName, normalizedMerchant))
+
+            // Auto-merge condition:
             // 1. Exact UPI reference / UTR match
             // 2. OR: Same amount + within window + same account + same merchant
             // 3. OR: Different source (Notification vs SMS) for exact same merchant and amount within window
+            // 4. OR: UPI App push notification + Bank SMS pairing for the same spend within window
             val isMultiSourcePair = candidate.source != parsed.source && isSameAmount && isWithinWindow && isExactMerchant
 
-            if (isExactRefMatch || (isSameAmount && isWithinWindow && isSameAccount && isExactMerchant) || isMultiSourcePair) {
+            if (isExactRefMatch || (isSameAmount && isWithinWindow && isSameAccount && isExactMerchant) || isMultiSourcePair || isUpiAndBankPair) {
+                val bestMerchant = when {
+                    candidateIsUpiApp && !candidate.merchantName.isNullOrBlank() -> candidate.merchantName
+                    parsedIsUpiApp && !normalizedMerchant.isNullOrBlank() -> normalizedMerchant
+                    !candidate.merchantName.isNullOrBlank() -> candidate.merchantName
+                    else -> normalizedMerchant
+                }
                 val merged = candidate.copy(
+                    merchantName = bestMerchant,
                     upiReference = candidate.upiReference ?: parsed.upiReference,
                     bankReference = candidate.bankReference ?: parsed.bankReference,
                     accountLast4 = candidate.accountLast4 ?: parsed.accountLast4,
                     merchantVpa = candidate.merchantVpa ?: parsed.merchantVpa,
-                    source = if (candidate.source != parsed.source) "${candidate.source}+${parsed.source}" else candidate.source,
+                    rawNotificationText = candidate.rawNotificationText ?: parsed.rawText,
+                    source = if (candidate.source != parsed.source) "${candidate.source}+${parsed.source}" else "DUAL_INGEST",
                     confidenceScore = 1.0f,
-                    needsReview = false,
                     updatedAt = System.currentTimeMillis()
                 )
                 transactionDao.updateTransaction(merged)
@@ -91,6 +113,7 @@ class DeduplicationEngine(
             accountLast4 = parsed.accountLast4,
             source = parsed.source,
             sourcePackage = parsed.sourcePackage,
+            rawNotificationText = parsed.rawText,
             confidenceScore = parsed.confidenceScore,
             isManuallyAdded = false,
             needsReview = needsReview,
@@ -108,5 +131,12 @@ class DeduplicationEngine(
         val a = merchantA.trim().lowercase()
         val b = merchantB.trim().lowercase()
         return a == b || (a.length > 3 && b.length > 3 && (a.contains(b) || b.contains(a)))
+    }
+
+    private fun isFuzzyMerchantMatch(merchantA: String?, merchantB: String?): Boolean {
+        if (merchantA.isNullOrBlank() || merchantB.isNullOrBlank()) return true
+        val cleanA = merchantA.lowercase().replace(Regex("[^a-z0-9]"), "")
+        val cleanB = merchantB.lowercase().replace(Regex("[^a-z0-9]"), "")
+        return cleanA.contains(cleanB) || cleanB.contains(cleanA)
     }
 }

@@ -28,14 +28,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.spendtrack.app.core.security.BiometricAuthManager
+import com.spendtrack.app.core.sms.SmsBackfillManager
 import com.spendtrack.app.data.di.ServiceLocator
 import com.spendtrack.app.ui.screens.settings.SettingsScreen
 import com.spendtrack.app.ui.screens.settings.SettingsViewModel
 import com.spendtrack.app.ui.screens.webview.KharchaWebViewScreen
 import com.spendtrack.app.ui.theme.SpendTrackTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : FragmentActivity() {
 
@@ -48,6 +52,18 @@ class MainActivity : FragmentActivity() {
             "if (typeof refreshData === 'function') { refreshData(); }",
             null
         )
+        // Background backfill for any missed SMS from battery saver / sleep
+        lifecycleScope.launch(Dispatchers.IO) {
+            val newEntries = SmsBackfillManager.backfillMissedSms(applicationContext)
+            if (newEntries > 0) {
+                withContext(Dispatchers.Main) {
+                    activeWebView?.evaluateJavascript(
+                        "if (typeof refreshData === 'function') { refreshData(); }",
+                        null
+                    )
+                }
+            }
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

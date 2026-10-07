@@ -22,11 +22,37 @@ class MerchantRuleRepository(
             merchantPattern = merchantPattern.trim(),
             categoryId = categoryId,
             categoryName = categoryName,
+            scope = existing?.scope,
             confidence = confidence,
             userCreated = true,
             createdAt = System.currentTimeMillis()
         )
         merchantRuleDao.insertRule(entity)
+    }
+
+    suspend fun saveScopeRule(
+        merchantPattern: String,
+        scope: String
+    ) {
+        val pattern = merchantPattern.trim()
+        if (pattern.isBlank()) return
+        val existing = merchantRuleDao.findMatchingRule(pattern)
+        val entity = MerchantRuleEntity(
+            id = existing?.id ?: UUID.randomUUID().toString(),
+            merchantPattern = pattern,
+            categoryId = existing?.categoryId ?: "cat_other",
+            categoryName = existing?.categoryName ?: "Other",
+            scope = scope,
+            confidence = 1.0f,
+            userCreated = true,
+            createdAt = System.currentTimeMillis()
+        )
+        merchantRuleDao.insertRule(entity)
+    }
+
+    suspend fun findMatchingRule(merchant: String): MerchantRuleEntity? {
+        if (merchant.isBlank()) return null
+        return merchantRuleDao.findMatchingRule(merchant.trim())
     }
 
     suspend fun deleteRule(id: String) {

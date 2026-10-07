@@ -68,31 +68,75 @@ class TransactionRepository(
             !result.transaction.isExcluded &&
             result.transaction.transactionType == TransactionType.EXPENSE
         ) {
+            val rawText = result.transaction.rawNotificationText ?: result.transaction.description
             val isSelf = ExpenseScope.isSelfPayment(
                 merchantName = result.transaction.merchantName,
                 merchantVpa = result.transaction.merchantVpa,
-                rawText = result.transaction.rawNotificationText
+                rawText = rawText
             )
+            val isInvestment = ExpenseScope.isInvestment(
+                merchantName = result.transaction.merchantName,
+                merchantVpa = result.transaction.merchantVpa,
+                rawText = rawText
+            )
+            val merchantKey = result.transaction.merchantName ?: result.transaction.merchantVpa
+            val learnedRule = if (!merchantKey.isNullOrBlank()) {
+                merchantRuleRepository.findMatchingRule(merchantKey)
+            } else null
 
-            val updatedTxn = if (isSelf) {
-                // Self payment to user's own account (Sanjeev Yadav) -> automatically Personal!
-                result.transaction.copy(
-                    description = ExpenseScope.describe(
-                        merchantName = result.transaction.merchantName,
-                        description = result.transaction.description,
-                        isEdited = result.transaction.isEdited,
-                        scope = ExpenseScope.PERSONAL
-                    ),
-                    needsReview = false,
-                    isEdited = true,
-                    updatedAt = System.currentTimeMillis()
-                )
-            } else {
-                // Sent to someone else -> ask user "Personal, Family, or Investment?"
-                result.transaction.copy(
-                    needsReview = true,
-                    updatedAt = System.currentTimeMillis()
-                )
+            val updatedTxn = when {
+                isSelf -> {
+                    // Self payment to user's own account (Sanjeev Yadav) -> automatically Personal!
+                    result.transaction.copy(
+                        description = ExpenseScope.describe(
+                            merchantName = result.transaction.merchantName,
+                            description = result.transaction.description,
+                            isEdited = result.transaction.isEdited,
+                            scope = ExpenseScope.PERSONAL
+                        ),
+                        needsReview = false,
+                        isEdited = true,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                }
+                isInvestment -> {
+                    // Investment broker / AMC (Zerodha, Groww, Angel One, AMCs, etc.) -> automatically Investment!
+                    result.transaction.copy(
+                        description = ExpenseScope.describe(
+                            merchantName = result.transaction.merchantName,
+                            description = result.transaction.description,
+                            isEdited = result.transaction.isEdited,
+                            scope = ExpenseScope.INVESTMENT
+                        ),
+                        categoryId = "cat_financial",
+                        needsReview = false,
+                        isEdited = true,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                }
+                learnedRule?.scope != null -> {
+                    // Learned merchant memory from past user decision -> automatically apply remembered scope!
+                    result.transaction.copy(
+                        description = ExpenseScope.describe(
+                            merchantName = result.transaction.merchantName,
+                            description = result.transaction.description,
+                            isEdited = result.transaction.isEdited,
+                            scope = learnedRule.scope
+                        ),
+                        categoryId = learnedRule.categoryId.takeIf { it.isNotBlank() && it != "cat_other" }
+                            ?: result.transaction.categoryId,
+                        needsReview = false,
+                        isEdited = true,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                }
+                else -> {
+                    // First time merchant -> ask user "Personal, Family, or Investment?"
+                    result.transaction.copy(
+                        needsReview = true,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                }
             }
             transactionDao.updateTransaction(updatedTxn)
             return DeduplicationEngine.DeduplicationResult.NewTransaction(updatedTxn)
@@ -135,12 +179,19 @@ class TransactionRepository(
         transactionDao.updateTransaction(updated)
     }
 
-    /** Resolves the "Personal or Family?" prompt for an auto-detected expense. */
+    /** Resolves the "Personal, Family, or Investment?" prompt for an auto-detected expense and remembers the merchant scope. */
     suspend fun resolveScope(
         transactionId: String,
         scope: String
     ) {
         val transaction = transactionDao.getTransactionById(transactionId) ?: return
+
+        // Auto-learn / remember user's scope decision for this merchant so they are never asked again!
+        val merchantKey = transaction.merchantName ?: transaction.merchantVpa
+        if (!merchantKey.isNullOrBlank()) {
+            merchantRuleRepository.saveScopeRule(merchantKey, scope)
+        }
+
         val updated = transaction.copy(
             description = ExpenseScope.describe(
                 merchantName = transaction.merchantName,

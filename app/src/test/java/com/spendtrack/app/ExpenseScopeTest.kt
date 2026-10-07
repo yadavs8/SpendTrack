@@ -59,6 +59,40 @@ class ExpenseScopeTest {
         val isSelf3 = ExpenseScope.isSelfPayment(null, null, "Self transfer between ICICI and HDFC")
         assertEquals(true, isSelf3)
 
+        val isSelf4 = ExpenseScope.isSelfPayment("HDFC Bank", null, "Transfer to my account in HDFC from ICICI")
+        assertEquals(true, isSelf4)
+
         assertEquals(false, ExpenseScope.isSelfPayment("Swiggy", "swiggy@icici", "Swiggy order"))
+    }
+
+    @Test
+    fun investment_detectsBrokersAndAmcs() {
+        // Brokers
+        assertEquals(true, ExpenseScope.isInvestment("Zerodha Broking", null, "Paid to Zerodha"))
+        assertEquals(true, ExpenseScope.isInvestment("Groww", "groww@billdesk", "Groww Invest"))
+        assertEquals(true, ExpenseScope.isInvestment("Angel One", null, "Angel Broking trade"))
+        assertEquals(true, ExpenseScope.isInvestment("INDmoney", null, "INDmoney deposit"))
+        assertEquals(true, ExpenseScope.isInvestment("Kuvera", null, "Kuvera MF investment"))
+        assertEquals(true, ExpenseScope.isInvestment("Upstox", null, "Upstox funds added"))
+
+        // AMCs and Schemes
+        assertEquals(true, ExpenseScope.isInvestment("CAMS", null, "CAMS Mutual Fund transfer"))
+        assertEquals(true, ExpenseScope.isInvestment("KFintech", null, "KFintech folio"))
+        assertEquals(true, ExpenseScope.isInvestment("Nippon India", null, "Nippon India Mutual Fund"))
+        assertEquals(true, ExpenseScope.isInvestment("HDFC AMC", null, "HDFC Mutual Fund"))
+        assertEquals(true, ExpenseScope.isInvestment("ICICI Prudential", null, "ICICI Pru AMC"))
+        assertEquals(true, ExpenseScope.isInvestment("Parag Parikh", null, "PPFAS Flexi Cap"))
+        assertEquals(true, ExpenseScope.isInvestment("SBI Mutual Fund", null, "SBI MF SIP"))
+
+        // SIP / Schemes
+        assertEquals(true, ExpenseScope.isInvestment(null, null, "SIP debit towards Axis Bluechip"))
+        assertEquals(true, ExpenseScope.isInvestment(null, null, "Transfer towards PPF account"))
+        assertEquals(true, ExpenseScope.isInvestment(null, null, "Contribution to NPS Tier 1"))
+
+        // Rejections (Regular spends)
+        assertEquals(false, ExpenseScope.isInvestment("Swiggy", null, "Food delivery"))
+        assertEquals(false, ExpenseScope.isInvestment("Starbucks Coffee", null, "Coffee at outlet"))
+        assertEquals(false, ExpenseScope.isInvestment("Amazon India", null, "Amazon shopping"))
+        assertEquals(false, ExpenseScope.isInvestment("Zepto", null, "Grocery order"))
     }
 }

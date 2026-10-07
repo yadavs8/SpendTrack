@@ -18,7 +18,7 @@ interface MerchantRuleDao {
     @Query("SELECT * FROM merchant_rules ORDER BY createdAt DESC")
     suspend fun getAllRulesSync(): List<MerchantRuleEntity>
 
-    @Query("SELECT * FROM merchant_rules WHERE LOWER(:merchant) LIKE '%' || LOWER(merchantPattern) || '%' LIMIT 1")
+    @Query("SELECT * FROM merchant_rules WHERE LOWER(:merchant) LIKE '%' || LOWER(merchantPattern) || '%' OR LOWER(merchantPattern) LIKE '%' || LOWER(:merchant) || '%' LIMIT 1")
     suspend fun findMatchingRule(merchant: String): MerchantRuleEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

@@ -15,8 +15,9 @@ data class MerchantRuleEntity(
     @PrimaryKey
     val id: String = UUID.randomUUID().toString(),
     val merchantPattern: String,
-    val categoryId: String,
-    val categoryName: String,
+    val categoryId: String = "cat_other",
+    val categoryName: String = "Other",
+    val scope: String? = null,
     val confidence: Float = 1.0f,
     val userCreated: Boolean = true,
     val createdAt: Long = System.currentTimeMillis()
