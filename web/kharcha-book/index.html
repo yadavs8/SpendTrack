@@ -7,17 +7,17 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="styles.css?v=31">
+<link rel="stylesheet" href="styles.css?v=32">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0B5D75">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Kharcha">
-<link rel="apple-touch-icon" href="apple-touch-icon.png?v=31">
-<link rel="icon" href="icon-192.png?v=31" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=32">
+<link rel="icon" href="icon-192.png?v=32" type="image/png">
 <script>
   (function() {
-    var V = '31';
+    var V = '32';
     if (localStorage.getItem('kharcha_app_v') !== V) {
       localStorage.setItem('kharcha_app_v', V);
       if ('caches' in window) {
@@ -37,10 +37,10 @@
 <body>
 <main class="app">
   <header class="top">
-    <h1><img class="logo" src="icon-192.png?v=28" width="36" height="36" alt="">Kharcha Book</h1>
+    <h1><img class="logo" src="icon-192.png?v=32" width="36" height="36" alt="">Kharcha Book</h1>
     <div class="top-r">
       <span class="sync" id="sync" data-state="pending">Loading…</span>
-      <button type="button" class="installbtn" id="force-update-btn" title="Force clear cache & reload latest v31">v31 🔄</button>
+      <button type="button" class="installbtn" id="force-update-btn" title="Force clear cache & reload latest v32">v32 🔄</button>
       <button type="button" class="installbtn" id="install-btn" hidden>📲 Install App</button>
       <button type="button" class="signout" id="signout" hidden>Sign out</button>
     </div>
@@ -137,7 +137,8 @@
   <div class="stream-switcher" id="stream-switcher">
     <button type="button" class="streambtn active" id="stream-spends-btn" data-stream="spends">💳 Spends (<span id="spends-count">0</span>)</button>
     <button type="button" class="streambtn" id="stream-incomings-btn" data-stream="incomings">💰 Incomings (<span id="incomings-count">0</span>)</button>
-    <button type="button" class="streambtn" id="stream-settlement-btn" data-stream="settlement">👵 Settlement</button>
+    <button type="button" class="streambtn" id="stream-settlement-btn" data-stream="settlement">👵 Settle</button>
+    <button type="button" class="streambtn" id="stream-investments-btn" data-stream="investments">📈 Invest (<span id="investments-count">0</span>)</button>
     <button type="button" class="streambtn" id="stream-projects-btn" data-stream="projects">🔨 Projects (<span id="projects-count">0</span>)</button>
   </div>
 
@@ -368,6 +369,58 @@
     <div id="project-days" aria-live="polite"></div>
   </section>
 
+  <!-- Investments Tracking View -->
+  <section class="investments-sec" id="investments-sec" hidden>
+    <!-- Add Investment Form -->
+    <form class="add add-investment" id="add-investment" autocomplete="off" novalidate>
+      <div class="inv-type-picker">
+        <span class="scope-label">Investment Type:</span>
+        <div class="inv-chips" id="inv-type-chips">
+          <label class="scope-pill active"><input type="radio" name="inv-type" value="sip" checked> 📈 SIP / Mutual Fund</label>
+          <label class="scope-pill"><input type="radio" name="inv-type" value="stocks"> 📊 Stocks / Shares</label>
+          <label class="scope-pill"><input type="radio" name="inv-type" value="ppf"> 🏛️ PPF / EPF</label>
+          <label class="scope-pill"><input type="radio" name="inv-type" value="fd"> 🏦 Fixed Deposit</label>
+          <label class="scope-pill"><input type="radio" name="inv-type" value="other"> 💰 Other Invest</label>
+        </div>
+      </div>
+      <div class="add-row">
+        <div class="field">
+          <label for="inv-amt">Amount</label>
+          <div class="amt-wrap"><span aria-hidden="true">₹</span><input class="input" id="inv-amt" inputmode="decimal" placeholder="0"></div>
+        </div>
+        <div class="field">
+          <label for="inv-desc">Fund / Scheme / Stock Name</label>
+          <input class="input" id="inv-desc" maxlength="60" placeholder="e.g. Parag Parikh Flexi Cap, HDFC Nifty 50, Reliance…">
+        </div>
+      </div>
+      <div class="add-row add-row-extra">
+        <div class="field">
+          <label for="inv-date">Date & Time (Optional)</label>
+          <input class="input" id="inv-date" type="datetime-local">
+        </div>
+      </div>
+      <div class="add-foot">
+        <p class="stamp" id="inv-stamp-note">Auto-syncs to cloud</p>
+        <button class="primary inv-btn" type="submit" id="add-inv-btn" disabled>+ Add Investment</button>
+      </div>
+      <p class="err" id="inv-err" role="alert" hidden></p>
+    </form>
+
+    <div class="inv-summary" id="inv-summary-card">
+      <div class="inv-sum-head">
+        <h3>📈 Total Invested This Month</h3>
+        <span class="inv-sum-total" id="inv-total-amt">₹0</span>
+      </div>
+      <div class="inv-sum-grid">
+        <div class="inv-pill"><span>📈 SIP / Mutual Funds:</span> <strong id="inv-sip-amt">₹0</strong></div>
+        <div class="inv-pill"><span>📊 Other Investments:</span> <strong id="inv-other-amt">₹0</strong></div>
+      </div>
+    </div>
+
+    <h2 class="sec-title" style="margin-top:16px;">Investment History</h2>
+    <div id="investment-days" aria-live="polite"></div>
+  </section>
+
   <!-- Sticky bottom bar: the current month's total, always visible while scrolling. -->
   <div class="sticky-month-bar" id="sticky-month-bar">
     <div class="sticky-inner">
@@ -444,12 +497,12 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=31" onerror="void 0"></script>
-<script src="app.js?v=31"></script>
+<script src="config.js?v=32" onerror="void 0"></script>
+<script src="app.js?v=32"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('sw.js?v=31').then(function (reg) {
+      navigator.serviceWorker.register('sw.js?v=32').then(function (reg) {
         reg.update();
         reg.addEventListener('updatefound', function () {
           var newWorker = reg.installing;

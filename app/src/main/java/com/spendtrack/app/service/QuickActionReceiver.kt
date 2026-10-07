@@ -65,6 +65,24 @@ class QuickActionReceiver : BroadcastReceiver() {
                 NudgeScheduler.cancel(appContext, transactionId)
                 // Now has a real description -- push it to Kharcha Book.
                 ServiceLocator.cloudSyncRepository.syncPending()
+
+                if (intent.action == ACTION_SET_SCOPE) {
+                    val scope = intent.getStringExtra(ExpensePromptNotifier.EXTRA_SCOPE) ?: ExpensePromptNotifier.SCOPE_PERSONAL
+                    val scopeLabel = when (scope) {
+                        ExpensePromptNotifier.SCOPE_FAMILY -> "🏠 Family"
+                        ExpensePromptNotifier.SCOPE_INVESTMENT -> "📈 Investment"
+                        else -> "👤 Personal"
+                    }
+                    val confirmBuilder = androidx.core.app.NotificationCompat.Builder(appContext, "spendtrack_review_channel")
+                        .setSmallIcon(com.spendtrack.app.R.drawable.ic_notification)
+                        .setColor(0xFF0B5D75.toInt())
+                        .setContentTitle("✅ Saved as $scopeLabel")
+                        .setContentText("Synced to Kharcha Book")
+                        .setAutoCancel(true)
+                        .setTimeoutAfter(3000) // auto-dismiss after 3s
+                        .setPriority(androidx.core.app.NotificationCompat.PRIORITY_LOW)
+                    androidx.core.app.NotificationManagerCompat.from(appContext).notify(notificationId + 1000, confirmBuilder.build())
+                }
             } finally {
                 pendingResult.finish()
             }

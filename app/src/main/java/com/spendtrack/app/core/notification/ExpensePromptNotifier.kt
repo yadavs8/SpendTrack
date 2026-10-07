@@ -29,6 +29,7 @@ object ExpensePromptNotifier {
 
     const val SCOPE_PERSONAL = "personal"
     const val SCOPE_FAMILY = "family"
+    const val SCOPE_INVESTMENT = "investment"
 
     fun notificationIdFor(transactionId: String): Int = transactionId.hashCode()
 
@@ -44,15 +45,19 @@ object ExpensePromptNotifier {
             notificationId,
             Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra(EXTRA_TRANSACTION_ID, transaction.id)
+                putExtra(EXTRA_NOTIFICATION_ID, notificationId)
+                action = "com.spendtrack.app.ACTION_REVIEW_EXPENSE"
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
         val title = if (merchantLabel != null) "$amountLabel at $merchantLabel" else "$amountLabel spent"
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_menu_agenda)
+            .setSmallIcon(com.spendtrack.app.R.drawable.ic_notification)
+            .setColor(0xFF0B5D75.toInt())
             .setContentTitle(title)
-            .setContentText("Is this Personal or Family expense?")
+            .setContentText("Personal, Family, or Investment?")
             .setContentIntent(contentIntent)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
@@ -65,7 +70,10 @@ object ExpensePromptNotifier {
         // 2. "Family" one-tap action
         builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_FAMILY, "🏠 Family"))
 
-        // 3. "Add note" inline reply action
+        // 3. "Investment" one-tap action
+        builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_INVESTMENT, "📈 Investment"))
+
+        // 4. "Add note" inline reply action
         builder.addAction(addNoteAction(context, transaction.id, notificationId))
 
         androidx.core.app.NotificationManagerCompat.from(context).notify(notificationId, builder.build())

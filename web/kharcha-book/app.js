@@ -45,8 +45,8 @@
   function isIncome(e) {
     if (!e || !e.desc) return false;
     var d = e.desc.trim().toLowerCase();
-    // Expenses tagged with 🏠, 👤, or 🔨 (project spends) are explicitly spends
-    if (d.startsWith('🏠') || d.startsWith('👤') || d.includes('🔨')) return false;
+    // Expenses tagged with 🏠, 👤, 🔨 (project spends), or 📈 (investments) are not income
+    if (d.startsWith('🏠') || d.startsWith('👤') || d.includes('🔨') || d.includes('📈')) return false;
     // Incomings added from the app carry 💼 / 👵 / 💰 tags
     if (d.includes('💼') || d.includes('👵') || d.startsWith('💰')) return true;
     if (d.includes('withdrawn from mother')) return true;
@@ -71,8 +71,14 @@
     return (d.includes('💼') || d.includes('salary')) && !isMotherSettlement(e) && !d.includes('maid');
   }
 
+  function isInvestment(e) {
+    if (!e || !e.desc) return false;
+    var d = e.desc.trim().toLowerCase();
+    return d.includes('📈') || d.startsWith('investment') || d.includes('mutual fund') || d.includes('sip') || d.includes('ppf') || d.includes('nps') || d.includes('fixed deposit') || d.includes('fd ') || d.includes('stocks') || d.includes('shares');
+  }
+
   function isExpense(e) {
-    return !isIncome(e);
+    return !isIncome(e) && !isInvestment(e);
   }
 
   function isProjectEntry(desc) {
@@ -139,12 +145,15 @@
     var salaries = list.filter(function (e) { return isSalary(e); }).reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
     var personalExpenses = list.filter(function (e) { return isExpense(e) && !isFamilyEntry(e.desc); });
     var personalSpent = personalExpenses.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
+    var investments = list.filter(isInvestment);
+    var totalInvested = investments.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
     var personalSavings = (salaries * 100 - personalSpent * 100) / 100;
     var savingsRate = salaries > 0 ? Math.round((personalSavings / salaries) * 100) : 0;
 
     return {
       salaries: salaries,
       personalSpent: personalSpent,
+      totalInvested: totalInvested,
       personalSavings: personalSavings,
       savingsRate: savingsRate
     };
@@ -507,7 +516,7 @@
     enterApp: enterApp,
     getSb: function () { return sb; },
     parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, parseSMSDate: parseSMSDate, findDuplicate: findDuplicate, categoryBreakdown: categoryBreakdown, monthCompare: monthCompare,
-    isIncome: isIncome, isMotherSettlement: isMotherSettlement, isMotherPension: isMotherPension, isSalary: isSalary, isExpense: isExpense, getFamilySettlement: getFamilySettlement, getPersonalCashFlow: getPersonalCashFlow,
+    isIncome: isIncome, isMotherSettlement: isMotherSettlement, isMotherPension: isMotherPension, isSalary: isSalary, isExpense: isExpense, isInvestment: isInvestment, getFamilySettlement: getFamilySettlement, getPersonalCashFlow: getPersonalCashFlow,
     isProjectEntry: isProjectEntry, isProjectMotherPaid: isProjectMotherPaid, getProjectSummary: getProjectSummary
   };
 
@@ -1057,12 +1066,13 @@
     var allMonthEntries = state.entries.filter(function (e) { return monthKey(e.ts) === state.sel; });
     var monthExpenses = allMonthEntries.filter(isExpense);
     var monthIncomings = allMonthEntries.filter(isIncome);
+    var monthInvestments = allMonthEntries.filter(isInvestment);
     var settlement = getFamilySettlement(allMonthEntries);
     var cashFlow = getPersonalCashFlow(allMonthEntries);
     var projSummary = getProjectSummary(allMonthEntries);
 
     renderCashFlow(cashFlow, settlement);
-    renderStreamSwitcher(monthExpenses.length, monthIncomings.length, projSummary.entries.length);
+    renderStreamSwitcher(monthExpenses.length, monthIncomings.length, projSummary.entries.length, monthInvestments.length);
 
     renderBudget(cur.total);
     renderSuggestions();
@@ -1075,6 +1085,7 @@
     renderIncomingsView(monthIncomings);
     renderSettlementView(settlement);
     renderProjectView(projSummary);
+    renderInvestmentsView(monthInvestments);
 
     renderSync();
   }
@@ -1094,7 +1105,12 @@
       pSavings.className = 'cf-amount ' + (cf.personalSavings >= 0 ? (cf.salaries > 0 ? 'positive' : '') : 'danger-soft');
     }
     if (pSub) {
-      pSub.textContent = cf.salaries > 0 ? (cf.savingsRate + '% saved of ' + money(cf.salaries)) : (money(cf.personalSpent) + ' personal spent');
+      if (cf.salaries > 0) {
+        var invNote = cf.totalInvested > 0 ? (' · ' + money(cf.totalInvested) + ' invested') : '';
+        pSub.textContent = cf.savingsRate + '% saved' + invNote;
+      } else {
+        pSub.textContent = money(cf.personalSpent) + ' personal spent';
+      }
     }
 
     if (famSpent) famSpent.textContent = money(setl.familySpent);
@@ -1116,24 +1132,28 @@
   }
 
   /* ---------- Stream Switcher Tabs ---------- */
-  function renderStreamSwitcher(spendsCount, incomingsCount, projCount) {
+  function renderStreamSwitcher(spendsCount, incomingsCount, projCount, invCount) {
     var spCountEl = $('spends-count');
     var incCountEl = $('incomings-count');
     var projCountEl = $('projects-count');
+    var invCountEl = $('investments-count');
     if (spCountEl) spCountEl.textContent = String(spendsCount);
     if (incCountEl) incCountEl.textContent = String(incomingsCount);
     if (projCountEl) projCountEl.textContent = String(projCount || 0);
+    if (invCountEl) invCountEl.textContent = String(invCount || 0);
 
     var spendsView = $('spends-view');
     var incomingsSec = $('incomings-sec');
     var settlementSec = $('settlement-sec');
     var projectSec = $('project-sec');
+    var investmentsSec = $('investments-sec');
 
     var stream = state.activeStream || 'spends';
     if (spendsView) spendsView.hidden = (stream !== 'spends');
     if (incomingsSec) incomingsSec.hidden = (stream !== 'incomings');
     if (settlementSec) settlementSec.hidden = (stream !== 'settlement');
     if (projectSec) projectSec.hidden = (stream !== 'projects');
+    if (investmentsSec) investmentsSec.hidden = (stream !== 'investments');
 
     document.querySelectorAll('.streambtn').forEach(function (btn) {
       btn.classList.toggle('active', btn.dataset.stream === stream);
@@ -1183,7 +1203,7 @@
       var ul = el('ul', 'entries');
       g.items.forEach(function (e) {
         var li = el('li');
-        li.appendChild(entryRow(e));
+        li.appendChild(state.editing === e.id && state.draft ? editRow(e) : entryRow(e));
         ul.appendChild(li);
       });
       wrapper.appendChild(ul);
@@ -1246,7 +1266,7 @@
       var ul = el('ul', 'entries');
       setl.familyExpenses.sort(byTimeDesc).forEach(function (e) {
         var li = el('li');
-        li.appendChild(entryRow(e, true));
+        li.appendChild(state.editing === e.id && state.draft ? editRow(e) : entryRow(e, true));
         ul.appendChild(li);
       });
       entriesBox.appendChild(ul);
@@ -1404,7 +1424,7 @@
       var ul = el('ul', 'entries');
       g.items.forEach(function (e) {
         var li = el('li');
-        li.appendChild(entryRow(e));
+        li.appendChild(state.editing === e.id && state.draft ? editRow(e) : entryRow(e));
         ul.appendChild(li);
       });
       wrapper.appendChild(ul);
@@ -1520,6 +1540,137 @@
         if (projErr) { projErr.textContent = 'Could not save project spend: ' + msg; projErr.hidden = false; }
       }).finally(function () {
         addProjBtn.disabled = false;
+        renderSync();
+      });
+    });
+  }
+
+  /* ---------- Investments View Rendering ---------- */
+  function renderInvestmentsView(monthInvestments) {
+    var totalInv = sumRupees(monthInvestments);
+    var sipEntries = monthInvestments.filter(function (e) {
+      var d = e.desc.toLowerCase();
+      return d.includes('sip') || d.includes('mutual fund');
+    });
+    var sipAmt = sipEntries.reduce(function (s, e) { return s + paise(e.amount); }, 0) / 100;
+    var otherAmt = Math.max(0, (totalInv * 100 - sipAmt * 100) / 100);
+
+    var totalEl = $('inv-total-amt');
+    var sipEl = $('inv-sip-amt');
+    var othEl = $('inv-other-amt');
+    if (totalEl) totalEl.textContent = money(totalInv);
+    if (sipEl) sipEl.textContent = money(sipAmt);
+    if (othEl) othEl.textContent = money(otherAmt);
+
+    var daysBox = $('investment-days');
+    if (!daysBox) return;
+    daysBox.textContent = '';
+
+    if (!monthInvestments.length) {
+      var em = el('div', 'empty');
+      em.appendChild(el('p', null, 'No investments logged for ' + monthLabel(state.sel) + '. Add a SIP, mutual fund, or shares above!'));
+      daysBox.appendChild(em);
+      return;
+    }
+
+    var days = groupByDay(monthInvestments);
+    days.forEach(function (g, idx) {
+      var wrap = el('section', 'day');
+      var isExpanded = true;
+      var wrapper = el('div', 'entries-wrapper expanded');
+      var ul = el('ul', 'entries');
+      g.items.forEach(function (e) {
+        var li = el('li');
+        li.appendChild(state.editing === e.id && state.draft ? editRow(e) : entryRow(e));
+        ul.appendChild(li);
+      });
+      wrapper.appendChild(ul);
+
+      var head = dayHead(g, isExpanded, function () {
+        var nextExpanded = !wrapper.classList.contains('expanded');
+        head.classList.toggle('expanded', nextExpanded);
+        wrapper.classList.toggle('expanded', nextExpanded);
+      }, idx);
+
+      wrap.appendChild(head);
+      wrap.appendChild(wrapper);
+      daysBox.appendChild(wrap);
+    });
+  }
+
+  /* Investment Type Radio Pills */
+  function getSelectedInvType() {
+    var checked = document.querySelector('input[name="inv-type"]:checked');
+    return checked ? checked.value : 'sip';
+  }
+  function setSelectedInvType(val) {
+    var radios = document.querySelectorAll('input[name="inv-type"]');
+    radios.forEach(function (r) {
+      r.checked = (r.value === val);
+      r.parentElement.classList.toggle('active', r.checked);
+    });
+  }
+  document.querySelectorAll('#inv-type-chips .scope-pill').forEach(function (pill) {
+    pill.addEventListener('click', function () {
+      var input = pill.querySelector('input');
+      if (input) setSelectedInvType(input.value);
+    });
+  });
+
+  /* Add Investment Form Submission */
+  var addInvForm = $('add-investment');
+  var invAmtInput = $('inv-amt');
+  var addInvBtn = $('add-inv-btn');
+  var invErr = $('inv-err');
+
+  if (invAmtInput && addInvBtn) {
+    invAmtInput.addEventListener('input', function () {
+      var a = parseAmount(invAmtInput.value);
+      addInvBtn.disabled = (a == null);
+    });
+  }
+
+  if (addInvForm) {
+    addInvForm.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      if (invErr) invErr.hidden = true;
+      var amt = parseAmount(invAmtInput.value);
+      if (amt == null) {
+        if (invErr) { invErr.textContent = 'Enter an amount greater than zero, like 5000 or 10000.'; invErr.hidden = false; }
+        invAmtInput.focus();
+        return;
+      }
+
+      var invType = getSelectedInvType();
+      var rawNote = $('inv-desc') ? $('inv-desc').value.trim() : '';
+      var prefix = '📈 ';
+      var typeLabels = {
+        'sip': 'SIP Mutual Fund',
+        'stocks': 'Stocks / Shares',
+        'ppf': 'PPF / EPF',
+        'fd': 'Fixed Deposit',
+        'other': 'Investment'
+      };
+      var desc = prefix + (rawNote ? rawNote : (typeLabels[invType] || 'Investment'));
+
+      var spentVal = $('inv-date') ? $('inv-date').value : '';
+      var spentAt = spentVal ? new Date(spentVal).toISOString() : null;
+
+      addInvBtn.disabled = true;
+      store.add({ amount: amt, desc: desc, spent_at: spentAt }).then(function () {
+        invAmtInput.value = '';
+        if ($('inv-desc')) $('inv-desc').value = '';
+        if ($('inv-date')) $('inv-date').value = '';
+        var ts = spentAt ? Date.parse(spentAt) : Date.now();
+        state.sel = monthKey(ts);
+        render();
+        toast('Logged ' + money(amt) + ' as ' + desc);
+        invAmtInput.focus();
+      }).catch(function (err) {
+        var msg = (err && (err.message || 'Check your connection.')) || 'Failed to save.';
+        if (invErr) { invErr.textContent = 'Could not save investment: ' + msg; invErr.hidden = false; }
+      }).finally(function () {
+        addInvBtn.disabled = false;
         renderSync();
       });
     });
@@ -2324,7 +2475,7 @@
     updateBtn.addEventListener('click', function () {
       showConfirmModal({
         title: '🔄 Force Clear Cache & Reload',
-        message: 'Clear cached app data and reload to the latest v31?',
+        message: 'Clear cached app data and reload to the latest v32?',
         confirmText: 'Clear & Reload',
         onConfirm: function () {
           if ('caches' in window) {

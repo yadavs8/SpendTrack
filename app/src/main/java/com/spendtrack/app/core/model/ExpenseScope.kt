@@ -7,7 +7,9 @@ package com.spendtrack.app.core.model
 object ExpenseScope {
     const val PERSONAL = "personal"
     const val FAMILY = "family"
+    const val INVESTMENT = "investment"
     private const val FAMILY_PREFIX = "🏠 "
+    private const val INVESTMENT_PREFIX = "📈 "
 
     /**
      * Base text is the user's own note if they typed one (isEdited), else the merchant name --
@@ -17,7 +19,11 @@ object ExpenseScope {
         val base = (if (isEdited) description?.takeIf { it.isNotBlank() } else null)
             ?: merchantName?.takeIf { it.isNotBlank() }
             ?: "Expense"
-        val clean = base.trim().removePrefix("🏠").removePrefix("👤").trim()
-        return if (scope.equals(FAMILY, ignoreCase = true)) FAMILY_PREFIX + clean else clean
+        val clean = base.trim().removePrefix("🏠").removePrefix("👤").removePrefix("📈").trim()
+        return when {
+            scope.equals(FAMILY, ignoreCase = true) -> FAMILY_PREFIX + clean
+            scope.equals(INVESTMENT, ignoreCase = true) -> INVESTMENT_PREFIX + clean
+            else -> clean
+        }
     }
 }

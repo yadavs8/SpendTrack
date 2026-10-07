@@ -49,7 +49,7 @@ windowMock.window = windowMock;
 const code = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8');
 vm.runInNewContext(code, windowMock);
 
-const { parseAmount, normDesc, money, groupByDay, byDescription, monthTotals, toLocalISOString, isFamilyEntry, parseBankSMS, parseSMSDate, findDuplicate, categoryBreakdown, monthCompare, isIncome, isMotherSettlement, isMotherPension, isSalary, isExpense, getFamilySettlement, getPersonalCashFlow, isProjectEntry, isProjectMotherPaid, getProjectSummary } = windowMock.__kharcha;
+const { parseAmount, normDesc, money, groupByDay, byDescription, monthTotals, toLocalISOString, isFamilyEntry, parseBankSMS, parseSMSDate, findDuplicate, categoryBreakdown, monthCompare, isIncome, isMotherSettlement, isMotherPension, isSalary, isExpense, isInvestment, getFamilySettlement, getPersonalCashFlow, isProjectEntry, isProjectMotherPaid, getProjectSummary } = windowMock.__kharcha;
 
 let passed = 0;
 let failed = 0;
@@ -298,6 +298,33 @@ assert(projSummary.motherSpent === 5000, 'getProjectSummary sums paid by mother 
 const setlWithProj = getFamilySettlement(projectEntries);
 assert(setlWithProj.familySpent === 4500, 'Family settlement includes user-paid renovation (4500) and excludes mother-paid (5000)');
 assert(setlWithProj.pending === 4500, 'Family settlement shows 4500 pending reimbursement to user');
+
+// 15. Investment Tracking (SIP, Mutual Funds, Stocks - separated from personal expenses)
+assert(isInvestment({ desc: '📈 SIP Axis Bluechip' }) === true, 'isInvestment identifies SIP with 📈 tag');
+assert(isInvestment({ desc: '📈 Mutual Fund Parag Parikh' }) === true, 'isInvestment identifies mutual fund with tag');
+assert(isInvestment({ desc: 'SIP payment' }) === true, 'isInvestment identifies plain SIP keyword');
+assert(isInvestment({ desc: 'PPF contribution' }) === true, 'isInvestment identifies PPF keyword');
+assert(isInvestment({ desc: 'Fixed Deposit SBI' }) === true, 'isInvestment identifies FD keyword');
+assert(isInvestment({ desc: 'Reliance shares' }) === true, 'isInvestment identifies shares keyword');
+assert(isInvestment({ desc: '🛒 Grocery' }) === false, 'isInvestment rejects grocery');
+assert(isInvestment({ desc: '💼 Salary 1' }) === false, 'isInvestment rejects salary');
+assert(isExpense({ desc: '📈 SIP Axis Bluechip' }) === false, 'isExpense excludes investments');
+assert(isIncome({ desc: '📈 SIP Axis Bluechip' }) === false, 'isIncome excludes investments');
+
+// Verify cash flow correctly isolates investments from personal spends
+const entriesWithInvest = [
+  { id: 's1', amount: 80000, desc: '💼 Salary 1', ts: Date.now() },
+  { id: 'p1', amount: 5000, desc: '🛒 Grocery', ts: Date.now() },
+  { id: 'i1', amount: 15000, desc: '📈 SIP Parag Parikh Flexi Cap', ts: Date.now() },
+  { id: 'i2', amount: 10000, desc: '📈 Stocks Zerodha', ts: Date.now() },
+  { id: 'f1', amount: 3000, desc: '🏠 ⚡ Electricity Bill', ts: Date.now() }
+];
+
+const cfWithInvest = getPersonalCashFlow(entriesWithInvest);
+assert(cfWithInvest.salaries === 80000, 'Salaries = 80000');
+assert(cfWithInvest.personalSpent === 5000, 'Personal spent = 5000 (excludes investments and family bills)');
+assert(cfWithInvest.totalInvested === 25000, 'Total invested = 15000 + 10000 = 25000');
+assert(cfWithInvest.personalSavings === 75000, 'Personal savings = 80000 - 5000 = 75000');
 
 console.log(`\nResults: ${passed} passed, ${failed} failed.`);
 if (failed > 0) process.exit(1);

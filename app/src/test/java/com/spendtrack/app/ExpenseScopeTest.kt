@@ -21,6 +21,12 @@ class ExpenseScopeTest {
     }
 
     @Test
+    fun investment_usesMerchantWithPrefix() {
+        val desc = ExpenseScope.describe("Zerodha", rawSms, isEdited = false, scope = ExpenseScope.INVESTMENT)
+        assertEquals("📈 Zerodha", desc)
+    }
+
+    @Test
     fun typedNote_winsOverMerchant() {
         val desc = ExpenseScope.describe("Ramesh Dairy", "Milk", isEdited = true, scope = ExpenseScope.FAMILY)
         assertEquals("🏠 Milk", desc)
@@ -32,6 +38,8 @@ class ExpenseScopeTest {
         assertEquals("🏠 Groceries", asFamily)
         val backToPersonal = ExpenseScope.describe("Zepto", "🏠 Groceries", isEdited = true, scope = ExpenseScope.PERSONAL)
         assertEquals("Groceries", backToPersonal)
+        val asInvestment = ExpenseScope.describe("Groww", "📈 SIP Mutual Fund", isEdited = true, scope = ExpenseScope.INVESTMENT)
+        assertEquals("📈 SIP Mutual Fund", asInvestment)
     }
 
     @Test
