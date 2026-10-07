@@ -136,7 +136,8 @@ class SpendTrackNotificationListener : NotificationListenerService() {
         )
 
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_menu_agenda)
+            .setSmallIcon(com.spendtrack.app.R.drawable.ic_notification)
+            .setColor(0xFF0B5D75.toInt())
             .setContentTitle(title)
             .setContentText(message)
             .setContentIntent(contentIntent)
