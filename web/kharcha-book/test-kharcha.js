@@ -49,7 +49,7 @@ windowMock.window = windowMock;
 const code = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8');
 vm.runInNewContext(code, windowMock);
 
-const { parseAmount, normDesc, money, groupByDay, byDescription, monthTotals, toLocalISOString, isFamilyEntry, parseBankSMS, parseSMSDate, findDuplicate, categoryBreakdown, monthCompare, isIncome, isMotherSettlement, isMotherPension, isSalary, isExpense, isInvestment, getFamilySettlement, getPersonalCashFlow, isProjectEntry, isProjectMotherPaid, getProjectSummary } = windowMock.__kharcha;
+const { parseAmount, normDesc, money, groupByDay, byDescription, monthTotals, toLocalISOString, isFamilyEntry, parseBankSMS, parseSMSDate, findDuplicate, categoryBreakdown, monthCompare, isIncome, isMotherSettlement, isMotherPension, isSalary, isExpense, isInvestment, getFamilySettlement, getPersonalCashFlow, isProjectEntry, isProjectMotherPaid, getProjectSummary, getEntryScope, shiftScopeDesc } = windowMock.__kharcha;
 
 let passed = 0;
 let failed = 0;
@@ -325,6 +325,28 @@ assert(cfWithInvest.salaries === 80000, 'Salaries = 80000');
 assert(cfWithInvest.personalSpent === 5000, 'Personal spent = 5000 (excludes investments and family bills)');
 assert(cfWithInvest.totalInvested === 25000, 'Total invested = 15000 + 10000 = 25000');
 assert(cfWithInvest.personalSavings === 75000, 'Personal savings = 80000 - 5000 = 75000');
+
+// 16. Scope Shifting (1-tap move between Personal, Family, and Investment)
+assert(getEntryScope({ desc: '🛒 Grocery' }) === 'personal', 'getEntryScope defaults plain expense to personal');
+assert(getEntryScope({ desc: '👤 Petrol' }) === 'personal', 'getEntryScope identifies personal tag');
+assert(getEntryScope({ desc: '🏠 ⚡ Electricity Bill' }) === 'family', 'getEntryScope identifies family tag');
+assert(getEntryScope({ desc: '📈 SIP Axis Bluechip' }) === 'investment', 'getEntryScope identifies investment tag');
+
+// Shifting to Family
+assert(shiftScopeDesc('🛒 Grocery', 'family') === '🏠 🛒 Grocery', 'shiftScopeDesc moves personal to family preserving category emoji');
+assert(shiftScopeDesc('👤 Petrol', 'family') === '🏠 Petrol', 'shiftScopeDesc removes personal tag and adds family tag');
+assert(shiftScopeDesc('📈 Mutual Fund', 'family') === '🏠 Mutual Fund', 'shiftScopeDesc moves investment to family');
+
+// Shifting to Personal
+assert(shiftScopeDesc('🏠 ⚡ Electricity Bill', 'personal') === '👤 ⚡ Electricity Bill', 'shiftScopeDesc moves family to personal');
+assert(shiftScopeDesc('📈 Stocks Zerodha', 'personal') === '👤 Stocks Zerodha', 'shiftScopeDesc moves investment to personal');
+
+// Shifting to Investment
+assert(shiftScopeDesc('🛒 PPF Contribution', 'investment') === '📈 🛒 PPF Contribution', 'shiftScopeDesc moves personal to investment preserving category emoji');
+assert(shiftScopeDesc('🏠 Mutual Fund', 'investment') === '📈 Mutual Fund', 'shiftScopeDesc moves family to investment');
+
+// Preserving raw description cleanly
+assert(shiftScopeDesc('', 'personal') === '👤 Expense', 'shiftScopeDesc falls back cleanly for empty desc');
 
 console.log(`\nResults: ${passed} passed, ${failed} failed.`);
 if (failed > 0) process.exit(1);

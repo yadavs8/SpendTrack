@@ -526,8 +526,46 @@ button.cat-row { width: 100%; text-align: left; background: none; border: 0; pad
 :root[data-theme="dark"] .dtotal.day-color-5 { color: #2DD4BF; }
 
 /* Edit row */
-.edit { padding: 10px 10px 12px; display: grid; gap: 10px; background: var(--bg); border-radius: 8px; margin: 4px; }
 .edit-btns { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.edit-shift-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 0;
+  border-top: 1px dashed var(--line);
+  border-bottom: 1px dashed var(--line);
+}
+.edit-shift-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-right: 4px;
+}
+.btn-shift {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.btn-shift:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.btn-shift:active {
+  transform: scale(0.96);
+}
 
 /* Empty state */
 .empty { border: 1px dashed var(--line); border-radius: 14px; padding: 18px; color: var(--muted); text-align: center; }

@@ -100,6 +100,28 @@
     return d.includes('🏠') || d.includes('family') || d.includes('niece') || d.includes('electricity') || d.includes('gas') || d.includes('bill');
   }
 
+  function getEntryScope(e) {
+    if (!e || !e.desc) return 'personal';
+    if (isInvestment(e)) return 'investment';
+    if (isFamilyEntry(e.desc)) return 'family';
+    return 'personal';
+  }
+
+  function cleanScopePrefix(desc) {
+    if (!desc) return '';
+    // Strip leading scope tags (🏠, 👤, 📈, 🔨)
+    return desc.trim().replace(/^[\u{1F3E0}\u{1F464}\u{1F4C8}\u{1F528}]\s*/u, '').trim();
+  }
+
+  function shiftScopeDesc(desc, targetScope) {
+    var clean = cleanScopePrefix(desc);
+    if (!clean) clean = 'Expense';
+    if (targetScope === 'family') return '🏠 ' + clean;
+    if (targetScope === 'investment') return '📈 ' + clean;
+    if (targetScope === 'personal') return '👤 ' + clean;
+    return clean;
+  }
+
   function getProjectSummary(monthEntries) {
     var list = (monthEntries || []).filter(function (e) {
       return isExpense(e) && isProjectEntry(e.desc);
@@ -517,7 +539,8 @@
     getSb: function () { return sb; },
     parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, parseSMSDate: parseSMSDate, findDuplicate: findDuplicate, categoryBreakdown: categoryBreakdown, monthCompare: monthCompare,
     isIncome: isIncome, isMotherSettlement: isMotherSettlement, isMotherPension: isMotherPension, isSalary: isSalary, isExpense: isExpense, isInvestment: isInvestment, getFamilySettlement: getFamilySettlement, getPersonalCashFlow: getPersonalCashFlow,
-    isProjectEntry: isProjectEntry, isProjectMotherPaid: isProjectMotherPaid, getProjectSummary: getProjectSummary
+    isProjectEntry: isProjectEntry, isProjectMotherPaid: isProjectMotherPaid, getProjectSummary: getProjectSummary,
+    getEntryScope: getEntryScope, shiftScopeDesc: shiftScopeDesc
   };
 
   var TABLE = 'daily_expenses';
@@ -2038,12 +2061,48 @@
     row2.appendChild(f3);
 
     var msg = el('p', 'err'); msg.hidden = true; msg.setAttribute('role', 'alert');
+
+    // 1-Tap Quick Shift Scope Buttons
+    var curScope = getEntryScope(e);
+    var shiftRow = el('div', 'edit-shift-row');
+    var shiftLabel = el('span', 'edit-shift-label', 'Move to:');
+    shiftRow.appendChild(shiftLabel);
+
+    function createShiftBtn(targetScope, label, icon) {
+      var btn = el('button', 'btn-shift' + (curScope === targetScope ? ' active' : ''), icon + ' ' + label);
+      btn.type = 'button';
+      btn.addEventListener('click', function () {
+        var newDesc = shiftScopeDesc(state.draft.desc || e.desc, targetScope);
+        state.draft.desc = newDesc;
+        d.value = newDesc;
+        // Auto-save immediately on shift click for seamless 1-tap workflow
+        var amt = parseAmount(state.draft.amount);
+        if (amt == null) { msg.textContent = 'Enter an amount greater than zero.'; msg.hidden = false; return; }
+        save.disabled = true;
+        var newTs = state.draft.spent_at ? new Date(state.draft.spent_at).toISOString() : null;
+        store.update(e.id, { amount: amt, desc: newDesc, spent_at: newTs }).then(function () {
+          state.editing = null;
+          render();
+          toast('Moved to ' + label);
+        }).catch(function (err) {
+          save.disabled = false;
+          msg.textContent = 'Could not move: ' + (err && err.message ? err.message : 'try again');
+          msg.hidden = false;
+        });
+      });
+      return btn;
+    }
+
+    if (curScope !== 'personal') shiftRow.appendChild(createShiftBtn('personal', 'Personal', '👤'));
+    if (curScope !== 'family') shiftRow.appendChild(createShiftBtn('family', 'Family', '🏠'));
+    if (curScope !== 'investment') shiftRow.appendChild(createShiftBtn('investment', 'Investment', '📈'));
+
     var btns = el('div', 'edit-btns');
     var save = el('button', 'primary small', 'Save'); save.type = 'submit';
     var cancel = el('button', 'ghost', 'Cancel'); cancel.type = 'button';
     var del = el('button', 'danger', 'Delete'); del.type = 'button';
     btns.appendChild(save); btns.appendChild(cancel); btns.appendChild(del);
-    f.appendChild(row1); f.appendChild(row2); f.appendChild(msg); f.appendChild(btns);
+    f.appendChild(row1); f.appendChild(row2); f.appendChild(shiftRow); f.appendChild(msg); f.appendChild(btns);
 
     cancel.addEventListener('click', function () { state.editing = null; render(); });
     f.addEventListener('submit', function (ev) {
