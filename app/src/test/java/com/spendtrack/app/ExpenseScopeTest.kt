@@ -47,4 +47,18 @@ class ExpenseScopeTest {
         val desc = ExpenseScope.describe(null, rawSms, isEdited = false, scope = ExpenseScope.PERSONAL)
         assertEquals("Expense", desc)
     }
+
+    @Test
+    fun selfPayment_detectsSanjeevYadav() {
+        val isSelf1 = ExpenseScope.isSelfPayment("Sanjeev Yadav", null, "Paid to Sanjeev Yadav UPI")
+        assertEquals(true, isSelf1)
+
+        val isSelf2 = ExpenseScope.isSelfPayment(null, "sanjeev@okhdfcbank", null)
+        assertEquals(true, isSelf2)
+
+        val isSelf3 = ExpenseScope.isSelfPayment(null, null, "Self transfer between ICICI and HDFC")
+        assertEquals(true, isSelf3)
+
+        assertEquals(false, ExpenseScope.isSelfPayment("Swiggy", "swiggy@icici", "Swiggy order"))
+    }
 }

@@ -26,4 +26,25 @@ object ExpenseScope {
             else -> clean
         }
     }
+
+    private val SELF_KEYWORDS = listOf(
+        "sanjeev yadav",
+        "sanjeev",
+        "self transfer",
+        "own account",
+        "transfer to self"
+    )
+
+    /**
+     * Checks if a transaction is a payment to oneself (Sanjeev Yadav / self account).
+     */
+    fun isSelfPayment(merchantName: String?, merchantVpa: String?, rawText: String?): Boolean {
+        val name = (merchantName ?: "").lowercase()
+        val vpa = (merchantVpa ?: "").lowercase()
+        val raw = (rawText ?: "").lowercase()
+
+        return SELF_KEYWORDS.any {
+            name.contains(it) || vpa.contains(it) || raw.contains(it)
+        }
+    }
 }

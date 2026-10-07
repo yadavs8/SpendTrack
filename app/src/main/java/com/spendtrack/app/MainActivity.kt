@@ -87,7 +87,7 @@ class MainActivity : FragmentActivity() {
                             }
                         )
                     } else {
-                        MainApp()
+                        MainApp(onWebViewAttached = { activeWebView = it })
                     }
                 }
             }
@@ -153,7 +153,7 @@ fun LockScreen(onUnlockClick: () -> Unit) {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainApp() {
+fun MainApp(onWebViewAttached: (WebView?) -> Unit = {}) {
     // Persisted, so onboarding shows once -- not on every cold start. null = still reading DataStore.
     val isOnboarded by ServiceLocator.settingsManager.isOnboarded.collectAsState(initial = null)
     val scope = rememberCoroutineScope()
@@ -220,7 +220,7 @@ fun MainApp() {
             KharchaWebViewScreen(
                 webViewRef = {
                     webView = it
-                    activeWebView = it
+                    onWebViewAttached(it)
                 },
                 modifier = Modifier.statusBarsPadding()
             )

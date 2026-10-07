@@ -68,9 +68,34 @@ class TransactionRepository(
             !result.transaction.isExcluded &&
             result.transaction.transactionType == TransactionType.EXPENSE
         ) {
-            val flagged = result.transaction.copy(needsReview = true, updatedAt = System.currentTimeMillis())
-            transactionDao.updateTransaction(flagged)
-            return DeduplicationEngine.DeduplicationResult.NewTransaction(flagged)
+            val isSelf = ExpenseScope.isSelfPayment(
+                merchantName = result.transaction.merchantName,
+                merchantVpa = result.transaction.merchantVpa,
+                rawText = result.transaction.rawNotificationText
+            )
+
+            val updatedTxn = if (isSelf) {
+                // Self payment to user's own account (Sanjeev Yadav) -> automatically Personal!
+                result.transaction.copy(
+                    description = ExpenseScope.describe(
+                        merchantName = result.transaction.merchantName,
+                        description = result.transaction.description,
+                        isEdited = result.transaction.isEdited,
+                        scope = ExpenseScope.PERSONAL
+                    ),
+                    needsReview = false,
+                    isEdited = true,
+                    updatedAt = System.currentTimeMillis()
+                )
+            } else {
+                // Sent to someone else -> ask user "Personal, Family, or Investment?"
+                result.transaction.copy(
+                    needsReview = true,
+                    updatedAt = System.currentTimeMillis()
+                )
+            }
+            transactionDao.updateTransaction(updatedTxn)
+            return DeduplicationEngine.DeduplicationResult.NewTransaction(updatedTxn)
         }
 
         return result
