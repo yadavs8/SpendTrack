@@ -39,6 +39,17 @@ import kotlinx.coroutines.launch
 
 class MainActivity : FragmentActivity() {
 
+    private var activeWebView: WebView? = null
+
+    override fun onResume() {
+        super.onResume()
+        // If app comes to foreground, tell the web view to reload recent data instantly
+        activeWebView?.evaluateJavascript(
+            "if (typeof refreshData === 'function') { refreshData(); }",
+            null
+        )
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -207,7 +218,10 @@ fun MainApp() {
                 .background(Color(0xFF0B5D75)) // Kharcha Book's --hero-bg: no flash before the page paints
         ) {
             KharchaWebViewScreen(
-                webViewRef = { webView = it },
+                webViewRef = {
+                    webView = it
+                    activeWebView = it
+                },
                 modifier = Modifier.statusBarsPadding()
             )
             IconButton(

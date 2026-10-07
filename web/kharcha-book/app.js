@@ -2273,10 +2273,37 @@
     showScreen('auth');
   });
   document.addEventListener('visibilitychange', function () {
-    if (document.hidden) { hiddenAt = Date.now(); return; }
-    if (hiddenAt && Date.now() - hiddenAt > LOCK_AFTER_MS && lockCred() && !$('main').hidden) lockNow();
+    if (document.hidden) {
+      hiddenAt = Date.now();
+      return;
+    }
+    if (hiddenAt && Date.now() - hiddenAt > LOCK_AFTER_MS && lockCred() && !$('main').hidden) {
+      lockNow();
+      hiddenAt = 0;
+      return;
+    }
     hiddenAt = 0;
+    // Auto-refresh when app becomes visible again so new synced payments show immediately
+    if (!$('main').hidden && !isLoadingApp && state.mode === 'db') {
+      refreshData();
+    }
   });
+
+  window.addEventListener('focus', function () {
+    if (!$('main').hidden && !isLoadingApp && state.mode === 'db') {
+      refreshData();
+    }
+  });
+
+  async function refreshData() {
+    try {
+      var latest = await store.loadAll();
+      state.entries = latest;
+      render();
+    } catch (e) {
+      console.warn('Kharcha: background refresh failed', e);
+    }
+  }
 
   var OFFER_KEY = 'kharcha_lock_declined';
   function offerDeclined() { try { return !!localStorage.getItem(OFFER_KEY); } catch (e) { return false; } }
@@ -2422,6 +2449,17 @@
     console.log('Kharcha: getSession returned session=' + !!got.data?.session);
     if (got.data && got.data.session) {
       if (lockCred() && lockSupported) { showScreen('lock'); unlock(); } else await enterApp();
+      // Subscribe to real-time changes on daily_expenses for instant sync from phone detection
+      try {
+        sb.channel('realtime-expenses')
+          .on('postgres_changes', { event: '*', schema: 'public', table: TABLE }, function () {
+            console.log('Kharcha: realtime update received, refreshing');
+            refreshData();
+          })
+          .subscribe();
+      } catch (rtErr) {
+        console.warn('Kharcha: Realtime subscription failed', rtErr);
+      }
     } else {
       showScreen('auth');
     }
