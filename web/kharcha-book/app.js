@@ -3517,7 +3517,7 @@
   $('lock-btn').addEventListener('click', unlock);
   $('lock-pass').addEventListener('click', async function () {
     setLockCred(null);
-    await sb.auth.signOut();
+    await sb.auth.signOut({ scope: 'local' }); // this device only; 'global' would also log SpendTrack out
     state.entries = []; state.editing = null;
     showScreen('auth');
   });
@@ -3619,7 +3619,7 @@
   $('signout').addEventListener('click', async function () {
     setLockCred(null);
     try { localStorage.removeItem(OFFER_KEY); } catch (e) {}
-    await sb.auth.signOut();
+    await sb.auth.signOut({ scope: 'local' }); // this device only; 'global' would also log SpendTrack out
     state.entries = []; state.editing = null; state.mode = 'signedout';
     showScreen('auth');
   });

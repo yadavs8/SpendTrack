@@ -34,6 +34,7 @@ object ExpensePromptNotifier {
     const val EXTRA_TRIP_NAME = "trip_name"
     const val EXTRA_NOTIFICATION_ID = "notification_id"
     const val REMOTE_INPUT_KEY = "note_reply"
+    private const val SYNC_PROBLEM_ID = 0x5C0FF
 
     const val SCOPE_PERSONAL = "personal"
     const val SCOPE_FAMILY = "family"
@@ -124,6 +125,33 @@ object ExpensePromptNotifier {
             .setTimeoutAfter(4000)
             .setPriority(NotificationCompat.PRIORITY_LOW)
         NotificationManagerCompat.from(context).notify(notificationIdFor(transaction.id), builder.build())
+    }
+
+    /**
+     * Shown when an expense was filed but could not reach Kharcha Book (e.g. the sync session was
+     * signed out), so "✅ Logged" is never the last word on an expense that only exists on the phone.
+     */
+    fun showSyncProblem(context: Context, reason: String) {
+        ensureChannel(context)
+        val open = PendingIntent.getActivity(
+            context,
+            SYNC_PROBLEM_ID,
+            Intent(context, com.spendtrack.app.MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(com.spendtrack.app.R.drawable.ic_notification)
+            .setColor(0xFF0B5D75.toInt())
+            .setContentTitle("Saved on phone, not in Kharcha Book yet")
+            .setContentText(reason)
+            .setStyle(NotificationCompat.BigTextStyle().bigText("$reason It will be sent automatically once this is fixed. Open SpendTrack → Settings → Cloud Sync."))
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+        NotificationManagerCompat.from(context).notify(SYNC_PROBLEM_ID, builder.build())
     }
 
     fun dismiss(context: Context, transactionId: String) {
