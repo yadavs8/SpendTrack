@@ -479,5 +479,39 @@ const msg = settleMessage('Rohit', 1250, 'Goa trip', 'sanjeev@okhdfcbank');
 assert(msg.includes('₹1,250') && msg.includes('sanjeev@okhdfcbank') && msg.includes('upi://pay'), 'settleMessage spells out amount and UPI ID');
 assert(whatsappLink('a b').startsWith('https://wa.me/?text=a%20b'), 'whatsappLink encodes the message');
 
+// 25. Payment methods, cash wallet, income kinds (v5 columns)
+{
+  const K = windowMock.__kharcha;
+  const t = (d) => new Date(2026, 9, d, 12).getTime();
+  const rows = [
+    { id: 'w', amount: 5000, desc: '💵 Cash withdrawn · HDFC ATM', ts: t(2), kind: 'cash_withdrawal', method: 'atm' },
+    { id: 'c1', amount: 60, desc: 'Milk', ts: t(3), kind: 'expense', method: 'cash' },
+    { id: 'u', amount: 200, desc: 'Swiggy', ts: t(3), kind: 'expense', method: 'upi', bank: 'ICICI' },
+    { id: 'cc', amount: 1499, desc: 'Amazon', ts: t(4), kind: 'expense', method: 'credit_card', bank: 'HDFC', last4: '4321' },
+    { id: 'dc', amount: 640, desc: 'Big Bazaar', ts: t(4), kind: 'expense', method: 'debit_card', bank: 'HDFC', last4: '7788' },
+    { id: 'i', amount: 54000, desc: '💼 Salary · ACME', ts: t(1), kind: 'income', method: 'netbanking' },
+    { id: 'old', amount: 3000, desc: 'Cash Withdrawal', ts: t(5) } // typed by hand earlier: still an expense
+  ];
+  assert(K.isCashWithdrawal(rows[0]) && !K.isExpense(rows[0]), 'ATM withdrawal synced from the phone is not a spend by itself');
+  assert(K.isExpense(rows[6]), 'a hand-typed "Cash Withdrawal" entry keeps counting as before');
+  assert(K.isIncome(rows[5]) && !K.isExpense(rows[5]), 'kind=income is income');
+  const cs = K.cashSummary(rows, '2026-10');
+  assert(cs.withdrawn === 5000 && cs.spent === 60 && cs.unaccounted === 4940, 'cashSummary: withdrawn 5000, itemised 60, unaccounted 4940');
+  const line = K.unaccountedCashEntry(rows, '2026-10');
+  assert(line && line.synthetic && line.amount === 4940, 'unaccounted cash line for the month');
+  const mt = K.monthTotals(rows).find(m => m.key === '2026-10');
+  assert(mt.total === 60 + 200 + 1499 + 640 + 3000 + 4940, 'month total counts itemised cash once plus unaccounted cash');
+  assert(mt.count === 5, 'the synthetic cash line is not counted as an entry');
+  const cats = K.categoryBreakdown(rows.filter(K.isExpense).concat([line])).categories.map(c => c.name);
+  assert(cats.includes('💵 Unaccounted cash'), 'categoryBreakdown shows Unaccounted cash as its own category');
+  const mb = K.methodBreakdown(rows.filter(K.isExpense));
+  assert(mb.find(r => r.label === 'HDFC Credit card ··4321' && r.total === 1499), 'methodBreakdown lists each credit card on its own');
+  assert(mb.find(r => r.label === 'HDFC Debit card ··7788'), 'methodBreakdown keeps debit cards separate from credit cards');
+  assert(mb.find(r => r.method === 'upi' && r.total === 200) && mb.find(r => r.method === 'cash' && r.total === 60), 'methodBreakdown: UPI and cash totals');
+  assert(mb.find(r => r.method === 'unknown' && r.label === 'Not set'), 'rows without a method are grouped as Not set');
+  assert(K.methodLabel(rows[3]) === 'HDFC Credit card ··4321' && K.methodLabel(rows[2]) === 'UPI · ICICI', 'methodLabel');
+  assert(K.methodLabel({ desc: 'x' }) === '', 'methodLabel is empty when unknown');
+}
+
 console.log(`\nResults: ${passed} passed, ${failed} failed.`);
 if (failed > 0) process.exit(1);
