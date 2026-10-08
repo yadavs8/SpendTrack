@@ -1647,3 +1647,10 @@ button.cat-row { width: 100%; text-align: left; background: none; border: 0; pad
 .backfill-txt { min-width: 0; overflow-wrap: anywhere; }
 .backfill-txt small { color: var(--muted); font-size: 0.72rem; }
 .backfill-row strong { font-variant-numeric: tabular-nums; }
+
+/* ---------- In-app text input pop-up (replaces window.prompt) ---------- */
+.modal-input form { display: flex; flex-direction: column; gap: 14px; margin: 0; }
+.modal-field { display: grid; gap: 6px; }
+.modal-field-label { font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.modal-input .input { width: 100%; font-size: 1rem; }
+.modal-input .modal-foot { display: flex; justify-content: flex-end; gap: 10px; }

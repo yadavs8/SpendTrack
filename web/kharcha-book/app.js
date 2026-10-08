@@ -1198,6 +1198,60 @@
     modal.hidden = false;
   }
 
+  /* In-app text input pop-up -- replaces window.prompt(), which in the Android app (WebView) shows
+     the system's bare dialog instead of something that looks like Kharcha Book.
+     options: { title, message, fields: [{ label, value, placeholder, inputmode }], confirmText,
+                onConfirm(values) } -- values is an array of trimmed strings, one per field. */
+  function showInputModal(options) {
+    var back = el('div', 'modal-backdrop');
+    var card = el('div', 'modal-card modal-input');
+    var form = document.createElement('form');
+    form.noValidate = true;
+    var head = el('div', 'modal-head');
+    head.appendChild(el('h3', null, options.title || 'Enter details'));
+    var x = el('button', 'close-btn', '×');
+    x.type = 'button';
+    x.setAttribute('aria-label', 'Close');
+    head.appendChild(x);
+    form.appendChild(head);
+    if (options.message) form.appendChild(el('p', 'modal-intro', options.message));
+    var inputs = (options.fields || [{}]).map(function (f) {
+      var wrap = el('label', 'field modal-field');
+      if (f.label) wrap.appendChild(el('span', 'modal-field-label', f.label));
+      var input = el('input', 'input');
+      input.type = 'text';
+      input.value = f.value || '';
+      if (f.placeholder) input.placeholder = f.placeholder;
+      if (f.inputmode) input.setAttribute('inputmode', f.inputmode);
+      input.autocomplete = 'off';
+      wrap.appendChild(input);
+      form.appendChild(wrap);
+      return input;
+    });
+    var foot = el('div', 'modal-foot');
+    var cancel = el('button', 'ghost', 'Cancel'); cancel.type = 'button';
+    var ok = el('button', 'primary', options.confirmText || 'Save'); ok.type = 'submit';
+    foot.appendChild(cancel); foot.appendChild(ok);
+    form.appendChild(foot);
+    card.appendChild(form);
+    back.appendChild(card);
+    document.body.appendChild(back);
+
+    function close() { document.removeEventListener('keydown', onKey); back.remove(); }
+    function onKey(ev) { if (ev.key === 'Escape') close(); }
+    document.addEventListener('keydown', onKey);
+    x.addEventListener('click', close);
+    cancel.addEventListener('click', close);
+    back.addEventListener('click', function (ev) { if (ev.target === back) close(); });
+    form.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var values = inputs.map(function (i) { return i.value.trim(); });
+      close();
+      if (options.onConfirm) options.onConfirm(values);
+    });
+    setTimeout(function () { if (inputs[0]) { inputs[0].focus(); inputs[0].select(); } }, 50);
+  }
+
   function closeConfirmModal() {
     var modal = $('confirm-modal');
     if (modal) modal.hidden = true;
@@ -1863,12 +1917,18 @@
   if (projChangeBtn) {
     projChangeBtn.addEventListener('click', function () {
       var cur = getActiveProjectName();
-      var next = window.prompt('Enter project name (e.g. House Renovation, Shop Setup, Event):', cur);
-      if (next && next.trim() && next.trim() !== cur) {
-        setActiveProjectName(next.trim());
-        render();
-        toast('Project set to ' + next.trim());
-      }
+      showInputModal({
+        title: '🔨 Project name',
+        fields: [{ value: cur, placeholder: 'e.g. House Renovation, Shop Setup' }],
+        onConfirm: function (v) {
+          var next = v[0];
+          if (next && next !== cur) {
+            setActiveProjectName(next);
+            render();
+            toast('Project set to ' + next);
+          }
+        }
+      });
     });
   }
 
@@ -2464,16 +2524,21 @@
   var tripNewBtn = $('trip-new-btn');
   if (tripNewBtn) {
     tripNewBtn.addEventListener('click', function () {
-      var name = window.prompt('Enter new trip heading (e.g. Manali Trip, Goa 2026, Dubai Vacation):', '');
-      if (name && name.trim()) {
-        var clean = name.trim();
-        saveTripToList(clean);
-        setActiveTripName(clean);
-        setSelectedViewTripName(clean);
-        render();
-        toast('Started & switched to ' + clean + '!');
-        offerTripBackfill(clean);
-      }
+      showInputModal({
+        title: '✈️ New trip',
+        fields: [{ placeholder: 'e.g. Goa 2026, Manali Trip' }],
+        confirmText: 'Start trip',
+        onConfirm: function (v) {
+          var clean = v[0];
+          if (!clean) return;
+          saveTripToList(clean);
+          setActiveTripName(clean);
+          setSelectedViewTripName(clean);
+          render();
+          toast('Started & switched to ' + clean + '!');
+          offerTripBackfill(clean);
+        }
+      });
     });
   }
 
@@ -2482,22 +2547,24 @@
     tripRenameBtn.addEventListener('click', function () {
       var cur = getSelectedViewTripName();
       if (!cur) return;
-      var next = window.prompt('Rename trip "' + cur + '" to:', cur);
-      if (next && next.trim() && next.trim() !== cur) {
-        var newName = next.trim();
-        saveTripToList(newName);
-        // Rename in localStorage
-        if (getActiveTripName() === cur) setActiveTripName(newName);
-        setSelectedViewTripName(newName);
-        // Copy friends list
-        var friends = getTripFriends(cur);
-        setTripFriends(newName, friends);
-        // Copy budget
-        var b = getTripBudget(cur);
-        if (b > 0) setTripBudget(newName, b);
-        render();
-        toast('Renamed trip to ' + newName);
-      }
+      showInputModal({
+        title: 'Rename trip',
+        fields: [{ value: cur }],
+        confirmText: 'Rename',
+        onConfirm: function (v) {
+          var newName = v[0];
+          if (!newName || newName === cur) return;
+          saveTripToList(newName);
+          if (getActiveTripName() === cur) setActiveTripName(newName);
+          setSelectedViewTripName(newName);
+          // Carry over the friends list and budget
+          setTripFriends(newName, getTripFriends(cur));
+          var b = getTripBudget(cur);
+          if (b > 0) setTripBudget(newName, b);
+          render();
+          toast('Renamed trip to ' + newName);
+        }
+      });
     });
   }
 
@@ -2509,12 +2576,17 @@
         toast('Select or create a trip first!');
         return;
       }
-      var name = window.prompt('Enter friend\'s name to add to ' + viewTrip + ' (e.g. Rohit, Amit, Priya):', '');
-      if (name && name.trim()) {
-        addTripFriend(viewTrip, name.trim());
-        render();
-        toast('Added ' + name.trim() + ' to ' + viewTrip);
-      }
+      showInputModal({
+        title: '👥 Add friend to ' + viewTrip,
+        fields: [{ placeholder: 'e.g. Rohit' }],
+        confirmText: 'Add',
+        onConfirm: function (v) {
+          if (!v[0]) return;
+          addTripFriend(viewTrip, v[0]);
+          render();
+          toast('Added ' + v[0] + ' to ' + viewTrip);
+        }
+      });
     });
   }
 
@@ -2573,12 +2645,20 @@
   var yourDetailsBtn = $('your-details-btn');
   if (yourDetailsBtn) {
     yourDetailsBtn.addEventListener('click', function () {
-      var owner = window.prompt('Your full name and UPI IDs, comma separated (e.g. Sanjeev Yadav, sanjeev@okhdfcbank).\nPayments to these count as transfers between your own accounts, not spending.', kv.get('kharcha_owner_identity') || '');
-      if (owner !== null) kv.set('kharcha_owner_identity', owner.trim());
-      var upi = window.prompt('Your UPI ID for settle-up requests (friends and family pay you here):', kv.get('kharcha_my_upi') || '');
-      if (upi !== null) kv.set('kharcha_my_upi', upi.trim());
-      render();
-      toast('Saved your details');
+      showInputModal({
+        title: '⚙️ Your details',
+        message: 'Payments to your own name or UPI IDs count as transfers between your accounts, not spending. Your UPI ID goes on settle-up requests.',
+        fields: [
+          { label: 'Your full name and UPI IDs (comma separated)', value: kv.get('kharcha_owner_identity') || '', placeholder: 'e.g. Sanjeev Yadav, sanjeev@okhdfcbank' },
+          { label: 'UPI ID for receiving money', value: kv.get('kharcha_my_upi') || '', placeholder: 'e.g. sanjeev@okhdfcbank', inputmode: 'email' }
+        ],
+        onConfirm: function (v) {
+          kv.set('kharcha_owner_identity', v[0]);
+          kv.set('kharcha_my_upi', v[1]);
+          render();
+          toast('Saved your details');
+        }
+      });
     });
   }
 
@@ -2603,15 +2683,21 @@
       toast('Trip Mode active: ' + viewTrip);
       offerTripBackfill(viewTrip);
     } else {
-      var next = window.prompt('Enter trip / event name (e.g. Manali Trip, Goa, Dubai):', 'Manali Trip');
-      if (next && next.trim()) {
-        saveTripToList(next.trim());
-        setActiveTripName(next.trim());
-        setSelectedViewTripName(next.trim());
-        render();
-        toast('Trip Mode active: ' + next.trim());
-        offerTripBackfill(next.trim());
-      }
+      showInputModal({
+        title: '✈️ Start a trip',
+        fields: [{ placeholder: 'e.g. Goa 2026, Manali Trip' }],
+        confirmText: 'Start trip',
+        onConfirm: function (v) {
+          var name = v[0];
+          if (!name) return;
+          saveTripToList(name);
+          setActiveTripName(name);
+          setSelectedViewTripName(name);
+          render();
+          toast('Trip Mode active: ' + name);
+          offerTripBackfill(name);
+        }
+      });
     }
   }
 
@@ -3665,7 +3751,7 @@
     updateBtn.addEventListener('click', function () {
       showConfirmModal({
         title: '🔄 Force Clear Cache & Reload',
-        message: 'Clear cached app data and reload to the latest v37?',
+        message: 'Clear cached app data and reload to the latest v38?',
         confirmText: 'Clear & Reload',
         onConfirm: function () {
           if ('caches' in window) {
