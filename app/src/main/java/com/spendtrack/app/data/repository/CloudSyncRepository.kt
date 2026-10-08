@@ -54,6 +54,19 @@ class CloudSyncRepository(
 
         syncMutex.withLock {
             var token = accessToken
+
+            // Rows that turned out to be transfers or were fully refunded: remove them by ref.
+            for (gone in transactionDao.getPendingCloudDeletes()) {
+                val ref = gone.upiReference ?: gone.bankReference
+                if (ref.isNullOrBlank()) { transactionDao.markCloudDeleted(gone.id); continue }
+                var del = withContext(Dispatchers.IO) { syncClient.deleteByRef(token, ref) }
+                if (del.isFailure && isUnauthorized(del.exceptionOrNull())) {
+                    token = refreshAccessToken() ?: return
+                    del = withContext(Dispatchers.IO) { syncClient.deleteByRef(token, ref) }
+                }
+                if (del.isSuccess) transactionDao.markCloudDeleted(gone.id)
+            }
+
             val pending = transactionDao.getUnsyncedExpenses()
             if (pending.isEmpty()) {
                 // Nothing left to send, so any earlier error is no longer current.
@@ -62,6 +75,13 @@ class CloudSyncRepository(
             }
 
             for (transaction in pending) {
+                // An auto-detected income the user already typed in by hand (e.g. "💼 Salary 1")
+                // stays on the phone, so the money is never counted twice.
+                if (transaction.transactionType == com.spendtrack.app.core.model.TransactionType.INCOME &&
+                    isAlreadyLoggedByHand(token, transaction)) {
+                    transactionDao.markSynced(transaction.id)
+                    continue
+                }
                 var result = withContext(Dispatchers.IO) { syncClient.upsertExpense(token, transaction) }
 
                 if (result.isFailure && isUnauthorized(result.exceptionOrNull())) {
@@ -121,6 +141,30 @@ class CloudSyncRepository(
             result = withContext(Dispatchers.IO) { call(fresh) }
         }
         return result
+    }
+
+    private suspend fun isAlreadyLoggedByHand(token: String, income: com.spendtrack.app.data.database.entity.TransactionEntity): Boolean {
+        val window = 3L * 24 * 3600 * 1000
+        val rows = withContext(Dispatchers.IO) { syncClient.fetchRows(token, income.dateTime - window, income.dateTime + window) }.getOrNull()
+            ?: return false
+        return rows.any { r ->
+            r.refNo == null && Math.abs(r.amount - income.amount) < 0.01 && KharchaRules.isIncome(r.description, r.kind)
+        }
+    }
+
+    /** Signed-in access token, refreshed if needed; null when Cloud Sync is off or signed out. */
+    suspend fun freshToken(): String? {
+        if (!settingsManager.isCloudSyncEnabled.first()) return null
+        val token = settingsManager.cloudSyncAccessToken.first() ?: return null
+        val probe = withContext(Dispatchers.IO) { syncClient.fetchRows(token, 0L, 1L) }
+        if (probe.isFailure && isUnauthorized(probe.exceptionOrNull())) return refreshAccessToken()
+        return token
+    }
+
+    /** The user's Kharcha Book rows in [from, to), for automations (budgets, summaries, settle-up). */
+    suspend fun fetchCloudRows(from: Long, to: Long): List<SupabaseSyncClient.CloudRow>? {
+        val token = freshToken() ?: return null
+        return withContext(Dispatchers.IO) { syncClient.fetchRows(token, from, to) }.getOrNull()
     }
 
     private suspend fun refreshAccessToken(): String? {

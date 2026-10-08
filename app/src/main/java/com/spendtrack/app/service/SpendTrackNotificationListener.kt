@@ -83,6 +83,17 @@ class SpendTrackNotificationListener : NotificationListenerService() {
 
                 if (!isMonitored) return@launch
 
+                // Credit card statement / bill payment: remember the due date, or mark it paid.
+                // (A statement is never an expense; a bill payment is a transfer, handled by the parser.)
+                val cardText = listOfNotNull(title, fullText).joinToString(" ")
+                com.spendtrack.app.core.parser.CardBillParser.parseStatement(cardText)?.let {
+                    com.spendtrack.app.core.automation.AutomationRunner.onCardStatement(it)
+                    return@launch
+                }
+                com.spendtrack.app.core.parser.CardBillParser.parsePayment(cardText)?.let {
+                    com.spendtrack.app.core.automation.AutomationRunner.onCardPayment(it)
+                }
+
                 val parsed = ServiceLocator.rulePackEngine.parse(
                     title = title,
                     text = fullText,
@@ -102,8 +113,12 @@ class SpendTrackNotificationListener : NotificationListenerService() {
                     is DeduplicationEngine.DeduplicationResult.NewTransaction -> {
                         val txn = result.transaction
                         when {
-                            // Own-account transfer: not spending, nothing to ask or announce.
+                            // Own-account transfer / matched refund: nothing to ask or announce.
                             txn.isExcluded -> Unit
+                            txn.transactionType == com.spendtrack.app.core.model.TransactionType.INCOME ->
+                                com.spendtrack.app.core.automation.AutomationRunner.onIncomeLogged(applicationContext, txn)
+                            // ATM cash: goes to the cash wallet; the evening nudge asks what it was spent on.
+                            txn.transactionType == com.spendtrack.app.core.model.TransactionType.CASH_WITHDRAWAL -> Unit
                             txn.needsReview -> {
                                 // Ask right away, then keep reminding until answered.
                                 val activeTrip = ServiceLocator.settingsManager.activeTripNameFlow.first()
@@ -121,9 +136,19 @@ class SpendTrackNotificationListener : NotificationListenerService() {
                         // updates the same row); see TransactionDao.getUnsyncedExpenses.
                         runCatching { com.spendtrack.app.widget.KharchaWidget.refresh(applicationContext) }
                         ServiceLocator.cloudSyncRepository.syncPending()
+                        if (txn.transactionType == com.spendtrack.app.core.model.TransactionType.EXPENSE && !txn.isExcluded) {
+                            runCatching { com.spendtrack.app.core.automation.AutomationRunner.checkBudgets(applicationContext) }
+                        }
                     }
                     is DeduplicationEngine.DeduplicationResult.MergedWithExisting -> {
                         // Second copy of a payment we already have (e.g. Truecaller + Messages): no new prompt.
+                        // If the merge revealed a transfer between own accounts, its pending prompt goes away.
+                        val merged = result.updatedTransaction
+                        if (merged.transactionType == com.spendtrack.app.core.model.TransactionType.INTERNAL_TRANSFER) {
+                            NudgeScheduler.cancel(applicationContext, merged.id)
+                            ExpensePromptNotifier.dismiss(applicationContext, merged.id)
+                            ServiceLocator.cloudSyncRepository.syncPending()
+                        }
                     }
                 }
             } catch (e: Exception) {

@@ -175,7 +175,7 @@ fun KharchaWebViewScreen(
 
                     @JavascriptInterface
                     fun reportSummary(json: String?) {
-                        if (json.isNullOrBlank() || json.length > 4000) return
+                        if (json.isNullOrBlank() || json.length > 20000) return // summary + recurring bills list
                         main.post { if (fromKharcha()) summary(json) }
                     }
                 }, "KharchaNative")

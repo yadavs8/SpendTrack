@@ -12,6 +12,8 @@ class SpendTrackApp : Application() {
     override fun onCreate() {
         super.onCreate()
         ServiceLocator.init(this)
+        // Morning/evening automations (bills, settle-up, cash, weekly summary, budgets).
+        runCatching { com.spendtrack.app.core.automation.AutomationWorker.schedule(this) }
 
         // Pre-heat database to initialize default categories
         CoroutineScope(Dispatchers.IO).launch {

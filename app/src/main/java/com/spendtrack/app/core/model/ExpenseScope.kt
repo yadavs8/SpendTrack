@@ -66,9 +66,14 @@ object ExpenseScope {
      */
     fun isSelfPayment(merchantName: String?, merchantVpa: String?, rawText: String?, owners: List<String> = emptyList()): Boolean {
         if (SELF_TRANSFER_PHRASES.containsMatchIn(rawText ?: "")) return true
+        return isFromPeople(merchantName, merchantVpa, owners)
+    }
+
+    /** The payer/payee is one of [people] (full names or exact UPI IDs; same rules as owners). */
+    fun isFromPeople(merchantName: String?, merchantVpa: String?, people: List<String>): Boolean {
         val payee = (merchantName ?: "").lowercase().replace(Regex("\\s+"), " ").trim()
         val vpa = (merchantVpa ?: "").lowercase().trim()
-        return owners.map { it.lowercase().replace(Regex("\\s+"), " ").trim() }.any { owner ->
+        return people.map { it.lowercase().replace(Regex("\\s+"), " ").trim() }.any { owner ->
             when {
                 owner.contains('@') -> vpa.isNotBlank() && vpa == owner
                 owner.split(' ').size < 2 -> false

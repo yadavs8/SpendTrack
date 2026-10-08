@@ -1,6 +1,7 @@
 package com.spendtrack.app.core.deduplication
 
 import com.spendtrack.app.core.model.ParsedTransaction
+import com.spendtrack.app.core.model.TransactionType
 import com.spendtrack.app.data.database.dao.TransactionDao
 import com.spendtrack.app.data.database.entity.TransactionEntity
 import kotlin.math.abs
@@ -60,9 +61,32 @@ class DeduplicationEngine(
             // Comprehensive merge conditions:
             // 1. Exact UPI reference / UTR match
             // 2. Same amount within 5 min for same merchant with no conflicting ref or account (catches repeated notification updates, PhonePe/GPay updates, and SMS)
+            // Money in and money out are never the same event unless the bank ref says so (the
+            // two legs of a self-transfer share one ref -- merging those is exactly right).
+            val sameDirection = isIncoming(candidate.transactionType) == isIncoming(parsed.transactionType)
             val shouldMerge = isExactRefMatch || (
-                isSameAmount && isWithinWindow && isMerchantMatch && !hasConflictingRef && !hasConflictingAccount
+                sameDirection && isSameAmount && isWithinWindow && isMerchantMatch && !hasConflictingRef && !hasConflictingAccount
             )
+
+            // A refund can quote the original payment's ref; it is matched to that expense later, not merged.
+            if (isExactRefMatch && !sameDirection &&
+                (parsed.transactionType == TransactionType.REFUND || candidate.transactionType == TransactionType.REFUND)) continue
+
+            // Same ref going out *and* coming in on this phone = both legs of a transfer between the
+            // user's own accounts. Not spending, not income.
+            if (isExactRefMatch && !sameDirection) {
+                val transfer = candidate.copy(
+                    transactionType = TransactionType.INTERNAL_TRANSFER,
+                    isExcluded = true,
+                    needsReview = false,
+                    needsCloudDelete = candidate.needsCloudDelete || candidate.syncedToCloud,
+                    syncedToCloud = false,
+                    rawNotificationText = candidate.rawNotificationText ?: parsed.rawText,
+                    updatedAt = System.currentTimeMillis()
+                )
+                transactionDao.updateTransaction(transfer)
+                return DeduplicationResult.MergedWithExisting(transfer)
+            }
 
             if (shouldMerge) {
                 val bestMerchant = when {
@@ -76,6 +100,7 @@ class DeduplicationEngine(
                     upiReference = candidate.upiReference ?: parsed.upiReference,
                     bankReference = candidate.bankReference ?: parsed.bankReference,
                     accountLast4 = candidate.accountLast4 ?: parsed.accountLast4,
+                    bankName = candidate.bankName ?: parsed.bankName,
                     merchantVpa = candidate.merchantVpa ?: parsed.merchantVpa,
                     rawNotificationText = candidate.rawNotificationText ?: parsed.rawText,
                     source = if (candidate.source != parsed.source) "${candidate.source}+${parsed.source}" else candidate.source,
@@ -94,10 +119,13 @@ class DeduplicationEngine(
         // Flag for user review instead of silently merging or silently ignoring!
         val hasRecentIdenticalAmount = candidates.any {
             it.amount == parsed.amount && abs(it.dateTime - parsed.dateTime) <= (2 * 60 * 1000L) &&
-                    (parsed.upiReference.isNullOrBlank() || it.upiReference.isNullOrBlank())
+                    (parsed.upiReference.isNullOrBlank() || it.upiReference.isNullOrBlank()) &&
+                    isIncoming(it.transactionType) == isIncoming(parsed.transactionType)
         }
 
-        val needsReview = (parsed.confidenceScore < 0.90f) || hasRecentIdenticalAmount
+        // Only spends ask "where should this go?"; income, withdrawals and transfers are filed by rule.
+        val needsReview = parsed.transactionType == TransactionType.EXPENSE &&
+                ((parsed.confidenceScore < 0.90f) || hasRecentIdenticalAmount)
 
         val newEntity = TransactionEntity(
             amount = parsed.amount,
@@ -112,13 +140,18 @@ class DeduplicationEngine(
             upiReference = parsed.upiReference,
             bankReference = parsed.bankReference,
             accountLast4 = parsed.accountLast4,
+            bankName = parsed.bankName,
             source = parsed.source,
             sourcePackage = parsed.sourcePackage,
             rawNotificationText = parsed.rawText,
             confidenceScore = parsed.confidenceScore,
             isManuallyAdded = false,
             needsReview = needsReview,
-            isExcluded = !parsed.transactionType.isExpense,
+            // Income and cash withdrawals are kept (they have their own views); transfers never count,
+            // and a refund counts only through the expense it reduces.
+            isExcluded = parsed.transactionType == TransactionType.INTERNAL_TRANSFER ||
+                    parsed.transactionType == TransactionType.REFUND ||
+                    parsed.transactionType == TransactionType.UNKNOWN,
             createdAt = System.currentTimeMillis(),
             updatedAt = System.currentTimeMillis()
         )
@@ -126,6 +159,9 @@ class DeduplicationEngine(
         transactionDao.insertTransaction(newEntity)
         return DeduplicationResult.NewTransaction(newEntity)
     }
+
+    private fun isIncoming(type: TransactionType): Boolean =
+        type == TransactionType.INCOME || type == TransactionType.REFUND
 
     private fun isExactMerchantMatch(merchantA: String?, merchantB: String?): Boolean {
         if (merchantA.isNullOrBlank() || merchantB.isNullOrBlank()) return false

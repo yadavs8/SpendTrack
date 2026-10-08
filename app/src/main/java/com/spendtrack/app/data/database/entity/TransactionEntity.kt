@@ -45,6 +45,12 @@ data class TransactionEntity(
     val isRefunded: Boolean = false,
     val refundedAmount: Double = 0.0,
     val syncedToCloud: Boolean = false,
+    /** Issuing bank of the card / account ("HDFC", "ICICI"...), for the per-card breakdown. */
+    val bankName: String? = null,
+    /** REFUND: the expense it was matched to. EXPENSE: unused. */
+    val linkedTransactionId: String? = null,
+    /** Was pushed to Kharcha Book but no longer belongs there (became a transfer / fully refunded). */
+    val needsCloudDelete: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )

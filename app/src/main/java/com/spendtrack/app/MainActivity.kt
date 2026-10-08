@@ -251,6 +251,10 @@ fun MainApp(onWebViewAttached: (WebView?) -> Unit = {}) {
                     scope.launch {
                         ServiceLocator.settingsManager.saveWebSummary(json)
                         com.spendtrack.app.widget.KharchaWidget.refresh(appContext)
+                        // Recurring bills the web detected -> phone reminders before they're due.
+                        runCatching {
+                            com.spendtrack.app.core.automation.AutomationRunner.onWebBills(org.json.JSONObject(json).optJSONArray("bills"))
+                        }
                     }
                 },
                 modifier = Modifier.statusBarsPadding()

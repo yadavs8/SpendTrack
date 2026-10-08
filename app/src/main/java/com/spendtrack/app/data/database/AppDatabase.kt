@@ -30,7 +30,7 @@ import kotlinx.coroutines.launch
         UserAccountEntity::class,
         TemplateRuleEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -54,7 +54,7 @@ abstract class AppDatabase : RoomDatabase() {
                     "spendtrack_database"
                 )
                     .addCallback(DatabaseCallback())
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .fallbackToDestructiveMigration(false)
                     .build()
                 INSTANCE = instance
@@ -171,6 +171,15 @@ abstract class AppDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE merchant_rules ADD COLUMN scopeConfirmations INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("UPDATE merchant_rules SET scopeConfirmations = 1 WHERE scope IS NOT NULL")
+            }
+        }
+
+        // Card/account bank, and the refund -> original expense link.
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE transactions ADD COLUMN bankName TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE transactions ADD COLUMN linkedTransactionId TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE transactions ADD COLUMN needsCloudDelete INTEGER NOT NULL DEFAULT 0")
             }
         }
 

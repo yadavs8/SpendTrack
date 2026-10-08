@@ -256,6 +256,9 @@ fun SettingsScreen(
                 }
             }
 
+            // 1.2b Automations (income, budgets, bills, cash, settle-up, weekly)
+            item { AutomationsCard() }
+
             // 1.25 Active Trip / Event Mode
             item {
                 Card(
