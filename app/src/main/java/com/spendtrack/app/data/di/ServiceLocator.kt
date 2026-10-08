@@ -47,7 +47,8 @@ object ServiceLocator {
             categoryEngine = categoryEngine,
             deduplicationEngine = deduplicationEngine,
             merchantRuleRepository = merchantRuleRepository,
-            settingsManager = settingsManager
+            settingsManager = settingsManager,
+            userAccountDao = database.userAccountDao()
         )
     }
 

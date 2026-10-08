@@ -44,7 +44,15 @@ class SmsReceiver : BroadcastReceiver() {
                 val isSmsEnabled = ServiceLocator.settingsManager.isSmsDetectionEnabled.first()
                 if (!isSmsEnabled) return@launch
 
-                val parsed = TransactionParser.parse(
+                com.spendtrack.app.core.parser.CardBillParser.parseStatement(fullText)?.let {
+                    com.spendtrack.app.core.automation.AutomationRunner.onCardStatement(it)
+                    return@launch
+                }
+                com.spendtrack.app.core.parser.CardBillParser.parsePayment(fullText)?.let {
+                    com.spendtrack.app.core.automation.AutomationRunner.onCardPayment(it)
+                }
+
+                val parsed = TransactionParser.parseAny(
                     title = sender,
                     text = fullText,
                     sourcePackage = null,
@@ -55,12 +63,22 @@ class SmsReceiver : BroadcastReceiver() {
                 val result = ServiceLocator.transactionRepository.ingestTransaction(parsed)
                 if (result is DeduplicationEngine.DeduplicationResult.NewTransaction) {
                     val txn = result.transaction
-                    if (txn.needsReview) {
+                    if (txn.transactionType == com.spendtrack.app.core.model.TransactionType.INCOME && !txn.isExcluded) {
+                        com.spendtrack.app.core.automation.AutomationRunner.onIncomeLogged(context.applicationContext, txn)
+                    } else if (txn.needsReview) {
                         val activeTrip = ServiceLocator.settingsManager.activeTripNameFlow.first()
                         ExpensePromptNotifier.show(context.applicationContext, txn, activeTrip)
                         NudgeScheduler.scheduleFirst(context.applicationContext, txn.id)
                     }
                     runCatching { com.spendtrack.app.widget.KharchaWidget.refresh(context.applicationContext) }
+                    ServiceLocator.cloudSyncRepository.syncPending()
+                    if (txn.transactionType == com.spendtrack.app.core.model.TransactionType.EXPENSE && !txn.isExcluded) {
+                        runCatching { com.spendtrack.app.core.automation.AutomationRunner.checkBudgets(context.applicationContext) }
+                    }
+                } else if (result is DeduplicationEngine.DeduplicationResult.MergedWithExisting &&
+                    result.updatedTransaction.transactionType == com.spendtrack.app.core.model.TransactionType.INTERNAL_TRANSFER) {
+                    NudgeScheduler.cancel(context.applicationContext, result.updatedTransaction.id)
+                    ExpensePromptNotifier.dismiss(context.applicationContext, result.updatedTransaction.id)
                     ServiceLocator.cloudSyncRepository.syncPending()
                 }
             } catch (e: Exception) {

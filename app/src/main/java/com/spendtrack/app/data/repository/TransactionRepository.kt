@@ -3,6 +3,7 @@ package com.spendtrack.app.data.repository
 import com.spendtrack.app.core.categorizer.CategoryEngine
 import com.spendtrack.app.core.deduplication.DeduplicationEngine
 import com.spendtrack.app.core.model.ExpenseScope
+import com.spendtrack.app.core.model.MoneyLabels
 import com.spendtrack.app.core.model.ParsedTransaction
 import com.spendtrack.app.core.model.PaymentMethod
 import com.spendtrack.app.core.model.TransactionType
@@ -25,7 +26,8 @@ class TransactionRepository(
     private val categoryEngine: CategoryEngine,
     private val deduplicationEngine: DeduplicationEngine,
     private val merchantRuleRepository: MerchantRuleRepository,
-    private val settingsManager: SettingsManager? = null
+    private val settingsManager: SettingsManager? = null,
+    private val userAccountDao: com.spendtrack.app.data.database.dao.UserAccountDao? = null
 ) {
 
     companion object {
@@ -109,12 +111,27 @@ class TransactionRepository(
             categoryId = categoryResult.categoryId
         )
 
-        if (result !is DeduplicationEngine.DeduplicationResult.NewTransaction ||
-            result.transaction.isExcluded ||
-            result.transaction.transactionType != TransactionType.EXPENSE
-        ) return@withLock result
+        if (result !is DeduplicationEngine.DeduplicationResult.NewTransaction) return@withLock result
 
-        val txn = result.transaction
+        when (result.transaction.transactionType) {
+            TransactionType.INCOME -> return@withLock DeduplicationEngine.DeduplicationResult.NewTransaction(fileIncome(result.transaction, parsed.incomeKind))
+            TransactionType.REFUND -> return@withLock DeduplicationEngine.DeduplicationResult.NewTransaction(fileRefund(result.transaction))
+            TransactionType.CASH_WITHDRAWAL -> {
+                val w = result.transaction.copy(
+                    description = MoneyLabels.cashWithdrawal(result.transaction.bankName),
+                    isEdited = true,
+                    needsReview = false,
+                    updatedAt = System.currentTimeMillis()
+                )
+                transactionDao.updateTransaction(w)
+                return@withLock DeduplicationEngine.DeduplicationResult.NewTransaction(w)
+            }
+            TransactionType.EXPENSE -> Unit
+            else -> return@withLock result
+        }
+        if (result.transaction.isExcluded) return@withLock result
+
+        val txn = applyRegisteredCard(result.transaction)
         val now = System.currentTimeMillis()
         // Already flagged by dedup (low-confidence parse, or a same-amount payment moments ago):
         // that needs a human look, never an automatic filing.
@@ -151,6 +168,131 @@ class TransactionRepository(
         }
         transactionDao.updateTransaction(updated)
         DeduplicationEngine.DeduplicationResult.NewTransaction(updated)
+    }
+
+    /** Undo an automatically logged income: excluded locally, and removed from Kharcha Book by ref. */
+    suspend fun undoAutoIncome(transactionId: String) {
+        val txn = transactionDao.getTransactionById(transactionId) ?: return
+        if (txn.transactionType != TransactionType.INCOME) return
+        val hasRef = !txn.upiReference.isNullOrBlank() || !txn.bankReference.isNullOrBlank()
+        transactionDao.updateTransaction(
+            txn.copy(
+                isExcluded = true,
+                needsCloudDelete = txn.syncedToCloud && hasRef,
+                syncedToCloud = if (hasRef) false else txn.syncedToCloud,
+                updatedAt = System.currentTimeMillis()
+            )
+        )
+    }
+
+    /**
+     * A card the user registered in Settings → Accounts is classified by what they said it is
+     * (credit / debit), whatever the SMS wording suggested.
+     */
+    private suspend fun applyRegisteredCard(txn: TransactionEntity): TransactionEntity {
+        val last4 = txn.accountLast4?.takeIf { it.length >= 3 } ?: return txn
+        if (txn.paymentMethod != PaymentMethod.CREDIT_CARD && txn.paymentMethod != PaymentMethod.DEBIT_CARD) return txn
+        val account = runCatching { userAccountDao?.findAccountByLast4(last4) }.getOrNull() ?: return txn
+        val method = when (account.accountType) {
+            com.spendtrack.app.data.database.entity.AccountType.CREDIT_CARD -> PaymentMethod.CREDIT_CARD
+            com.spendtrack.app.data.database.entity.AccountType.SAVINGS,
+            com.spendtrack.app.data.database.entity.AccountType.CURRENT -> PaymentMethod.DEBIT_CARD
+            else -> return txn
+        }
+        if (method == txn.paymentMethod && txn.bankName != null) return txn
+        val fixed = txn.copy(paymentMethod = method, bankName = txn.bankName ?: account.bankName)
+        transactionDao.updateTransaction(fixed)
+        return fixed
+    }
+
+    /**
+     * Money in: own-account transfers are dropped (both legs of a self-transfer already cancel out
+     * by ref in the duplicate check; this catches the rest by the owner's names). Credits from the
+     * people set as family payers are Maa's reimbursements; everything else is labelled by kind.
+     */
+    private suspend fun fileIncome(txn: TransactionEntity, kind: String?): TransactionEntity {
+        val now = System.currentTimeMillis()
+        val raw = txn.rawNotificationText ?: txn.description
+        val owners = ExpenseScope.parseOwners(runCatching { settingsManager?.ownerIdentityFlow?.first() }.getOrNull())
+        val autoIncome = runCatching { settingsManager?.automationFlow(SettingsManager.KEY_AUTO_INCOME)?.first() }.getOrNull() ?: true
+        val updated = if (!autoIncome || ExpenseScope.isSelfPayment(txn.merchantName, txn.merchantVpa, raw, owners)) {
+            txn.copy(
+                transactionType = if (autoIncome) TransactionType.INTERNAL_TRANSFER else TransactionType.INCOME,
+                isExcluded = true,
+                needsReview = false,
+                updatedAt = now
+            )
+        } else {
+            val family = ExpenseScope.parseOwners(runCatching { settingsManager?.familyPayersFlow?.first() }.getOrNull())
+            val fromFamily = ExpenseScope.isFromPeople(txn.merchantName, txn.merchantVpa, family)
+            txn.copy(
+                description = MoneyLabels.income(kind, txn.merchantName, txn.bankName, fromFamily),
+                categoryId = "cat_financial",
+                isEdited = true,
+                needsReview = false,
+                updatedAt = now
+            )
+        }
+        transactionDao.updateTransaction(updated)
+        return updated
+    }
+
+    /**
+     * Money back for an earlier spend. Matched to that expense (by the payment's ref quoted in the
+     * refund, else by merchant name and an amount it could cover, within 90 days) and the expense
+     * is reduced -- so totals show what was really spent. If nothing matches (e.g. the purchase
+     * happened before the app was installed), it is logged as income instead, so the money is
+     * still accounted for.
+     */
+    private suspend fun fileRefund(refund: TransactionEntity): TransactionEntity {
+        val now = System.currentTimeMillis()
+        val raw = (refund.rawNotificationText ?: refund.description ?: "").lowercase()
+        val byRef = listOfNotNull(refund.upiReference, refund.bankReference).firstNotNullOfOrNull { transactionDao.findExpenseByRef(it) }
+        val original = byRef?.takeIf { it.amount - it.refundedAmount >= refund.amount - 0.005 } ?: run {
+            val candidates = transactionDao.findRefundCandidates(refund.amount, refund.dateTime - 90L * 24 * 3600 * 1000, refund.dateTime)
+            candidates.firstOrNull { c ->
+                val name = c.merchantName?.lowercase()?.trim().orEmpty()
+                val core = name.split(' ').firstOrNull { it.length >= 4 }
+                (name.length >= 3 && raw.contains(name)) || (core != null && raw.contains(core)) ||
+                    (!c.merchantVpa.isNullOrBlank() && raw.contains(c.merchantVpa.lowercase())) ||
+                    (!refund.merchantName.isNullOrBlank() && name.isNotBlank() &&
+                        refund.merchantName.lowercase().let { it.contains(name) || name.contains(it) })
+            }
+        }
+
+        if (original != null) {
+            val hasRef = !original.upiReference.isNullOrBlank() || !original.bankReference.isNullOrBlank()
+            // Kharcha Book can only be corrected through the ref; an already-pushed expense without
+            // one can't be updated there, so log the refund as income instead (keeps totals honest).
+            if (hasRef || !original.syncedToCloud) {
+                val refunded = (original.refundedAmount + refund.amount).coerceAtMost(original.amount)
+                val fully = original.amount - refunded < 0.005
+                val updatedOriginal = original.copy(
+                    refundedAmount = refunded,
+                    isRefunded = true,
+                    // Fully refunded: remove it from Kharcha Book; partly: re-push the reduced amount.
+                    needsCloudDelete = fully && original.syncedToCloud,
+                    isExcluded = fully,
+                    syncedToCloud = false,
+                    updatedAt = now
+                )
+                transactionDao.updateTransaction(updatedOriginal)
+                val linked = refund.copy(linkedTransactionId = original.id, isExcluded = true, needsReview = false, updatedAt = now)
+                transactionDao.updateTransaction(linked)
+                return linked
+            }
+        }
+
+        val asIncome = refund.copy(
+            transactionType = TransactionType.INCOME,
+            description = MoneyLabels.unmatchedRefund(refund.merchantName),
+            isExcluded = false,
+            isEdited = true,
+            needsReview = false,
+            updatedAt = now
+        )
+        transactionDao.updateTransaction(asIncome)
+        return asIncome
     }
 
     /**

@@ -1654,3 +1654,20 @@ button.cat-row { width: 100%; text-align: left; background: none; border: 0; pad
 .modal-field-label { font-size: 0.68rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
 .modal-input .input { width: 100%; font-size: 1rem; }
 .modal-input .modal-foot { display: flex; justify-content: flex-end; gap: 10px; }
+
+/* ---------- Payment methods & cash wallet (v43) ---------- */
+.row .d .method-badge { display: block; margin-top: 2px; font-size: 0.7rem; font-weight: 500; color: var(--muted); letter-spacing: 0.01em; }
+.method-select { height: 44px; }
+.cat-fill.method-credit_card { background: #8B5CF6; }
+.cat-fill.method-debit_card { background: #0EA5E9; }
+.cat-fill.method-upi { background: #10B981; }
+.cat-fill.method-cash { background: #F59E0B; }
+.cat-fill.method-netbanking { background: #64748B; }
+.cat-fill.method-wallet { background: #EC4899; }
+.cat-fill.method-unknown { background: var(--line); }
+.cw-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 0; }
+.cw-stats div { min-width: 0; }
+.cw-stats dt { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.cw-stats dd { margin: 2px 0 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+.cw-note { margin: 8px 0 0; font-size: 0.8rem; color: var(--muted); line-height: 1.4; }
+.cash-wallet .csv-btn { margin-top: 10px; }

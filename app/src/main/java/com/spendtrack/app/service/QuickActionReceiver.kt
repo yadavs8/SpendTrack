@@ -22,6 +22,7 @@ class QuickActionReceiver : BroadcastReceiver() {
         const val ACTION_SET_SCOPE = "com.spendtrack.app.ACTION_SET_SCOPE"
         const val ACTION_NOTIFICATION_DISMISSED = "com.spendtrack.app.ACTION_NOTIFICATION_DISMISSED"
         const val ACTION_REPROMPT_NUDGE = "com.spendtrack.app.ACTION_REPROMPT_NUDGE"
+        const val ACTION_NOT_INCOME = "com.spendtrack.app.ACTION_NOT_INCOME"
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -64,6 +65,13 @@ class QuickActionReceiver : BroadcastReceiver() {
                         )
                         NudgeScheduler.cancel(appContext, transactionId)
                         ExpensePromptNotifier.dismiss(appContext, transactionId)
+                        ServiceLocator.cloudSyncRepository.syncPending()
+                    }
+                    ACTION_NOT_INCOME -> {
+                        // "That wasn't income" (e.g. money back from a friend for a shared bill):
+                        // drop it here and, if it already reached Kharcha Book, remove it there by ref.
+                        repo.undoAutoIncome(transactionId)
+                        com.spendtrack.app.core.automation.AutomationNotifier.cancel(appContext, 0x7B50 + (transactionId.hashCode() and 0xFF))
                         ServiceLocator.cloudSyncRepository.syncPending()
                     }
                     ACTION_ADD_NOTE -> {

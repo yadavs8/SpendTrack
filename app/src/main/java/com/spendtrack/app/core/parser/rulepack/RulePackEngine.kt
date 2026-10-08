@@ -53,9 +53,9 @@ class RulePackEngine(
         // GPay/PhonePe/Paytm rule's own regex has no way to tell a request from a completed debit.
         if (TransactionParser.isNotYetCompleted(fullText)) return null
 
-        // From an SMS app, only bank-shaped debit messages (not chats that mention "paid").
+        // From an SMS app, only bank-shaped debit or credit messages (not chats that mention "paid").
         if (sourcePackage != null && sourcePackage in TransactionParser.MESSAGING_PACKAGES &&
-            !TransactionParser.looksLikeBankSms(fullText)) return null
+            !TransactionParser.looksLikeBankSms(fullText) && !TransactionParser.looksLikeBankCreditSms(fullText)) return null
 
         val senderOrPkg = sourcePackage ?: title ?: ""
 
@@ -113,12 +113,18 @@ class RulePackEngine(
                 val vpa = if (rule.vpaGroup != null) match.groupValues.getOrNull(rule.vpaGroup) else null
 
                 if (amount != null && amount > 0) {
+                    // Card rules can't tell credit from debit card by regex alone; the classifier can.
+                    val instrument = com.spendtrack.app.core.parser.PaymentInstrumentClassifier.classify(text ?: fullText, title, sourcePackage)
+                    val method = if (rule.paymentMethod == PaymentMethod.CREDIT_CARD || rule.paymentMethod == PaymentMethod.DEBIT_CARD) {
+                        instrument.method.takeIf { it == PaymentMethod.CREDIT_CARD || it == PaymentMethod.DEBIT_CARD } ?: rule.paymentMethod
+                    } else rule.paymentMethod
                     return ParsedTransaction(
                         amount = amount,
                         currency = "INR",
                         merchantRaw = merchant,
                         merchantVpa = vpa,
-                        paymentMethod = rule.paymentMethod,
+                        bankName = instrument.bank,
+                        paymentMethod = method,
                         transactionType = rule.transactionType,
                         upiReference = ref,
                         bankReference = ref,
@@ -133,8 +139,8 @@ class RulePackEngine(
             }
         }
 
-        // 3. Fallback to heuristic parser
-        return TransactionParser.parse(
+        // 3. Fallback to heuristic parser (debits first, then income credits)
+        return TransactionParser.parseAny(
             title = title,
             text = text,
             sourcePackage = sourcePackage,

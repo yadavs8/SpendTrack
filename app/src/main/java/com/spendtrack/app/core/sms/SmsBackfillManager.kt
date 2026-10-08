@@ -70,11 +70,20 @@ object SmsBackfillManager {
                     if (body.isBlank()) continue
 
                     // Fast filter: only examine bank-like messages
-                    if (!TransactionParser.looksLikeBankSms(body) && !isBankSender(address)) {
+                    if (!TransactionParser.looksLikeBankSms(body) && !TransactionParser.looksLikeBankCreditSms(body) && !isBankSender(address)) {
                         continue
                     }
 
-                    val parsed = TransactionParser.parse(
+                    val statement = com.spendtrack.app.core.parser.CardBillParser.parseStatement(body)
+                    if (statement != null) {
+                        com.spendtrack.app.core.automation.AutomationRunner.onCardStatement(statement)
+                        continue
+                    }
+                    com.spendtrack.app.core.parser.CardBillParser.parsePayment(body)?.let {
+                        com.spendtrack.app.core.automation.AutomationRunner.onCardPayment(it)
+                    }
+
+                        val parsed = TransactionParser.parseAny(
                         title = address,
                         text = body,
                         sourcePackage = null,

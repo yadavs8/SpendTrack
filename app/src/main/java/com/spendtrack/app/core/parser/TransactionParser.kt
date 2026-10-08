@@ -103,11 +103,18 @@ object TransactionParser {
         "com.truecaller"
     )
     // Only bank-shaped messages are taken from SMS apps, so a friend's "I paid Rs 500" text is never logged.
+    // An account/card reference plus a bank verb: debits, card use, and (for income) credits.
     private val BANK_SMS_SHAPE_REGEX = Regex(
-        """(?i)(?:a/c|acct|account|card)[\s\S]*\b(?:debited|spent|withdrawn)\b|\b(?:debited|spent|withdrawn)\b[\s\S]*(?:a/c|acct|account|card)"""
+        """(?i)(?:a/c|acct|account|card)[\s\S]*\b(?:debited|spent|withdrawn|used|purchase|txn)\b|\b(?:debited|spent|withdrawn|used|purchase|txn)\b[\s\S]*(?:a/c|acct|account|card)"""
+    )
+    private val BANK_CREDIT_SHAPE_REGEX = Regex(
+        """(?i)(?:a/c|acct|account)[\s\S]*\b(?:credited|deposited)\b|\b(?:credited|deposited)\b[\s\S]*(?:a/c|acct|account)"""
     )
 
     fun looksLikeBankSms(text: String): Boolean = BANK_SMS_SHAPE_REGEX.containsMatchIn(text)
+
+    /** A bank credit alert ("A/c XX12 credited with ..."), the only shape income is taken from an SMS app. */
+    fun looksLikeBankCreditSms(text: String): Boolean = BANK_CREDIT_SHAPE_REGEX.containsMatchIn(text)
 
     /** True for ads, offers and OTPs that mention an amount but are not transactions. */
     fun isNonTransaction(text: String): Boolean = NON_TRANSACTION_REGEX.containsMatchIn(text)
@@ -216,20 +223,16 @@ object TransactionParser {
         // 10. Extract Account last 4 digits
         val accountLast4 = ACCOUNT_LAST4_REGEX.find(fullContent)?.groupValues?.get(1)
 
-        // 11. Determine Payment Method
-        val paymentMethod = when {
-            vpa != null || lowerContent.contains("upi") || (sourcePackage != null && MONITORED_UPI_PACKAGES.contains(sourcePackage)) -> PaymentMethod.UPI
-            lowerContent.contains("debit card") -> PaymentMethod.DEBIT_CARD
-            lowerContent.contains("credit card") -> PaymentMethod.CREDIT_CARD
-            lowerContent.contains("cash") -> PaymentMethod.CASH
-            lowerContent.contains("neft") || lowerContent.contains("rtgs") || lowerContent.contains("imps") -> PaymentMethod.BANK_TRANSFER
-            else -> PaymentMethod.UPI
-        }
+        // 11. How it was paid: credit card / debit card / UPI / ATM / net banking / wallet
+        val instrument = PaymentInstrumentClassifier.classify(text ?: fullContent, title, sourcePackage)
+        val paymentMethod = instrument.method
 
         // 12. Determine Transaction Type
         val txnType = when {
             isInternalTransfer -> TransactionType.INTERNAL_TRANSFER
             isRefund -> TransactionType.REFUND
+            // ATM cash: money moves into the cash wallet; the cash spends logged later are the spending.
+            paymentMethod == PaymentMethod.ATM -> TransactionType.CASH_WITHDRAWAL
             else -> TransactionType.EXPENSE
         }
 
@@ -244,13 +247,14 @@ object TransactionParser {
         return ParsedTransaction(
             amount = amount,
             currency = "INR",
-            merchantRaw = merchantRaw,
+            merchantRaw = if (txnType == TransactionType.CASH_WITHDRAWAL) "ATM cash" else merchantRaw,
             merchantVpa = vpa,
             paymentMethod = paymentMethod,
             transactionType = txnType,
             upiReference = upiRef,
             bankReference = upiRef,
-            accountLast4 = accountLast4,
+            accountLast4 = instrument.last4 ?: accountLast4,
+            bankName = instrument.bank,
             dateTime = timestamp,
             source = if (sourcePackage != null) "NOTIFICATION" else "SMS",
             sourcePackage = sourcePackage,
@@ -258,6 +262,16 @@ object TransactionParser {
             confidenceScore = confidence
         )
     }
+
+    /** Bank / UPI reference (UTR, RRN, "UPI:6644...", "Ref no ...") or null. */
+    fun extractReference(text: String): String? = UPI_REF_REGEX.find(text)?.groupValues?.get(1)
+
+    /**
+     * One entry point for SMS and notifications: a debit/refund/transfer/withdrawal first, and only
+     * if that finds nothing, an income credit.
+     */
+    fun parseAny(title: String?, text: String?, sourcePackage: String? = null, timestamp: Long = System.currentTimeMillis()): ParsedTransaction? =
+        parse(title, text, sourcePackage, timestamp) ?: IncomeParser.parse(title, text, sourcePackage, timestamp)
 
     private val BALANCE_BEFORE_REGEX = Regex("""(?i)\b(?:avl|avail(?:able)?|bal|balance|limit|outstanding|due)\b[^0-9]{0,12}$""")
 

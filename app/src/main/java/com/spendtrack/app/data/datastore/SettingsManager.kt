@@ -45,6 +45,23 @@ class SettingsManager(private val context: Context) {
         const val SHARED_ACTIVE_TRIP = "kharcha_active_trip_name"
         const val SHARED_ALL_TRIPS = "kharcha_all_trips_list"
         const val SHARED_OWNER_IDENTITY = "kharcha_owner_identity"
+        // Names / UPI IDs whose credits are family reimbursements ("👵 Withdrawn from Mother").
+        const val SHARED_FAMILY_PAYERS = "kharcha_family_payers"
+        const val SHARED_MONTHLY_BUDGET = "kharcha_monthly_budget"
+        const val SHARED_CATEGORY_BUDGETS = "kharcha_category_budgets"
+        const val SHARED_MY_UPI = "kharcha_my_upi"
+
+        // Automations: one switch each, all on by default.
+        val KEY_AUTO_INCOME = booleanPreferencesKey("auto_income")
+        val KEY_BUDGET_ALERTS = booleanPreferencesKey("budget_alerts")
+        val KEY_CASH_NUDGE = booleanPreferencesKey("cash_nudge")
+        val KEY_BILL_REMINDERS = booleanPreferencesKey("bill_reminders")
+        val KEY_SETTLE_NUDGE = booleanPreferencesKey("settle_nudge")
+        val KEY_WEEKLY_SUMMARY = booleanPreferencesKey("weekly_summary")
+        // Bookkeeping so each alert fires once: JSON of {"2026-10|🛒 Grocery|80": true, ...}
+        val KEY_ALERTS_SENT = stringPreferencesKey("alerts_sent_json")
+        // Bills the app is reminding about: JSON array (card statements from SMS + bills the web reported)
+        val KEY_BILLS_JSON = stringPreferencesKey("bills_json")
 
         // Last month summary the web page reported (JSON) -- what the home-screen widget shows.
         val KEY_WEB_SUMMARY = stringPreferencesKey("web_month_summary")
@@ -83,6 +100,45 @@ class SettingsManager(private val context: Context) {
     /** The user's own full name(s) and UPI ID(s), used to recognise self-transfers. */
     val ownerIdentityFlow: Flow<String> = context.dataStore.data.map { prefs ->
         parseJson(prefs[KEY_SHARED_SETTINGS_JSON]).optStringOrNull(SHARED_OWNER_IDENTITY) ?: ""
+    }
+
+    val familyPayersFlow: Flow<String> = context.dataStore.data.map { prefs ->
+        parseJson(prefs[KEY_SHARED_SETTINGS_JSON]).optStringOrNull(SHARED_FAMILY_PAYERS) ?: ""
+    }
+
+    /** A shared (web-edited) string value, e.g. "kharcha_monthly_budget". */
+    fun sharedValueFlow(key: String): Flow<String?> = context.dataStore.data.map { prefs ->
+        parseJson(prefs[KEY_SHARED_SETTINGS_JSON]).optStringOrNull(key)
+    }
+
+    fun automationFlow(key: androidx.datastore.preferences.core.Preferences.Key<Boolean>): Flow<Boolean> =
+        context.dataStore.data.map { prefs -> prefs[key] ?: true }
+
+    suspend fun setAutomation(key: androidx.datastore.preferences.core.Preferences.Key<Boolean>, enabled: Boolean) {
+        context.dataStore.edit { it[key] = enabled }
+    }
+
+    /** True the first time it's asked for [alertKey]; records it so the same alert never repeats. */
+    suspend fun claimAlert(alertKey: String): Boolean {
+        var claimed = false
+        context.dataStore.edit { prefs ->
+            val sent = parseJson(prefs[KEY_ALERTS_SENT])
+            if (!sent.has(alertKey)) {
+                sent.put(alertKey, System.currentTimeMillis())
+                // Keep the record small: drop entries older than ~60 days.
+                val cutoff = System.currentTimeMillis() - 60L * 24 * 3600 * 1000
+                sent.keys().asSequence().toList().forEach { k -> if (sent.optLong(k) < cutoff) sent.remove(k) }
+                prefs[KEY_ALERTS_SENT] = sent.toString()
+                claimed = true
+            }
+        }
+        return claimed
+    }
+
+    val billsJsonFlow: Flow<String> = context.dataStore.data.map { prefs -> prefs[KEY_BILLS_JSON] ?: "[]" }
+
+    suspend fun saveBillsJson(json: String) {
+        context.dataStore.edit { it[KEY_BILLS_JSON] = json }
     }
 
     /** Applies a change to the shared document and returns the new version (to push to Supabase). */
@@ -228,6 +284,9 @@ class SettingsManager(private val context: Context) {
 
     suspend fun setOwnerIdentity(value: String): JSONObject =
         updateShared { it.put(SHARED_OWNER_IDENTITY, value.trim()) }
+
+    suspend fun setFamilyPayers(value: String): JSONObject =
+        updateShared { it.put(SHARED_FAMILY_PAYERS, value.trim()) }
 
     suspend fun clearCloudSyncSession() {
         context.dataStore.edit { prefs ->

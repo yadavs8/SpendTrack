@@ -44,6 +44,9 @@
 
   function isIncome(e) {
     if (!e || !e.desc) return false;
+    // Rows from the phone carry an explicit kind (v5 column); typed-in rows are read from the text.
+    if (e.kind === 'income') return true;
+    if (e.kind === 'expense' || e.kind === 'cash_withdrawal' || e.kind === 'transfer') return false;
     var d = e.desc.trim().toLowerCase();
     // Expenses tagged with 🏠, 👤, 🔨 (project spends), or 📈 (investments) are not income
     if (d.startsWith('🏠') || d.startsWith('👤') || d.includes('🔨') || d.includes('📈')) return false;
@@ -85,8 +88,67 @@
     return d.includes('📈') || d.startsWith('investment') || d.includes('mutual fund') || d.includes('fixed deposit') || INVESTMENT_WORDS.test(d);
   }
 
+  // ATM / cash withdrawal synced from the phone ("💵 Cash withdrawn · HDFC ATM"): the money moved
+  // into your cash wallet. It's counted as "Unaccounted cash" until you log what it was spent on,
+  // so the month total is the same either way and cash is never counted twice.
+  function isCashWithdrawal(e) {
+    if (!e) return false;
+    if (e.kind === 'cash_withdrawal') return true;
+    return !!e.desc && e.desc.trim().indexOf('💵 Cash withdrawn') === 0;
+  }
+  function isCashSpend(e) { return !!e && e.method === 'cash' && isExpense(e); }
+
   function isExpense(e) {
-    return !isIncome(e) && !isInvestment(e);
+    return !isIncome(e) && !isInvestment(e) && !isCashWithdrawal(e) && !(e && e.kind === 'transfer');
+  }
+
+  /* ---------- Cash wallet ---------- */
+  function cashSummary(entries, key) {
+    var list = (entries || []).filter(function (e) { return !key || monthKey(e.ts) === key; });
+    var withdrawn = sumRupees(list.filter(isCashWithdrawal));
+    var spent = sumRupees(list.filter(isCashSpend));
+    var unaccounted = Math.max(0, Math.round((withdrawn - spent) * 100) / 100);
+    return { withdrawn: withdrawn, spent: spent, unaccounted: unaccounted };
+  }
+  // The "💵 Unaccounted cash" line that keeps month totals right (not a stored row; never editable).
+  function unaccountedCashEntry(entries, key) {
+    var c = cashSummary(entries, key);
+    if (c.unaccounted <= 0) return null;
+    var p = key.split('-');
+    return { id: 'cash-unaccounted-' + key, synthetic: true, amount: c.unaccounted, desc: '💵 Unaccounted cash', ts: new Date(+p[0], +p[1], 0, 12).getTime(), method: 'cash' };
+  }
+
+  /* ---------- Payment methods ---------- */
+  var METHOD_LABELS = { upi: 'UPI', credit_card: 'Credit card', debit_card: 'Debit card', cash: 'Cash', netbanking: 'Net banking', atm: 'ATM', wallet: 'Wallet', other: 'Other' };
+  var METHOD_ICONS = { upi: '📲', credit_card: '💳', debit_card: '🏦', cash: '💵', netbanking: '🏛️', atm: '🏧', wallet: '👛', other: '•' };
+  function methodLabel(e) {
+    if (!e || !e.method) return '';
+    var base = METHOD_LABELS[e.method] || e.method;
+    if ((e.method === 'credit_card' || e.method === 'debit_card') && (e.bank || e.last4)) {
+      return (e.bank ? e.bank + ' ' : '') + base + (e.last4 ? ' ··' + e.last4 : '');
+    }
+    return base + (e.method === 'upi' && e.bank ? ' · ' + e.bank : '');
+  }
+  // This month's spending split by how it was paid; each credit/debit card listed on its own.
+  function methodBreakdown(list) {
+    var groups = {}, total = 0;
+    (list || []).forEach(function (e) {
+      if (!isExpense(e) && !e.synthetic) return;
+      var m = e.method || 'unknown';
+      var key = m, label = m === 'unknown' ? 'Not set' : (METHOD_LABELS[m] || m);
+      if ((m === 'credit_card' || m === 'debit_card') && (e.last4 || e.bank)) {
+        key = m + '|' + (e.bank || '') + '|' + (e.last4 || '');
+        label = (e.bank ? e.bank + ' ' : '') + METHOD_LABELS[m] + (e.last4 ? ' ··' + e.last4 : '');
+      }
+      if (!groups[key]) groups[key] = { key: key, method: m, label: label, p: 0, count: 0 };
+      groups[key].p += paise(e.amount);
+      groups[key].count++;
+      total += paise(e.amount);
+    });
+    return Object.keys(groups).map(function (k) {
+      var g = groups[k];
+      return { key: g.key, method: g.method, label: g.label, icon: METHOD_ICONS[g.method] || '❔', total: g.p / 100, count: g.count, pct: total ? Math.round(g.p * 100 / total) : 0 };
+    }).sort(function (a, b) { return b.total - a.total; });
   }
 
   function isProjectEntry(desc) {
@@ -196,6 +258,8 @@
   // Projected month-end spend = spent so far + bills still due + the daily pace of everything else.
   function monthForecast(entries, curMonthKey, now) {
     var monthList = (entries || []).filter(function (e) { return monthKey(e.ts) === curMonthKey && isExpense(e); });
+    var cashLine = unaccountedCashEntry(entries, curMonthKey);
+    if (cashLine) monthList.push(cashLine);
     var spent = sumRupees(monthList);
     var bills = recurringBills(entries, curMonthKey).filter(function (b) { return b.isExpense; });
     var due = bills.filter(function (b) { return !b.paidThisMonth; });
@@ -401,7 +465,8 @@
     var list = monthEntries || [];
     var salaries = list.filter(function (e) { return isSalary(e); }).reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
     var personalExpenses = list.filter(function (e) { return isExpense(e) && !isFamilyEntry(e.desc); });
-    var personalSpent = personalExpenses.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
+    // ATM cash not yet itemised is still money spent (see isCashWithdrawal).
+    var personalSpent = (personalExpenses.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) + paise(cashSummary(list).unaccounted)) / 100;
     var investments = list.filter(isInvestment);
     var totalInvested = investments.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
     var personalSavings = (salaries * 100 - personalSpent * 100) / 100;
@@ -443,10 +508,20 @@
       if (!map.has(k)) map.set(k, { key: k, items: [] });
       map.get(k).items.push(e);
     });
+    // ATM cash not yet itemised still counts in its month (see isCashWithdrawal).
+    (entries || []).filter(isCashWithdrawal).forEach(function (e) {
+      var k = monthKey(e.ts);
+      if (!map.has(k)) map.set(k, { key: k, items: [] });
+    });
+    map.forEach(function (m) {
+      var cash = unaccountedCashEntry(entries, m.key);
+      if (cash) m.items.push(cash);
+    });
     return Array.from(map.values())
       .map(function (m) {
         var top = byDescription(m.items)[0];
-        return { key: m.key, total: sumRupees(m.items), count: m.items.length, top: top ? top.label : '', topTotal: top ? top.total : 0 };
+        var count = m.items.filter(function (e) { return !e.synthetic; }).length;
+        return { key: m.key, total: sumRupees(m.items), count: count, top: top ? top.label : '', topTotal: top ? top.total : 0 };
       })
       .sort(function (a, b) { return a.key < b.key ? 1 : -1; });
   }
@@ -710,12 +785,14 @@
 
     entries.forEach(function (e) {
       var desc = e.desc || '';
-      var clean = desc.replace(/^[🏠👤]\s*/, '').trim();
+      // Whole emoji only: a /[🏠👤]/ class without the u flag also ate half of 💵 💊 💳 💰.
+      var clean = desc.replace(/^(?:🏠|👤)\s*/u, '').trim();
       var firstSymbol = Array.from(clean)[0] || '💳';
       var categoryName = clean;
 
       var lower = clean.toLowerCase();
-      if (clean.includes('🛒') || lower.includes('grocery') || lower.includes('supermarket') || lower.includes('dmart') || lower.includes('zepto') || lower.includes('blinkit') || lower.includes('instamart') || lower.includes('bigbasket')) categoryName = '🛒 Grocery';
+      if (clean.indexOf('💵 Unaccounted cash') === 0) categoryName = '💵 Unaccounted cash';
+      else if (clean.includes('🛒') || lower.includes('grocery') || lower.includes('supermarket') || lower.includes('dmart') || lower.includes('zepto') || lower.includes('blinkit') || lower.includes('instamart') || lower.includes('bigbasket')) categoryName = '🛒 Grocery';
       else if (clean.includes('🥦') || lower.includes('vegetable') || lower.includes('sabzi') || lower.includes('fruits')) categoryName = '🥦 Vegetables';
       else if (clean.includes('🥛') || lower.includes('milk') || lower.includes('doodh') || lower.includes('dairy') || lower.includes('paneer') || lower.includes('curd')) categoryName = '🥛 Milk & Dairy';
       else if (clean.includes('⚡') || lower.includes('electricity') || lower.includes('power') || lower.includes('bescom') || lower.includes('light bill')) categoryName = '⚡ Electricity Bill';
@@ -780,15 +857,26 @@
     getEntryScope: getEntryScope, shiftScopeDesc: shiftScopeDesc,
     rememberMerchantScope: rememberMerchantScope, predictMerchantScope: predictMerchantScope,
     recentSpendsForTrip: recentSpendsForTrip, recurringBills: recurringBills, monthForecast: monthForecast,
-    upiPayLink: upiPayLink, settleMessage: settleMessage, whatsappLink: whatsappLink
+    upiPayLink: upiPayLink, settleMessage: settleMessage, whatsappLink: whatsappLink,
+    isCashWithdrawal: isCashWithdrawal, cashSummary: cashSummary, unaccountedCashEntry: unaccountedCashEntry,
+    methodBreakdown: methodBreakdown, methodLabel: methodLabel
   };
 
   var TABLE = 'daily_expenses';
   var COLS = 'id, amount, description, spent_at';
   // ref_no / raw_sms come from supabase/daily_expenses_v2_sms.sql. Until that migration runs, the app falls back to COLS.
   var COLS_EXT = COLS + ', ref_no, raw_sms';
-  var hasExtCols = true;
-  function selectCols() { return hasExtCols ? COLS_EXT : COLS; }
+  // kind / method / account_last4 / bank come from supabase/kharcha_v5_money_types.sql.
+  var COLS_V5 = COLS_EXT + ', kind, method, account_last4, bank';
+  var hasExtCols = true;   // v2 columns present
+  var hasV5Cols = true;    // v5 columns present
+  function selectCols() { return hasV5Cols ? COLS_V5 : (hasExtCols ? COLS_EXT : COLS); }
+  // A missing column drops one tier (v5 -> v2 -> basic) and the caller retries.
+  function downgradeCols() {
+    if (hasV5Cols) { hasV5Cols = false; return true; }
+    if (hasExtCols) { hasExtCols = false; return true; }
+    return false;
+  }
   function isMissingColumn(err) {
     return err && (err.code === '42703' || err.code === 'PGRST204' || /column .*(does not exist|not find)|could not find the '.*' column/i.test(err.message || ''));
   }
@@ -820,7 +908,7 @@
      localStorage stays as the offline cache, and is all there is until the v4 SQL has been run. */
   var SHARED_KEYS = ['kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
     'kharcha_active_trip_name', 'kharcha_all_trips_list', 'kharcha_category_budgets', 'kharcha_merchant_memory',
-    'kharcha_owner_identity', 'kharcha_my_upi'];
+    'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers'];
   var SHARED_PREFIXES = ['kharcha_trip_friends_', 'kharcha_trip_budget_'];
   function isSharedKey(k) {
     return SHARED_KEYS.indexOf(k) >= 0 || SHARED_PREFIXES.some(function (p) { return k.indexOf(p) === 0; });
@@ -895,7 +983,10 @@
     return e && typeof e.amount === 'number' && isFinite(e.amount) && typeof e.ts === 'number' && !isNaN(e.ts) && typeof e.desc === 'string';
   }
   function fromRow(r) {
-    return { id: r.id, amount: Number(r.amount), desc: r.description, ts: Date.parse(r.spent_at), refNo: r.ref_no || null };
+    return {
+      id: r.id, amount: Number(r.amount), desc: r.description, ts: Date.parse(r.spent_at), refNo: r.ref_no || null,
+      kind: r.kind || null, method: r.method || null, last4: r.account_last4 || null, bank: r.bank || null
+    };
   }
 
   /* ---------- storage ---------- */
@@ -907,9 +998,9 @@
         var res = await sb.from(TABLE).select(selectCols())
           .order('spent_at', { ascending: false }).order('id').range(from, from + size - 1);
         console.log('Kharcha: query batch res error=' + (res.error ? JSON.stringify(res.error) : 'null') + ' dataCount=' + (res.data ? res.data.length : 'null'));
-        if (res.error && hasExtCols && isMissingColumn(res.error)) {
-          console.warn('Kharcha: missing ext cols, retrying with basic COLS');
-          hasExtCols = false; continue;
+        if (res.error && isMissingColumn(res.error) && downgradeCols()) {
+          console.warn('Kharcha: missing columns, retrying with ' + selectCols());
+          continue;
         }
         if (res.error) throw res.error;
         out = out.concat(res.data || []);
@@ -923,7 +1014,7 @@
     add: async function (e) {
       if (isDemoMode) {
         var cleanDesc = safeTruncate(e.desc, 50);
-        var mockEntry = { id: 'demo-' + Date.now(), amount: e.amount, desc: cleanDesc, ts: e.spent_at ? Date.parse(e.spent_at) : Date.now(), refNo: e.ref_no || null };
+        var mockEntry = { id: 'demo-' + Date.now(), amount: e.amount, desc: cleanDesc, ts: e.spent_at ? Date.parse(e.spent_at) : Date.now(), refNo: e.ref_no || null, method: e.method || null, kind: e.kind || null };
         state.entries.push(mockEntry);
         return;
       }
@@ -937,11 +1028,13 @@
       if (e.spent_at) payload.spent_at = e.spent_at;
       if (hasExtCols && e.ref_no) payload.ref_no = e.ref_no;
       if (hasExtCols && e.raw_sms) payload.raw_sms = safeTruncate(e.raw_sms, 500);
+      if (hasV5Cols && e.method) payload.method = e.method;
+      if (hasV5Cols && e.kind) payload.kind = e.kind;
       var res = await sb.from(TABLE).insert([payload]).select(selectCols()).single();
-      if (res.error && hasExtCols && isMissingColumn(res.error)) {
-        hasExtCols = false;
-        delete payload.ref_no; delete payload.raw_sms;
-        res = await sb.from(TABLE).insert([payload]).select(COLS).single();
+      while (res.error && isMissingColumn(res.error) && downgradeCols()) {
+        if (!hasV5Cols) { delete payload.method; delete payload.kind; }
+        if (!hasExtCols) { delete payload.ref_no; delete payload.raw_sms; }
+        res = await sb.from(TABLE).insert([payload]).select(selectCols()).single();
       }
       if (res.error && res.error.code === '23505') {
         throw new Error('Already added: this transaction (Ref ' + e.ref_no + ') is already in your Kharcha Book.');
@@ -956,7 +1049,12 @@
       var cleanDesc = safeTruncate(patch.desc, 50);
       var payload = { amount: patch.amount, description: cleanDesc };
       if (patch.spent_at) payload.spent_at = patch.spent_at;
+      if (hasV5Cols && patch.method !== undefined) payload.method = patch.method || null;
       var res = await sb.from(TABLE).update(payload).eq('id', id).select(selectCols()).single();
+      while (res.error && isMissingColumn(res.error) && downgradeCols()) {
+        if (!hasV5Cols) delete payload.method;
+        res = await sb.from(TABLE).update(payload).eq('id', id).select(selectCols()).single();
+      }
       if (res.error) {
         console.error('Supabase update error:', res.error);
         throw res.error;
@@ -1363,14 +1461,14 @@
   $('export-csv').addEventListener('click', function () {
     var list = visibleEntries(state.sel);
     if (!list.length) { toast('No expenses to export for this view.'); return; }
-    var csv = ['Date,Time,Category,Description,Amount (INR)'];
+    var csv = ['Date,Time,Category,Description,Amount (INR),Paid via'];
     list.sort(byTimeDesc).forEach(function (e) {
       var d = new Date(e.ts);
       var dateStr = dayKey(e.ts);
       var timeStr = tFmt.format(d);
       var catStr = isFamilyEntry(e.desc) ? 'Family/Bill' : 'Personal';
       var descStr = '"' + e.desc.replace(/"/g, '""') + '"';
-      csv.push(dateStr + ',' + timeStr + ',' + catStr + ',' + descStr + ',' + e.amount);
+      csv.push(dateStr + ',' + timeStr + ',' + catStr + ',' + descStr + ',' + e.amount + ',"' + methodLabel(e).replace(/"/g, '""') + '"');
     });
     var fileName = 'kharcha-' + state.scopeFilter + '-' + state.sel + '.csv';
     // Inside the SpendTrack app there are no browser downloads; hand the file to Android's share sheet.
@@ -1458,16 +1556,74 @@
     if (!bridge || !bridge.reportSummary) return;
     try {
       var fc = monthForecast(state.entries, nowKey, new Date());
+      // Recurring bills go to the phone, which reminds you a couple of days before each is due.
+      var bills = recurringBills(state.entries, nowKey).filter(function (b) { return b.isExpense; }).slice(0, 40)
+        .map(function (b) { return { key: b.key, label: b.label, amount: b.amount, day: b.day, paidThisMonth: b.paidThisMonth }; });
       bridge.reportSummary(JSON.stringify({
         month: monthLabel(nowKey),
         spentLabel: money(fc.spent),
-        projectedLabel: money(fc.projected)
+        projectedLabel: money(fc.projected),
+        bills: bills
       }));
     } catch (e) { /* widget is best-effort */ }
   }
   function dayOrdinal(d) {
     if (d % 100 >= 11 && d % 100 <= 13) return 'th';
     return ['th', 'st', 'nd', 'rd'][d % 10] || 'th';
+  }
+
+  // Adds the "💵 Unaccounted cash" line for the month, except when it can't belong to the view
+  // (Family tab, or a search for something specific).
+  function withCashLine(list, key) {
+    if (state.scopeFilter === 'family' || searchQuery) return list;
+    var line = unaccountedCashEntry(state.entries, key);
+    return line ? list.concat([line]) : list;
+  }
+
+  /* ---------- Cash wallet card ---------- */
+  function renderCashWallet(c) {
+    var card = $('cash-wallet');
+    if (!card) return;
+    card.hidden = !(c.withdrawn > 0 || c.spent > 0);
+    if (card.hidden) return;
+    $('cw-withdrawn').textContent = money(c.withdrawn);
+    $('cw-spent').textContent = money(c.spent);
+    $('cw-unaccounted').textContent = money(c.unaccounted);
+    $('cw-note').textContent = c.unaccounted > 0
+      ? money(c.unaccounted) + ' of cash isn\'t itemised yet. It\'s counted as "Unaccounted cash"; log cash spends to move it into real categories.'
+      : 'All withdrawn cash is itemised. 👍';
+  }
+
+  /* ---------- By payment method ---------- */
+  function renderMethodBreakdown(list) {
+    var sec = $('method-sec');
+    var box = $('method-breakdown');
+    if (!sec || !box) return;
+    var rows = methodBreakdown(list);
+    // Nothing to show until rows carry a method (phone-synced, or picked when adding).
+    var known = rows.filter(function (r) { return r.method !== 'unknown'; });
+    sec.hidden = !known.length;
+    box.textContent = '';
+    if (sec.hidden) return;
+    rows.forEach(function (r) {
+      var row = el('div', 'cat-row method-row');
+      var head = el('div', 'cat-row-head');
+      head.appendChild(el('span', null, r.icon + ' ' + r.label + ' (' + r.count + ')'));
+      head.appendChild(el('span', null, money(r.total) + ' · ' + r.pct + '%'));
+      var track = el('div', 'cat-track');
+      var fill = el('div', 'cat-fill method-' + r.method);
+      fill.style.width = Math.min(100, Math.max(2, r.pct)) + '%';
+      track.appendChild(fill);
+      row.appendChild(head);
+      row.appendChild(track);
+      box.appendChild(row);
+    });
+    var cc = rows.filter(function (r) { return r.method === 'credit_card'; }).reduce(function (s, r) { return s + r.total; }, 0);
+    var note = $('method-note');
+    if (note) {
+      note.hidden = !cc;
+      if (cc) note.textContent = '💳 ' + money(cc) + ' on credit cards this month: that lands on your card bill, not your bank balance yet.';
+    }
   }
 
   function render() {
@@ -1485,9 +1641,11 @@
     var list = visibleEntries(state.sel);
     var prevKey = prevMonthKey(state.sel);
     var prevList = visibleEntries(prevKey);
-    var cmp = monthCompare(list, prevList);
+    // Totals/breakdowns include ATM cash not yet itemised; the day list shows only real rows.
+    var totalsList = withCashLine(list, state.sel);
+    var cmp = monthCompare(totalsList, withCashLine(prevList, prevKey));
 
-    var displayTotal = sumRupees(list);
+    var displayTotal = sumRupees(totalsList);
     var days = groupByDay(list);
 
     $('mlabel').textContent = monthLabel(state.sel);
@@ -1501,7 +1659,7 @@
     }
     $('st-count').textContent = String(list.length);
     var top = days.slice().sort(function (a, b) { return b.total - a.total; })[0];
-    var byDesc = byDescription(list)[0];
+    var byDesc = byDescription(totalsList)[0];
     $('st-top').textContent = byDesc ? byDesc.label + ' · ' + money(byDesc.total) : '—';
     $('st-high').textContent = top ? money(top.total) + ' · ' + dFmt.format(new Date(top.ts)) : '—';
     $('prev').disabled = idx >= months.length - 1;
@@ -1524,8 +1682,12 @@
 
     renderBudget(cur.total);
     renderSuggestions();
-    renderCategoryBreakdown(list, cmp, prevKey);
-    renderBreakdown(list, displayTotal);
+    var paidViaField = $('paid-via-field');
+    if (paidViaField) paidViaField.hidden = !hasV5Cols;
+    renderCategoryBreakdown(totalsList, cmp, prevKey);
+    renderCashWallet(cashSummary(state.entries, state.sel));
+    renderMethodBreakdown(totalsList);
+    renderBreakdown(totalsList, displayTotal);
     renderDays(days);
     renderMonths(months);
 
@@ -1822,8 +1984,27 @@
       var spentVal = $('income-date') ? $('income-date').value : '';
       var spentAt = spentVal ? new Date(spentVal).toISOString() : null;
 
+      // The phone logs bank credits on its own now: don't count the same salary twice.
+      var at = spentAt ? Date.parse(spentAt) : Date.now();
+      var twin = state.entries.find(function (x) {
+        return isIncome(x) && paise(x.amount) === paise(amt) && Math.abs(x.ts - at) <= 3 * 86400000;
+      });
+      if (twin && !addIncomeForm.dataset.confirmedTwin) {
+        showConfirmModal({
+          title: 'Already logged?',
+          message: money(amt) + ' "' + twin.desc + '" is already in Incomings (' + dFmt.format(new Date(twin.ts)) + '), probably added automatically from your bank SMS. Add it again anyway?',
+          confirmText: 'Add anyway',
+          onConfirm: function () {
+            addIncomeForm.dataset.confirmedTwin = '1';
+            if (addIncomeForm.requestSubmit) addIncomeForm.requestSubmit(); else addIncomeForm.dispatchEvent(new Event('submit', { cancelable: true }));
+          }
+        });
+        return;
+      }
+      delete addIncomeForm.dataset.confirmedTwin;
+
       addIncomeBtn.disabled = true;
-      store.add({ amount: amt, desc: desc, spent_at: spentAt }).then(function () {
+      store.add({ amount: amt, desc: desc, spent_at: spentAt, kind: 'income' }).then(function () {
         incomeAmtInput.value = '';
         if ($('income-note')) $('income-note').value = '';
         if ($('income-date')) $('income-date').value = '';
@@ -2671,11 +2852,13 @@
         message: 'Payments to your own name or UPI IDs count as transfers between your accounts, not spending. Your UPI ID goes on settle-up requests.',
         fields: [
           { label: 'Your full name and UPI IDs (comma separated)', value: kv.get('kharcha_owner_identity') || '', placeholder: 'e.g. Sanjeev Yadav, sanjeev@okhdfcbank' },
-          { label: 'UPI ID for receiving money', value: kv.get('kharcha_my_upi') || '', placeholder: 'e.g. sanjeev@okhdfcbank', inputmode: 'email' }
+          { label: 'UPI ID for receiving money', value: kv.get('kharcha_my_upi') || '', placeholder: 'e.g. sanjeev@okhdfcbank', inputmode: 'email' },
+          { label: 'Family who reimburse you: names or UPI IDs (money from them settles family expenses)', value: kv.get('kharcha_family_payers') || '', placeholder: 'e.g. Mamta Kasyap, mamta@oksbi' }
         ],
         onConfirm: function (v) {
           kv.set('kharcha_owner_identity', v[0]);
           kv.set('kharcha_my_upi', v[1]);
+          if (v.length > 2) kv.set('kharcha_family_payers', v[2]);
           render();
           toast('Saved your details');
         }
@@ -3158,7 +3341,10 @@
     b.type = 'button';
     b.setAttribute('aria-label', 'Edit ' + e.desc + ', ' + money(e.amount));
     b.appendChild(el('span', 't', (showDate ? rowDateFmt : tFmt).format(new Date(e.ts))));
-    b.appendChild(el('span', 'd', e.desc));
+    var dSpan = el('span', 'd', e.desc);
+    var how = methodLabel(e);
+    if (how) dSpan.appendChild(el('small', 'method-badge method-' + e.method, (METHOD_ICONS[e.method] || '') + ' ' + how));
+    b.appendChild(dSpan);
     b.appendChild(el('span', 'a', money(e.amount)));
 
     // Actions revealed on swipe
@@ -3220,7 +3406,7 @@
         return;
       }
       state.editing = e.id;
-      state.draft = { amount: String(e.amount), desc: e.desc, spent_at: toLocalISOString(e.ts) };
+      state.draft = { amount: String(e.amount), desc: e.desc, spent_at: toLocalISOString(e.ts), method: e.method || '' };
       render();
       var f = $('edit-amt'); if (f) f.focus();
     });
@@ -3228,6 +3414,17 @@
     wrap.appendChild(actionsLeft);
     wrap.appendChild(b);
     return wrap;
+  }
+
+  function methodSelect(id, value) {
+    var s = el('select', 'input method-select'); s.id = id;
+    [['', '— not set —'], ['upi', '📲 UPI'], ['credit_card', '💳 Credit card'], ['debit_card', '🏦 Debit card'],
+      ['cash', '💵 Cash'], ['netbanking', '🏛️ Net banking'], ['wallet', '👛 Wallet']].forEach(function (o) {
+      var opt = el('option', null, o[1]); opt.value = o[0];
+      if (o[0] === value) opt.selected = true;
+      s.appendChild(opt);
+    });
+    return s;
   }
 
   function editRow(e) {
@@ -3251,6 +3448,14 @@
     dt.addEventListener('input', function () { state.draft.spent_at = dt.value; });
     f3.appendChild(l3); f3.appendChild(dt);
     row2.appendChild(f3);
+    // How it was paid (needs the v5 columns; hidden until they exist).
+    if (hasV5Cols) {
+      var f4 = el('div', 'field'), l4 = el('label', null, 'Paid via'); l4.htmlFor = 'edit-method';
+      var ms = methodSelect('edit-method', state.draft.method || '');
+      ms.addEventListener('change', function () { state.draft.method = ms.value; });
+      f4.appendChild(l4); f4.appendChild(ms);
+      row2.appendChild(f4);
+    }
 
     var msg = el('p', 'err'); msg.hidden = true; msg.setAttribute('role', 'alert');
 
@@ -3309,7 +3514,9 @@
       if (!desc) { msg.textContent = 'Add a short description, like Grocery.'; msg.hidden = false; return; }
       save.disabled = true;
       var newTs = state.draft.spent_at ? new Date(state.draft.spent_at).toISOString() : null;
-      store.update(e.id, { amount: amt, desc: desc, spent_at: newTs }).then(function () {
+      var patch = { amount: amt, desc: desc, spent_at: newTs };
+      if (hasV5Cols && (state.draft.method || '') !== (e.method || '')) patch.method = state.draft.method || null;
+      store.update(e.id, patch).then(function () {
         state.editing = null; render(); toast('Changes saved');
       }).catch(function () {
         save.disabled = false; msg.textContent = 'Could not save the change. Try again.'; msg.hidden = false;
@@ -3436,6 +3643,17 @@
     if (i >= 0 && i < keys.length) { state.sel = keys[i]; state.editing = null; render(); }
   }
 
+  // Cash wallet → "Log a cash spend": the add form, preset to Cash.
+  if ($('cw-log-btn')) {
+    $('cw-log-btn').addEventListener('click', function () {
+      if ($('paid-via')) $('paid-via').value = 'cash';
+      var form = $('add');
+      if (form && form.scrollIntoView) form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      $('amt').focus();
+      if (!hasV5Cols) toast('Run supabase/kharcha_v5_money_types.sql to mark spends as cash.');
+    });
+  }
+
   $('add').addEventListener('submit', function (ev) {
     ev.preventDefault();
     showErr('');
@@ -3453,7 +3671,8 @@
 
     var btn = $('addbtn');
     btn.disabled = true;
-    store.add({ amount: amt, desc: desc, spent_at: spentAt }).then(function () {
+    var paidVia = $('paid-via') ? $('paid-via').value : '';
+    store.add({ amount: amt, desc: desc, spent_at: spentAt, method: paidVia || null }).then(function () {
       $('amt').value = ''; $('desc').value = ''; $('spent-date').value = '';
       var ts = spentAt ? Date.parse(spentAt) : Date.now();
       state.sel = monthKey(ts);
