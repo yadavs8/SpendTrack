@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FlightTakeoff
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Science
@@ -82,6 +83,7 @@ fun SettingsScreen(
     var showAccountsDialog by remember { mutableStateOf(false) }
     var showOemHelpDialog by remember { mutableStateOf(false) }
     var showCloudSignInDialog by remember { mutableStateOf(false) }
+    var showTripDialog by remember { mutableStateOf(false) }
 
     val oemGuidance = remember { com.spendtrack.app.core.utils.OemBatteryHelper.getGuidance(context) }
 
@@ -219,6 +221,66 @@ fun SettingsScreen(
                                 checked = uiState.confirmationNotifs,
                                 onCheckedChange = { viewModel.toggleConfirmationNotifs(it) }
                             )
+                        }
+                    }
+                }
+            }
+
+            // 1.25 Active Trip / Event Mode
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (uiState.activeTripName != null) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surface
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.FlightTakeoff, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text("✈️ Trip / Event Mode", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        if (uiState.activeTripName != null) "Active: ${uiState.activeTripName}" else "Currently Inactive (Standard)",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (uiState.activeTripName != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                                    )
+                                }
+                            }
+                            Switch(
+                                checked = uiState.activeTripName != null,
+                                onCheckedChange = { isChecked ->
+                                    if (isChecked) {
+                                        showTripDialog = true
+                                    } else {
+                                        viewModel.setActiveTrip(null)
+                                        coroutineScope.launch {
+                                            snackbarHostState.showSnackbar("Trip mode closed. Resumed normal logging.")
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "While Trip Mode is active, all payments (cabs, food, flights, hotels) automatically log into your trip until you turn it off.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                        if (uiState.activeTripName != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = { showTripDialog = true },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Rename or Change Trip")
+                            }
                         }
                     }
                 }
@@ -685,6 +747,51 @@ fun SettingsScreen(
                 }
             }
         }
+    }
+
+    // Active Trip / Event Dialog
+    if (showTripDialog) {
+        var tripInput by remember { mutableStateOf(uiState.activeTripName ?: "Goa Trip") }
+        AlertDialog(
+            onDismissRequest = { showTripDialog = false },
+            title = { Text("✈️ Start Trip / Event") },
+            text = {
+                Column {
+                    Text(
+                        "Give this trip or event a name. All incoming transactions will automatically be tagged to it until you turn Trip Mode off.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = tripInput,
+                        onValueChange = { tripInput = it },
+                        label = { Text("Trip Name") },
+                        placeholder = { Text("e.g. Goa Trip, Manali, Offsite") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val name = tripInput.trim().ifBlank { "Trip" }
+                    viewModel.setActiveTrip(name)
+                    showTripDialog = false
+                    coroutineScope.launch {
+                        snackbarHostState.showSnackbar("✈️ Trip Mode active: $name")
+                    }
+                }) {
+                    Text("Start Trip")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTripDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 
     // Monthly Budget Dialog

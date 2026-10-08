@@ -6,6 +6,7 @@ import androidx.work.WorkerParameters
 import com.spendtrack.app.core.logger.SafeLogger
 import com.spendtrack.app.core.notification.ExpensePromptNotifier
 import com.spendtrack.app.data.di.ServiceLocator
+import kotlinx.coroutines.flow.first
 
 class NudgeWorker(
     context: Context,
@@ -26,7 +27,8 @@ class NudgeWorker(
         }
 
         SafeLogger.i("Re-prompting for uncategorized expense $transactionId (stage $stage)")
-        ExpensePromptNotifier.show(applicationContext, transaction)
+        val activeTrip = ServiceLocator.settingsManager.activeTripNameFlow.first()
+        ExpensePromptNotifier.show(applicationContext, transaction, activeTrip)
         NudgeScheduler.scheduleNext(applicationContext, transactionId, previousStage = stage)
 
         return Result.success()

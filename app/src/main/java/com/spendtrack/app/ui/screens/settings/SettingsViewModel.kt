@@ -29,7 +29,8 @@ data class SettingsUiState(
     val cloudSyncEmail: String? = null,
     val cloudSyncLastError: String? = null,
     val cloudSyncLastSuccessAt: Long? = null,
-    val isCloudSyncBusy: Boolean = false
+    val isCloudSyncBusy: Boolean = false,
+    val activeTripName: String? = null
 )
 
 class SettingsViewModel : ViewModel() {
@@ -63,7 +64,8 @@ class SettingsViewModel : ViewModel() {
                 settingsManager.isCloudSyncEnabled,
                 settingsManager.cloudSyncEmail,
                 settingsManager.cloudSyncLastError,
-                settingsManager.cloudSyncLastSuccessAt
+                settingsManager.cloudSyncLastSuccessAt,
+                settingsManager.activeTripNameFlow
             ) { values ->
                 @Suppress("UNCHECKED_CAST")
                 val apps = values[0] as Set<String>
@@ -81,6 +83,7 @@ class SettingsViewModel : ViewModel() {
                 val cloudSyncEmail = values[10] as String?
                 val cloudSyncLastError = values[11] as String?
                 val cloudSyncLastSuccessAt = values[12] as Long?
+                val activeTrip = values[13] as String?
 
                 SettingsUiState(
                     monitoredApps = apps,
@@ -96,7 +99,8 @@ class SettingsViewModel : ViewModel() {
                     cloudSyncEmail = cloudSyncEmail,
                     cloudSyncLastError = cloudSyncLastError,
                     cloudSyncLastSuccessAt = cloudSyncLastSuccessAt,
-                    isCloudSyncBusy = _uiState.value.isCloudSyncBusy
+                    isCloudSyncBusy = _uiState.value.isCloudSyncBusy,
+                    activeTripName = activeTrip
                 )
             }.collect { state ->
                 _uiState.value = state
@@ -174,6 +178,12 @@ class SettingsViewModel : ViewModel() {
     fun updateDailyLimit(amount: Double, enableAlert: Boolean) {
         viewModelScope.launch {
             settingsManager.setDailyLimit(amount, enableAlert)
+        }
+    }
+
+    fun setActiveTrip(tripName: String?) {
+        viewModelScope.launch {
+            settingsManager.setActiveTripName(tripName)
         }
     }
 

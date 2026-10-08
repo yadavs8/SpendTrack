@@ -46,7 +46,8 @@ object ServiceLocator {
             transactionDao = database.transactionDao(),
             categoryEngine = categoryEngine,
             deduplicationEngine = deduplicationEngine,
-            merchantRuleRepository = merchantRuleRepository
+            merchantRuleRepository = merchantRuleRepository,
+            settingsManager = settingsManager
         )
     }
 

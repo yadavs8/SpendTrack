@@ -56,7 +56,8 @@ class SmsReceiver : BroadcastReceiver() {
                 if (result is DeduplicationEngine.DeduplicationResult.NewTransaction) {
                     val txn = result.transaction
                     if (txn.needsReview) {
-                        ExpensePromptNotifier.show(context.applicationContext, txn)
+                        val activeTrip = ServiceLocator.settingsManager.activeTripNameFlow.first()
+                        ExpensePromptNotifier.show(context.applicationContext, txn, activeTrip)
                         NudgeScheduler.scheduleFirst(context.applicationContext, txn.id)
                     }
                     ServiceLocator.cloudSyncRepository.syncPending()

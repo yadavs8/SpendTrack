@@ -9,6 +9,7 @@ import com.spendtrack.app.core.nudge.NudgeScheduler
 import com.spendtrack.app.data.di.ServiceLocator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -48,16 +49,19 @@ class QuickActionReceiver : BroadcastReceiver() {
                         // AlarmManager re-prompt fired: re-display notification prompt if still unreviewed
                         val txn = ServiceLocator.transactionRepository.getTransactionById(transactionId)
                         if (txn != null && txn.needsReview && !txn.isExcluded) {
-                            ExpensePromptNotifier.show(appContext, txn)
+                            val activeTrip = ServiceLocator.settingsManager.activeTripNameFlow.first()
+                            ExpensePromptNotifier.show(appContext, txn, activeTrip)
                             NudgeScheduler.scheduleFirst(appContext, txn.id)
                         }
                         return@launch
                     }
                     ACTION_SET_SCOPE -> {
                         val scope = intent.getStringExtra(ExpensePromptNotifier.EXTRA_SCOPE) ?: ExpensePromptNotifier.SCOPE_PERSONAL
+                        val tripName = intent.getStringExtra(ExpensePromptNotifier.EXTRA_TRIP_NAME)
                         ServiceLocator.transactionRepository.resolveScope(
                             transactionId = transactionId,
-                            scope = scope
+                            scope = scope,
+                            tripName = tripName
                         )
                     }
                     ACTION_QUICK_CATEGORIZE -> {
@@ -88,9 +92,11 @@ class QuickActionReceiver : BroadcastReceiver() {
 
                 if (intent.action == ACTION_SET_SCOPE) {
                     val scope = intent.getStringExtra(ExpensePromptNotifier.EXTRA_SCOPE) ?: ExpensePromptNotifier.SCOPE_PERSONAL
+                    val tripName = intent.getStringExtra(ExpensePromptNotifier.EXTRA_TRIP_NAME)
                     val scopeLabel = when (scope) {
                         ExpensePromptNotifier.SCOPE_FAMILY -> "🏠 Family"
                         ExpensePromptNotifier.SCOPE_INVESTMENT -> "📈 Investment"
+                        ExpensePromptNotifier.SCOPE_TRIP -> "✈️ ${tripName ?: "Trip"}"
                         else -> "👤 Personal"
                     }
                     val confirmBuilder = androidx.core.app.NotificationCompat.Builder(appContext, "spendtrack_review_channel")

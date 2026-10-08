@@ -49,7 +49,7 @@ windowMock.window = windowMock;
 const code = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8');
 vm.runInNewContext(code, windowMock);
 
-const { parseAmount, normDesc, money, groupByDay, byDescription, monthTotals, toLocalISOString, isFamilyEntry, parseBankSMS, parseSMSDate, findDuplicate, categoryBreakdown, monthCompare, isIncome, isMotherSettlement, isMotherPension, isSalary, isExpense, isInvestment, getFamilySettlement, getPersonalCashFlow, isProjectEntry, isProjectMotherPaid, getProjectSummary, getEntryScope, shiftScopeDesc } = windowMock.__kharcha;
+const { parseAmount, normDesc, money, groupByDay, byDescription, monthTotals, toLocalISOString, isFamilyEntry, parseBankSMS, parseSMSDate, findDuplicate, categoryBreakdown, monthCompare, isIncome, isMotherSettlement, isMotherPension, isSalary, isExpense, isInvestment, getFamilySettlement, getPersonalCashFlow, isProjectEntry, isProjectMotherPaid, getProjectSummary, isTripEntry, getTripSummary, getEntryScope, shiftScopeDesc } = windowMock.__kharcha;
 
 let passed = 0;
 let failed = 0;
@@ -347,6 +347,36 @@ assert(shiftScopeDesc('🏠 Mutual Fund', 'investment') === '📈 Mutual Fund', 
 
 // Preserving raw description cleanly
 assert(shiftScopeDesc('', 'personal') === '👤 Expense', 'shiftScopeDesc falls back cleanly for empty desc');
+
+// 17. Trip / Event Mode Tracking (Option B Strict Manual Toggle & Tagging)
+assert(isTripEntry({ desc: '✈️ Goa Trip: Swiggy' }) === true, 'isTripEntry identifies ✈️ tag');
+assert(isTripEntry({ desc: '✈️ Flight to Mumbai' }) === true, 'isTripEntry identifies plane flight');
+assert(isTripEntry({ desc: 'Trip: Taxi to airport' }) === true, 'isTripEntry identifies trip: prefix');
+assert(isTripEntry('✈️ Goa Trip: Hotel') === true, 'isTripEntry accepts raw string');
+assert(isTripEntry({ desc: '🛒 Grocery' }) === false, 'isTripEntry rejects grocery');
+assert(isTripEntry({ desc: '🏠 ⚡ Electricity Bill' }) === false, 'isTripEntry rejects family bill');
+
+// getEntryScope with Trip
+assert(getEntryScope({ desc: '✈️ Goa Trip: Hotel' }) === 'trip', 'getEntryScope returns trip for trip entry');
+
+// Shifting to Trip
+assert(shiftScopeDesc('🛒 Dinner with Friends', 'trip', 'Goa Trip') === '✈️ Goa Trip: 🛒 Dinner with Friends', 'shiftScopeDesc shifts to named trip preserving item');
+assert(shiftScopeDesc('🏠 ⚡ Electricity Bill', 'trip', 'Goa Trip') === '✈️ Goa Trip: ⚡ Electricity Bill', 'shiftScopeDesc strips family tag when shifting to trip');
+assert(shiftScopeDesc('✈️ Goa Trip: Swiggy', 'personal') === '👤 Swiggy', 'shiftScopeDesc strips trip tag cleanly when moving back to personal');
+
+// Trip Summary
+const tripEntries = [
+  { id: 't1', amount: 4500, desc: '✈️ Goa Trip: Flight Indigo', ts: new Date('2026-11-20T10:00:00Z').getTime() },
+  { id: 't2', amount: 3200, desc: '✈️ Goa Trip: Hotel Resort', ts: new Date('2026-11-20T14:00:00Z').getTime() },
+  { id: 't3', amount: 1500, desc: '✈️ Goa Trip: Beach Dinner', ts: new Date('2026-11-21T20:00:00Z').getTime() },
+  { id: 'p1', amount: 500, desc: '🛒 Home Grocery', ts: new Date('2026-11-20T08:00:00Z').getTime() }
+];
+
+const goaSummary = getTripSummary(tripEntries, 'Goa Trip');
+assert(goaSummary.totalSpent === 9200, 'getTripSummary sums Goa trip spent: 4500 + 3200 + 1500 = 9200');
+assert(goaSummary.itemsCount === 3, 'getTripSummary counts 3 trip items (excludes grocery)');
+assert(goaSummary.daysCount === 2, 'getTripSummary counts 2 unique trip days');
+assert(goaSummary.dailyAvg === 4600, 'getTripSummary calculates daily average: 9200 / 2 = 4600');
 
 console.log(`\nResults: ${passed} passed, ${failed} failed.`);
 if (failed > 0) process.exit(1);

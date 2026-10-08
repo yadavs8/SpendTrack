@@ -34,6 +34,9 @@ class SettingsManager(private val context: Context) {
         val KEY_CLOUD_SYNC_LAST_ERROR = stringPreferencesKey("cloud_sync_last_error")
         val KEY_CLOUD_SYNC_LAST_SUCCESS_AT = stringPreferencesKey("cloud_sync_last_success_at")
 
+        // Active Trip / Event Mode: auto-logs all expenses into this trip until closed
+        val KEY_ACTIVE_TRIP_NAME = stringPreferencesKey("active_trip_name")
+
         val DEFAULT_MONITORED_APPS = setOf(
             "com.google.android.apps.nbu.paisa.user", // Google Pay
             "com.phonepe.app",                       // PhonePe
@@ -41,6 +44,10 @@ class SettingsManager(private val context: Context) {
             "in.org.npci.upiapp",                    // BHIM
             "com.dreamplug.androidapp"               // CRED
         )
+    }
+
+    val activeTripNameFlow: Flow<String?> = context.dataStore.data.map { prefs ->
+        prefs[KEY_ACTIVE_TRIP_NAME]?.takeIf { it.isNotBlank() }
     }
 
     val monitoredAppsFlow: Flow<Set<String>> = context.dataStore.data.map { prefs ->
@@ -128,6 +135,16 @@ class SettingsManager(private val context: Context) {
 
     suspend fun setCloudSyncLastSuccessAt(timestamp: Long) {
         context.dataStore.edit { it[KEY_CLOUD_SYNC_LAST_SUCCESS_AT] = timestamp.toString() }
+    }
+
+    suspend fun setActiveTripName(tripName: String?) {
+        context.dataStore.edit { prefs ->
+            if (tripName.isNullOrBlank()) {
+                prefs.remove(KEY_ACTIVE_TRIP_NAME)
+            } else {
+                prefs[KEY_ACTIVE_TRIP_NAME] = tripName.trim()
+            }
+        }
     }
 
     suspend fun clearCloudSyncSession() {

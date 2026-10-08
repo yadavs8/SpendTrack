@@ -98,7 +98,8 @@ class SpendTrackNotificationListener : NotificationListenerService() {
                         val txn = result.transaction
                         if (txn.needsReview) {
                             // Unclear what this was for -- ask right away, then keep nudging until answered.
-                            ExpensePromptNotifier.show(applicationContext, txn)
+                            val activeTrip = ServiceLocator.settingsManager.activeTripNameFlow.first()
+                            ExpensePromptNotifier.show(applicationContext, txn, activeTrip)
                             NudgeScheduler.scheduleFirst(applicationContext, txn.id)
                             // Lands in Kharcha Book now if it has a bank/UPI ref (answering later
                             // updates the same row); see TransactionDao.getUnsyncedExpenses.

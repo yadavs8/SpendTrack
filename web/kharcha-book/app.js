@@ -71,6 +71,12 @@
     return (d.includes('💼') || d.includes('salary')) && !isMotherSettlement(e) && !d.includes('maid');
   }
 
+  function isTripEntry(e) {
+    var desc = typeof e === 'string' ? e : (e && e.desc ? e.desc : '');
+    var d = desc.toLowerCase();
+    return d.includes('✈️') || d.startsWith('trip:') || d.includes('trip:');
+  }
+
   function isInvestment(e) {
     if (!e || !e.desc) return false;
     var d = e.desc.trim().toLowerCase();
@@ -102,6 +108,7 @@
 
   function getEntryScope(e) {
     if (!e || !e.desc) return 'personal';
+    if (isTripEntry(e)) return 'trip';
     if (isInvestment(e)) return 'investment';
     if (isFamilyEntry(e.desc)) return 'family';
     return 'personal';
@@ -109,16 +116,21 @@
 
   function cleanScopePrefix(desc) {
     if (!desc) return '';
-    // Strip leading scope tags (🏠, 👤, 📈, 🔨)
-    return desc.trim().replace(/^[\u{1F3E0}\u{1F464}\u{1F4C8}\u{1F528}]\s*/u, '').trim();
+    var s = desc.trim();
+    // Strip leading trip prefix (✈️ TripName: or ✈️ )
+    s = s.replace(/^[✈\u{2708}\u{FE0F}\u{1F6EB}\u{1F6EC}]+\s*(?:[^:]+:\s*)?/u, '').trim();
+    // Strip other leading scope tags (🏠, 👤, 📈, 🔨)
+    s = s.replace(/^[\u{1F3E0}\u{1F464}\u{1F4C8}\u{1F528}]\s*/u, '').trim();
+    return s;
   }
 
-  function shiftScopeDesc(desc, targetScope) {
+  function shiftScopeDesc(desc, targetScope, tripName) {
     var clean = cleanScopePrefix(desc);
     if (!clean) clean = 'Expense';
     if (targetScope === 'family') return '🏠 ' + clean;
     if (targetScope === 'investment') return '📈 ' + clean;
     if (targetScope === 'personal') return '👤 ' + clean;
+    if (targetScope === 'trip') return '✈️ ' + (tripName || getActiveTripName() || 'Trip') + ': ' + clean;
     return clean;
   }
 
@@ -159,6 +171,27 @@
       motherWithdrawn: motherWithdrawn,
       pending: pending,
       status: status
+    };
+  }
+
+  function getTripSummary(monthEntries, tripName) {
+    var filterName = (tripName || '').trim().toLowerCase();
+    var list = (monthEntries || []).filter(function (e) {
+      if (!isExpense(e) || !isTripEntry(e)) return false;
+      if (!filterName) return true;
+      var d = (e.desc || '').toLowerCase();
+      return d.includes(filterName);
+    });
+    var totalSpent = list.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
+    var daySet = new Set(list.map(function (e) { return dayKey(e.ts); }));
+    var numDays = daySet.size || 1;
+    var dailyAvg = totalSpent > 0 ? Math.round(totalSpent / numDays) : 0;
+    return {
+      entries: list,
+      totalSpent: totalSpent,
+      itemsCount: list.length,
+      daysCount: numDays,
+      dailyAvg: dailyAvg
     };
   }
 
@@ -540,6 +573,7 @@
     parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, parseSMSDate: parseSMSDate, findDuplicate: findDuplicate, categoryBreakdown: categoryBreakdown, monthCompare: monthCompare,
     isIncome: isIncome, isMotherSettlement: isMotherSettlement, isMotherPension: isMotherPension, isSalary: isSalary, isExpense: isExpense, isInvestment: isInvestment, getFamilySettlement: getFamilySettlement, getPersonalCashFlow: getPersonalCashFlow,
     isProjectEntry: isProjectEntry, isProjectMotherPaid: isProjectMotherPaid, getProjectSummary: getProjectSummary,
+    isTripEntry: isTripEntry, getTripSummary: getTripSummary,
     getEntryScope: getEntryScope, shiftScopeDesc: shiftScopeDesc
   };
 
@@ -1093,9 +1127,10 @@
     var settlement = getFamilySettlement(allMonthEntries);
     var cashFlow = getPersonalCashFlow(allMonthEntries);
     var projSummary = getProjectSummary(allMonthEntries);
+    var tripSummary = getTripSummary(allMonthEntries, getActiveTripName());
 
     renderCashFlow(cashFlow, settlement);
-    renderStreamSwitcher(monthExpenses.length, monthIncomings.length, projSummary.entries.length, monthInvestments.length);
+    renderStreamSwitcher(monthExpenses.length, monthIncomings.length, projSummary.entries.length, monthInvestments.length, tripSummary.entries.length);
 
     renderBudget(cur.total);
     renderSuggestions();
@@ -1109,6 +1144,7 @@
     renderSettlementView(settlement);
     renderProjectView(projSummary);
     renderInvestmentsView(monthInvestments);
+    renderTripsView(tripSummary, allMonthEntries);
 
     renderSync();
   }
@@ -1155,21 +1191,24 @@
   }
 
   /* ---------- Stream Switcher Tabs ---------- */
-  function renderStreamSwitcher(spendsCount, incomingsCount, projCount, invCount) {
+  function renderStreamSwitcher(spendsCount, incomingsCount, projCount, invCount, tripsCount) {
     var spCountEl = $('spends-count');
     var incCountEl = $('incomings-count');
     var projCountEl = $('projects-count');
     var invCountEl = $('investments-count');
+    var tripsCountEl = $('trips-count');
     if (spCountEl) spCountEl.textContent = String(spendsCount);
     if (incCountEl) incCountEl.textContent = String(incomingsCount);
     if (projCountEl) projCountEl.textContent = String(projCount || 0);
     if (invCountEl) invCountEl.textContent = String(invCount || 0);
+    if (tripsCountEl) tripsCountEl.textContent = String(tripsCount || 0);
 
     var spendsView = $('spends-view');
     var incomingsSec = $('incomings-sec');
     var settlementSec = $('settlement-sec');
     var projectSec = $('project-sec');
     var investmentsSec = $('investments-sec');
+    var tripsSec = $('trips-sec');
 
     var stream = state.activeStream || 'spends';
     if (spendsView) spendsView.hidden = (stream !== 'spends');
@@ -1177,6 +1216,7 @@
     if (settlementSec) settlementSec.hidden = (stream !== 'settlement');
     if (projectSec) projectSec.hidden = (stream !== 'projects');
     if (investmentsSec) investmentsSec.hidden = (stream !== 'investments');
+    if (tripsSec) tripsSec.hidden = (stream !== 'trips');
 
     document.querySelectorAll('.streambtn').forEach(function (btn) {
       btn.classList.toggle('active', btn.dataset.stream === stream);
@@ -1699,6 +1739,192 @@
     });
   }
 
+  /* ---------- Trips & Events View Rendering & State ---------- */
+  var ACTIVE_TRIP_KEY = 'kharcha_active_trip_name';
+  function getActiveTripName() {
+    try { return localStorage.getItem(ACTIVE_TRIP_KEY) || ''; } catch (e) { return ''; }
+  }
+  function setActiveTripName(name) {
+    try {
+      if (name && name.trim()) {
+        localStorage.setItem(ACTIVE_TRIP_KEY, name.trim());
+      } else {
+        localStorage.removeItem(ACTIVE_TRIP_KEY);
+      }
+    } catch (e) {}
+  }
+
+  function renderTripsView(tripSummary, monthEntries) {
+    var curTrip = getActiveTripName();
+    var hasActiveTrip = !!(curTrip && curTrip.trim());
+
+    // Update banner on Spends View
+    var banner = $('active-trip-banner');
+    var atbName = $('atb-trip-name');
+    var atbSpent = $('atb-trip-spent');
+    if (banner) {
+      banner.hidden = !hasActiveTrip;
+      if (atbName) atbName.textContent = curTrip;
+      if (atbSpent) atbSpent.textContent = money(tripSummary.totalSpent);
+    }
+
+    // Update Trips Section Hero Card
+    var titleEl = $('trip-display-name');
+    var statusBadge = $('trip-badge-status');
+    var toggleBtn = $('trip-toggle-btn');
+    var totSpentEl = $('trip-total-spent');
+    var countEl = $('trip-items-count');
+    var avgEl = $('trip-daily-avg');
+
+    if (titleEl) titleEl.textContent = hasActiveTrip ? ('✈️ ' + curTrip) : '✈️ No Active Trip';
+    if (statusBadge) {
+      statusBadge.textContent = hasActiveTrip ? '✈️ Active Trip' : '🏖️ Trip Closed';
+      statusBadge.className = 'trip-badge' + (hasActiveTrip ? '' : ' closed');
+    }
+    if (toggleBtn) {
+      toggleBtn.textContent = hasActiveTrip ? 'Close / End Trip' : 'Start New Trip';
+    }
+
+    if (totSpentEl) totSpentEl.textContent = money(tripSummary.totalSpent);
+    if (countEl) countEl.textContent = String(tripSummary.itemsCount);
+    if (avgEl) avgEl.textContent = money(tripSummary.dailyAvg) + '/day';
+
+    var daysBox = $('trip-days');
+    if (!daysBox) return;
+    daysBox.textContent = '';
+
+    if (!tripSummary.entries.length) {
+      var em = el('div', 'empty');
+      em.appendChild(el('p', null, hasActiveTrip
+        ? ('No expenses logged yet for ' + curTrip + ' in ' + monthLabel(state.sel) + '. Add flights, hotel, or meals above!')
+        : ('No trip expenses logged for ' + monthLabel(state.sel) + '. Tap "Start New Trip" to begin tracking!')));
+      daysBox.appendChild(em);
+      return;
+    }
+
+    var days = groupByDay(tripSummary.entries);
+    days.forEach(function (g, idx) {
+      var wrap = el('section', 'day');
+      var isExpanded = true;
+      var wrapper = el('div', 'entries-wrapper expanded');
+      var ul = el('ul', 'entries');
+      g.items.forEach(function (e) {
+        var li = el('li');
+        li.appendChild(state.editing === e.id && state.draft ? editRow(e) : entryRow(e));
+        ul.appendChild(li);
+      });
+      wrapper.appendChild(ul);
+
+      var head = dayHead(g, isExpanded, function () {
+        var nextExpanded = !wrapper.classList.contains('expanded');
+        head.classList.toggle('expanded', nextExpanded);
+        wrapper.classList.toggle('expanded', nextExpanded);
+      }, idx);
+
+      wrap.appendChild(head);
+      wrap.appendChild(wrapper);
+      daysBox.appendChild(wrap);
+    });
+  }
+
+  // Trip Toggle & Close Button Handlers
+  function promptTripToggle() {
+    var cur = getActiveTripName();
+    if (cur) {
+      showConfirmModal({
+        title: '✈️ Close Active Trip?',
+        message: 'Close "' + cur + '"? New expenses will resume logging to Personal/Family normally.',
+        confirmText: 'Close Trip',
+        onConfirm: function () {
+          setActiveTripName('');
+          render();
+          toast('Closed ' + cur);
+        }
+      });
+    } else {
+      var next = window.prompt('Enter trip / event name (e.g. Goa Trip, Manali, Dubai 2026):', 'Goa Trip');
+      if (next && next.trim()) {
+        setActiveTripName(next.trim());
+        render();
+        toast('Trip Mode active: ' + next.trim());
+      }
+    }
+  }
+
+  var tripToggleBtn = $('trip-toggle-btn');
+  if (tripToggleBtn) {
+    tripToggleBtn.addEventListener('click', promptTripToggle);
+  }
+
+  var atbCloseBtn = $('atb-close-btn');
+  if (atbCloseBtn) {
+    atbCloseBtn.addEventListener('click', function () {
+      var cur = getActiveTripName();
+      showConfirmModal({
+        title: '✈️ Close Active Trip?',
+        message: 'Close "' + (cur || 'active trip') + '"? New expenses will resume logging to Personal/Family normally.',
+        confirmText: 'Close Trip',
+        onConfirm: function () {
+          setActiveTripName('');
+          render();
+          toast('Closed ' + (cur || 'trip'));
+        }
+      });
+    });
+  }
+
+  // Add Trip Expense Form
+  var addTripForm = $('add-trip-expense');
+  var tripExpAmtInput = $('trip-exp-amt');
+  var addTripExpBtn = $('add-trip-exp-btn');
+  var tripExpErr = $('trip-exp-err');
+
+  if (tripExpAmtInput && addTripExpBtn) {
+    tripExpAmtInput.addEventListener('input', function () {
+      var a = parseAmount(tripExpAmtInput.value);
+      addTripExpBtn.disabled = (a == null);
+    });
+  }
+
+  if (addTripForm) {
+    addTripForm.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      if (tripExpErr) tripExpErr.hidden = true;
+      var amt = parseAmount(tripExpAmtInput.value);
+      if (amt == null) {
+        if (tripExpErr) { tripExpErr.textContent = 'Enter an amount greater than zero, like 1200 or 450.'; tripExpErr.hidden = false; }
+        tripExpAmtInput.focus();
+        return;
+      }
+
+      var tripName = getActiveTripName() || 'Trip';
+      var rawDesc = $('trip-exp-desc') ? $('trip-exp-desc').value.trim() : '';
+      var clean = cleanScopePrefix(rawDesc) || 'Expense';
+      var desc = '✈️ ' + tripName + ': ' + clean;
+
+      var spentVal = $('trip-exp-date') ? $('trip-exp-date').value : '';
+      var spentAt = spentVal ? new Date(spentVal).toISOString() : null;
+
+      addTripExpBtn.disabled = true;
+      store.add({ amount: amt, desc: desc, spent_at: spentAt }).then(function () {
+        tripExpAmtInput.value = '';
+        if ($('trip-exp-desc')) $('trip-exp-desc').value = '';
+        if ($('trip-exp-date')) $('trip-exp-date').value = '';
+        var ts = spentAt ? Date.parse(spentAt) : Date.now();
+        state.sel = monthKey(ts);
+        render();
+        toast('Logged ' + money(amt) + ' to ' + tripName);
+        tripExpAmtInput.focus();
+      }).catch(function (err) {
+        var msg = (err && (err.message || 'Check your connection.')) || 'Failed to save.';
+        if (tripExpErr) { tripExpErr.textContent = 'Could not save trip expense: ' + msg; tripExpErr.hidden = false; }
+      }).finally(function () {
+        addTripExpBtn.disabled = false;
+        renderSync();
+      });
+    });
+  }
+
   /* Sticky month-total bar: only shown once the hero banner (same number) has scrolled out
      of view, so the two never compete for attention at once. */
   (function initStickyBarVisibility() {
@@ -2096,6 +2322,10 @@
     if (curScope !== 'personal') shiftRow.appendChild(createShiftBtn('personal', 'Personal', '👤'));
     if (curScope !== 'family') shiftRow.appendChild(createShiftBtn('family', 'Family', '🏠'));
     if (curScope !== 'investment') shiftRow.appendChild(createShiftBtn('investment', 'Investment', '📈'));
+    var activeTrip = getActiveTripName();
+    if (curScope !== 'trip') {
+      shiftRow.appendChild(createShiftBtn('trip', activeTrip ? activeTrip : 'Trip', '✈️'));
+    }
 
     var btns = el('div', 'edit-btns');
     var save = el('button', 'primary small', 'Save'); save.type = 'submit';
@@ -2572,7 +2802,7 @@
     updateBtn.addEventListener('click', function () {
       showConfirmModal({
         title: '🔄 Force Clear Cache & Reload',
-        message: 'Clear cached app data and reload to the latest v32?',
+        message: 'Clear cached app data and reload to the latest v34?',
         confirmText: 'Clear & Reload',
         onConfirm: function () {
           if ('caches' in window) {

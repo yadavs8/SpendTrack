@@ -8,21 +8,30 @@ object ExpenseScope {
     const val PERSONAL = "personal"
     const val FAMILY = "family"
     const val INVESTMENT = "investment"
+    const val TRIP = "trip"
     private const val FAMILY_PREFIX = "🏠 "
     private const val INVESTMENT_PREFIX = "📈 "
+    private const val TRIP_PREFIX = "✈️ "
 
     /**
      * Base text is the user's own note if they typed one (isEdited), else the merchant name --
      * never the raw description, which for auto-detected expenses is the full bank SMS.
      */
-    fun describe(merchantName: String?, description: String?, isEdited: Boolean, scope: String): String {
+    fun describe(merchantName: String?, description: String?, isEdited: Boolean, scope: String, tripName: String? = null): String {
         val base = (if (isEdited) description?.takeIf { it.isNotBlank() } else null)
             ?: merchantName?.takeIf { it.isNotBlank() }
             ?: "Expense"
-        val clean = base.trim().removePrefix("🏠").removePrefix("👤").removePrefix("📈").trim()
+        val clean = base.trim()
+            .removePrefix("🏠").removePrefix("👤").removePrefix("📈").removePrefix("✈️")
+            .replace(Regex("^[\\[\\(]?[Tt]rip:?[^\\]\\)]*[\\]\\)]?\\s*"), "")
+            .trim()
         return when {
             scope.equals(FAMILY, ignoreCase = true) -> FAMILY_PREFIX + clean
             scope.equals(INVESTMENT, ignoreCase = true) -> INVESTMENT_PREFIX + clean
+            scope.equals(TRIP, ignoreCase = true) -> {
+                val label = tripName?.trim()?.takeIf { it.isNotBlank() } ?: "Trip"
+                "$TRIP_PREFIX$label: $clean"
+            }
             else -> clean
         }
     }

@@ -12,7 +12,9 @@ import com.spendtrack.app.data.database.dao.PaymentMethodSpend
 import com.spendtrack.app.data.database.dao.TransactionDao
 import com.spendtrack.app.data.database.entity.MerchantRuleEntity
 import com.spendtrack.app.data.database.entity.TransactionEntity
+import com.spendtrack.app.data.datastore.SettingsManager
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import java.util.Calendar
 import java.util.UUID
 
@@ -20,7 +22,8 @@ class TransactionRepository(
     private val transactionDao: TransactionDao,
     private val categoryEngine: CategoryEngine,
     private val deduplicationEngine: DeduplicationEngine,
-    private val merchantRuleRepository: MerchantRuleRepository
+    private val merchantRuleRepository: MerchantRuleRepository,
+    private val settingsManager: SettingsManager? = null
 ) {
 
     val allExpenses: Flow<List<TransactionEntity>> = transactionDao.getAllExpenses()
@@ -84,6 +87,10 @@ class TransactionRepository(
                 merchantRuleRepository.findMatchingRule(merchantKey)
             } else null
 
+            val activeTrip = try {
+                settingsManager?.activeTripNameFlow?.first()
+            } catch (e: Exception) { null }
+
             val updatedTxn = when {
                 isSelf -> {
                     // Self payment to user's own account (Sanjeev Yadav) -> automatically Personal!
@@ -109,6 +116,21 @@ class TransactionRepository(
                             scope = ExpenseScope.INVESTMENT
                         ),
                         categoryId = "cat_financial",
+                        needsReview = false,
+                        isEdited = true,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                }
+                !activeTrip.isNullOrBlank() -> {
+                    // Active Trip mode is ON -> automatically log all new spends into this trip until closed!
+                    result.transaction.copy(
+                        description = ExpenseScope.describe(
+                            merchantName = result.transaction.merchantName,
+                            description = result.transaction.description,
+                            isEdited = result.transaction.isEdited,
+                            scope = ExpenseScope.TRIP,
+                            tripName = activeTrip
+                        ),
                         needsReview = false,
                         isEdited = true,
                         updatedAt = System.currentTimeMillis()
@@ -179,16 +201,17 @@ class TransactionRepository(
         transactionDao.updateTransaction(updated)
     }
 
-    /** Resolves the "Personal, Family, or Investment?" prompt for an auto-detected expense and remembers the merchant scope. */
+    /** Resolves the "Personal, Family, Investment, or Trip?" prompt for an auto-detected expense and remembers the merchant scope. */
     suspend fun resolveScope(
         transactionId: String,
-        scope: String
+        scope: String,
+        tripName: String? = null
     ) {
         val transaction = transactionDao.getTransactionById(transactionId) ?: return
 
-        // Auto-learn / remember user's scope decision for this merchant so they are never asked again!
+        // Auto-learn / remember user's scope decision for this merchant so they are never asked again! (unless it's a temporary trip)
         val merchantKey = transaction.merchantName ?: transaction.merchantVpa
-        if (!merchantKey.isNullOrBlank()) {
+        if (!merchantKey.isNullOrBlank() && !scope.equals(ExpenseScope.TRIP, ignoreCase = true)) {
             merchantRuleRepository.saveScopeRule(merchantKey, scope)
         }
 
@@ -197,7 +220,8 @@ class TransactionRepository(
                 merchantName = transaction.merchantName,
                 description = transaction.description,
                 isEdited = transaction.isEdited,
-                scope = scope
+                scope = scope,
+                tripName = tripName
             ),
             needsReview = false,
             isEdited = true,
@@ -207,10 +231,10 @@ class TransactionRepository(
         transactionDao.updateTransaction(updated)
 
         // Resolve companion duplicates for same amount/merchant in DB so orphan nudges never re-prompt
-        resolveCompanionDuplicates(transaction, scope)
+        resolveCompanionDuplicates(transaction, scope, tripName)
     }
 
-    private suspend fun resolveCompanionDuplicates(primary: TransactionEntity, scope: String) {
+    private suspend fun resolveCompanionDuplicates(primary: TransactionEntity, scope: String, tripName: String? = null) {
         val window = 10 * 60 * 1000L
         val companions = transactionDao.findPotentialDuplicates(
             amount = primary.amount,
@@ -225,7 +249,8 @@ class TransactionRepository(
                         merchantName = c.merchantName ?: primary.merchantName,
                         description = c.description,
                         isEdited = true,
-                        scope = scope
+                        scope = scope,
+                        tripName = tripName
                     ),
                     needsReview = false,
                     isEdited = true,

@@ -24,16 +24,18 @@ object ExpensePromptNotifier {
     const val EXTRA_CATEGORY_ID = "category_id"
     const val EXTRA_CATEGORY_NAME = "category_name"
     const val EXTRA_SCOPE = "expense_scope"
+    const val EXTRA_TRIP_NAME = "trip_name"
     const val EXTRA_NOTIFICATION_ID = "notification_id"
     const val REMOTE_INPUT_KEY = "note_reply"
 
     const val SCOPE_PERSONAL = "personal"
     const val SCOPE_FAMILY = "family"
     const val SCOPE_INVESTMENT = "investment"
+    const val SCOPE_TRIP = "trip"
 
     fun notificationIdFor(transactionId: String): Int = transactionId.hashCode()
 
-    fun show(context: Context, transaction: TransactionEntity) {
+    fun show(context: Context, transaction: TransactionEntity, activeTripName: String? = null) {
         ensureChannel(context)
 
         val notificationId = notificationIdFor(transaction.id)
@@ -65,17 +67,23 @@ object ExpensePromptNotifier {
         )
 
         val title = if (merchantLabel != null) "$amountLabel at $merchantLabel" else "$amountLabel spent"
+        val subtitle = if (!activeTripName.isNullOrBlank()) "✈️ Active Trip: $activeTripName" else "Personal, Family, or Investment?"
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(com.spendtrack.app.R.drawable.ic_notification)
             .setColor(0xFF0B5D75.toInt())
             .setContentTitle(title)
-            .setContentText("Personal, Family, or Investment?")
+            .setContentText(subtitle)
             .setContentIntent(contentIntent)
             .setDeleteIntent(deletePendingIntent)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setAutoCancel(true)
             .setOnlyAlertOnce(false)
+
+        if (!activeTripName.isNullOrBlank()) {
+            // Prominent Trip button as first action!
+            builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_TRIP, "✈️ $activeTripName", activeTripName))
+        }
 
         // 1. "Personal" one-tap action
         builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_PERSONAL, "👤 Personal"))
@@ -101,12 +109,16 @@ object ExpensePromptNotifier {
         transactionId: String,
         notificationId: Int,
         scope: String,
-        label: String
+        label: String,
+        tripName: String? = null
     ): NotificationCompat.Action {
         val intent = Intent(context, QuickActionReceiver::class.java).apply {
             action = QuickActionReceiver.ACTION_SET_SCOPE
             putExtra(EXTRA_TRANSACTION_ID, transactionId)
             putExtra(EXTRA_SCOPE, scope)
+            if (tripName != null) {
+                putExtra(EXTRA_TRIP_NAME, tripName)
+            }
             putExtra(EXTRA_NOTIFICATION_ID, notificationId)
         }
         val pendingIntent = PendingIntent.getBroadcast(
