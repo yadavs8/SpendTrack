@@ -28,17 +28,34 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity>
 
-        <!-- "Log to…" sheet opened from an expense notification; shows over the current app -->
+        <!-- "Log to…" sheet: files a detected payment, or adds a cash spend (widget / app shortcut).
+             Exported for the launcher shortcut; it only ever lets the user choose where a spend goes. -->
         <activity
             android:name=".ui.log.LogExpenseActivity"
-            android:exported="false"
+            android:exported="true"
             android:excludeFromRecents="true"
             android:taskAffinity=""
             android:launchMode="singleTop"
             android:windowSoftInputMode="adjustResize"
-            android:theme="@style/Theme.SpendTrack.Overlay" />
+            android:theme="@style/Theme.SpendTrack.Overlay">
+            <intent-filter>
+                <action android:name="com.spendtrack.app.ADD_CASH" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <!-- Home-screen widget -->
+        <receiver
+            android:name=".widget.KharchaWidgetProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/kharcha_widget_info" />
+        </receiver>
 
         <!-- Real-time UPI & Bank Notification Detection Service -->
         <service

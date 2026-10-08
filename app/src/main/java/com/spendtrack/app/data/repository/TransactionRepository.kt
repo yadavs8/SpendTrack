@@ -54,6 +54,36 @@ class TransactionRepository(
     fun getPaymentMethodSpends(startTime: Long, endTime: Long): Flow<List<PaymentMethodSpend>> =
         transactionDao.getPaymentMethodSpends(startTime, endTime)
 
+    /** Unanswered, still-counted payments -- the number the widget shows. */
+    suspend fun countAwaitingChoice(): Int =
+        transactionDao.getNeedsReviewTransactionsSync().count { !it.isExcluded }
+
+    /**
+     * A cash spend typed in from the widget / app shortcut. Returns its id so it can be filed
+     * straight away (Personal, Family, trip...) through the same path as a detected payment.
+     */
+    suspend fun addCashExpense(amount: Double, note: String?): String {
+        val label = note?.trim()?.takeIf { it.isNotBlank() }
+        val now = System.currentTimeMillis()
+        val entity = TransactionEntity(
+            amount = amount,
+            merchantName = label ?: "Cash",
+            description = label,
+            categoryId = "cat_other",
+            paymentMethod = PaymentMethod.CASH,
+            transactionType = TransactionType.EXPENSE,
+            dateTime = now,
+            source = "MANUAL",
+            isManuallyAdded = true,
+            isEdited = label != null,
+            needsReview = false,
+            createdAt = now,
+            updatedAt = now
+        )
+        transactionDao.insertTransaction(entity)
+        return entity.id
+    }
+
     suspend fun getTransactionById(id: String): TransactionEntity? =
         transactionDao.getTransactionById(id)
 

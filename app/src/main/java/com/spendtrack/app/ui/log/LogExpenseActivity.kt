@@ -1,5 +1,7 @@
 package com.spendtrack.app.ui.log
 
+import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -21,6 +23,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -42,7 +45,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
 import com.spendtrack.app.core.model.ExpenseScope
@@ -64,7 +70,8 @@ class LogExpenseActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         ServiceLocator.init(applicationContext)
         val transactionId = intent.getStringExtra(ExpensePromptNotifier.EXTRA_TRANSACTION_ID)
-        if (transactionId == null) { finish(); return }
+        val cashMode = transactionId == null && intent.action == ACTION_ADD_CASH
+        if (transactionId == null && !cashMode) { finish(); return }
 
         // Trips may have been created on the web since the phone last looked.
         lifecycleScope.launch { runCatching { ServiceLocator.cloudSyncRepository.refreshSharedSettings() } }
@@ -72,55 +79,77 @@ class LogExpenseActivity : ComponentActivity() {
         setContent {
             SpendTrackTheme {
                 var txn by remember { mutableStateOf<TransactionEntity?>(null) }
-                LaunchedEffect(transactionId) {
-                    txn = ServiceLocator.transactionRepository.getTransactionById(transactionId)
-                    if (txn == null) finish()
+                if (transactionId != null) {
+                    LaunchedEffect(transactionId) {
+                        txn = ServiceLocator.transactionRepository.getTransactionById(transactionId)
+                        if (txn == null) finish()
+                    }
                 }
                 val trips by ServiceLocator.settingsManager.tripNamesFlow.collectAsState(initial = emptyList())
                 val activeTrip by ServiceLocator.settingsManager.activeTripNameFlow.collectAsState(initial = null)
-                txn?.let { t ->
+                if (cashMode || txn != null) {
                     LogSheet(
-                        txn = t,
+                        txn = txn,
                         trips = trips,
                         activeTrip = activeTrip,
                         onDismiss = { finish() },
-                        onChoose = { scope, trip, note, makeActive -> choose(t.id, scope, trip, note, makeActive) }
+                        onChoose = { scope, trip, note, makeActive, cashAmount ->
+                            choose(txn?.id, cashAmount, scope, trip, note, makeActive)
+                        }
                     )
                 }
             }
         }
     }
 
-    private fun choose(transactionId: String, scope: String, tripName: String?, note: String?, makeActiveTrip: Boolean) {
+    private fun choose(transactionId: String?, cashAmount: Double?, scope: String, tripName: String?, note: String?, makeActiveTrip: Boolean) {
         lifecycleScope.launch {
             if (makeActiveTrip && !tripName.isNullOrBlank()) {
                 ServiceLocator.cloudSyncRepository.pushSharedSettings(ServiceLocator.settingsManager.setActiveTripName(tripName))
             }
-            ExpenseFiler.file(applicationContext, transactionId, scope, tripName, note)
+            val id = transactionId
+                ?: ServiceLocator.transactionRepository.addCashExpense(cashAmount ?: return@launch, note)
+            // A cash note is already its description; only pass it on for detected payments.
+            ExpenseFiler.file(applicationContext, id, scope, tripName, if (transactionId != null) note else null)
             finish()
         }
+    }
+
+    companion object {
+        const val ACTION_ADD_CASH = "com.spendtrack.app.ADD_CASH"
+
+        fun cashIntent(context: Context): Intent =
+            Intent(context, LogExpenseActivity::class.java).apply {
+                action = ACTION_ADD_CASH
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
     }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun LogSheet(
-    txn: TransactionEntity,
+    txn: TransactionEntity?,
     trips: List<String>,
     activeTrip: String?,
     onDismiss: () -> Unit,
-    onChoose: (scope: String, trip: String?, note: String?, makeActive: Boolean) -> Unit
+    onChoose: (scope: String, trip: String?, note: String?, makeActive: Boolean, cashAmount: Double?) -> Unit
 ) {
+    val cashMode = txn == null
+    var amountText by remember { mutableStateOf("") }
+    val cashAmount = amountText.replace(",", "").toDoubleOrNull()?.takeIf { it > 0 && it < 1e8 }
     var note by remember { mutableStateOf("") }
     var newTrip by remember { mutableStateOf("") }
     var makeActive by remember { mutableStateOf(activeTrip == null) }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val amountFocus = remember { FocusRequester() }
+    val canPick = !busy && (!cashMode || cashAmount != null)
 
     fun pick(s: String, trip: String? = null, active: Boolean = false) {
-        if (busy) return
+        if (!canPick) return
         busy = true
-        scope.launch { onChoose(s, trip, note.takeIf { it.isNotBlank() }, active) }
+        scope.launch { onChoose(s, trip, note.takeIf { it.isNotBlank() }, active, cashAmount) }
     }
 
     Box(
@@ -145,33 +174,46 @@ private fun LogSheet(
                     .navigationBarsPadding(),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                val merchant = txn.merchantName?.takeIf { it.isNotBlank() }
-                Text(
-                    text = ExpensePromptNotifier.amountLabel(txn.amount) + (merchant?.let { " at $it" } ?: ""),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = ExpensePromptNotifier.whenLabel(txn.dateTime) +
-                        if (!txn.needsReview) " · already logged, choose again to move it" else "",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline
-                )
+                if (txn != null) {
+                    val merchant = txn.merchantName?.takeIf { it.isNotBlank() }
+                    Text(
+                        text = ExpensePromptNotifier.amountLabel(txn.amount) + (merchant?.let { " at $it" } ?: ""),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = ExpensePromptNotifier.whenLabel(txn.dateTime) +
+                            if (!txn.needsReview) " · already logged, choose again to move it" else "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                } else {
+                    Text("💵 Cash spend", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    OutlinedTextField(
+                        value = amountText,
+                        onValueChange = { v -> amountText = v.filter { it.isDigit() || it == '.' || it == ',' }.take(10) },
+                        label = { Text("Amount (₹)") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        modifier = Modifier.fillMaxWidth().focusRequester(amountFocus)
+                    )
+                    LaunchedEffect(Unit) { runCatching { amountFocus.requestFocus() } }
+                }
 
                 OutlinedTextField(
                     value = note,
                     onValueChange = { note = it.take(50) },
-                    label = { Text("What was it? (optional, e.g. Milk)") },
+                    label = { Text(if (cashMode) "What was it? (e.g. Milk, Auto)" else "What was it? (optional, e.g. Milk)") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
 
                 Text("Log to", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.outline)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilledTonalButton(onClick = { pick(ExpenseScope.PERSONAL) }, enabled = !busy) { Text("👤 Personal") }
-                    FilledTonalButton(onClick = { pick(ExpenseScope.FAMILY) }, enabled = !busy) { Text("🏠 Family") }
-                    FilledTonalButton(onClick = { pick(ExpenseScope.INVESTMENT) }, enabled = !busy) { Text("📈 Investment") }
-                    FilledTonalButton(onClick = { pick(ExpenseScope.PROJECT) }, enabled = !busy) { Text("🔨 Project") }
+                    FilledTonalButton(onClick = { pick(ExpenseScope.PERSONAL) }, enabled = canPick) { Text("👤 Personal") }
+                    FilledTonalButton(onClick = { pick(ExpenseScope.FAMILY) }, enabled = canPick) { Text("🏠 Family") }
+                    FilledTonalButton(onClick = { pick(ExpenseScope.INVESTMENT) }, enabled = canPick) { Text("📈 Investment") }
+                    FilledTonalButton(onClick = { pick(ExpenseScope.PROJECT) }, enabled = canPick) { Text("🔨 Project") }
                 }
 
                 if (trips.isNotEmpty()) {
@@ -180,9 +222,9 @@ private fun LogSheet(
                         trips.forEach { trip ->
                             val label = if (trip == activeTrip) "✈️ $trip (active)" else "✈️ $trip"
                             if (trip == activeTrip) {
-                                Button(onClick = { pick(ExpenseScope.TRIP, trip) }, enabled = !busy) { Text(label) }
+                                Button(onClick = { pick(ExpenseScope.TRIP, trip) }, enabled = canPick) { Text(label) }
                             } else {
-                                OutlinedButton(onClick = { pick(ExpenseScope.TRIP, trip) }, enabled = !busy) { Text(label) }
+                                OutlinedButton(onClick = { pick(ExpenseScope.TRIP, trip) }, enabled = canPick) { Text(label) }
                             }
                         }
                     }
@@ -199,7 +241,7 @@ private fun LogSheet(
                     )
                     Button(
                         onClick = { pick(ExpenseScope.TRIP, newTrip.trim(), makeActive) },
-                        enabled = !busy && newTrip.isNotBlank()
+                        enabled = canPick && newTrip.isNotBlank()
                     ) { Text("Log") }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {

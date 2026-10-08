@@ -46,6 +46,9 @@ class SettingsManager(private val context: Context) {
         const val SHARED_ALL_TRIPS = "kharcha_all_trips_list"
         const val SHARED_OWNER_IDENTITY = "kharcha_owner_identity"
 
+        // Last month summary the web page reported (JSON) -- what the home-screen widget shows.
+        val KEY_WEB_SUMMARY = stringPreferencesKey("web_month_summary")
+
         val DEFAULT_MONITORED_APPS = setOf(
             "com.google.android.apps.nbu.paisa.user", // Google Pay
             "com.phonepe.app",                       // PhonePe
@@ -97,6 +100,13 @@ class SettingsManager(private val context: Context) {
     /** Replaces the local copy with the server's document (server wins). */
     suspend fun replaceShared(doc: JSONObject) {
         context.dataStore.edit { it[KEY_SHARED_SETTINGS_JSON] = doc.toString() }
+    }
+
+    val webSummaryFlow: Flow<JSONObject> = context.dataStore.data.map { prefs -> parseJson(prefs[KEY_WEB_SUMMARY]) }
+
+    suspend fun saveWebSummary(json: String) {
+        val parsed = runCatching { JSONObject(json) }.getOrNull() ?: return
+        context.dataStore.edit { it[KEY_WEB_SUMMARY] = parsed.toString() }
     }
 
     private fun parseJson(raw: String?): JSONObject =

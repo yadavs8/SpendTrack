@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Long-press the app icon: log a cash spend in two taps (amount, then where it goes). -->
+    <shortcut
+        android:shortcutId="add_cash"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/shortcut_cash_short"
+        android:shortcutLongLabel="@string/shortcut_cash_long">
+        <intent
+            android:action="com.spendtrack.app.ADD_CASH"
+            android:targetPackage="com.spendtrack.app"
+            android:targetClass="com.spendtrack.app.ui.log.LogExpenseActivity" />
+    </shortcut>
+</shortcuts>

@@ -178,7 +178,7 @@ fun MainApp(onWebViewAttached: (WebView?) -> Unit = {}) {
 
     when (isOnboarded) {
         null -> {
-            Box(Modifier.fillMaxSize().background(Color(0xFF0B5D75)))
+            Box(Modifier.fillMaxSize().background(Color(0xFFF0F4F8)))
             return
         }
         false -> {
@@ -193,6 +193,10 @@ fun MainApp(onWebViewAttached: (WebView?) -> Unit = {}) {
     val settingsViewModel: SettingsViewModel = viewModel()
     var showSettings by remember { mutableStateOf(false) }
     var webView by remember { mutableStateOf<WebView?>(null) }
+    // The page shows its own ⚙️ once it can reach the app (it reports a summary on load). Until
+    // then -- or if the page fails to load -- a native button keeps Settings reachable.
+    var pageHasSettingsButton by remember { mutableStateOf(false) }
+    val appContext = LocalContext.current.applicationContext
 
     // Request POST_NOTIFICATIONS permission on Android 13+. Uses ActivityCompat directly with a
     // fixed request code -- some OEM ROMs (observed on OxygenOS/ColorOS) enforce a stricter 16-bit
@@ -233,32 +237,42 @@ fun MainApp(onWebViewAttached: (WebView?) -> Unit = {}) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFF0B5D75)) // Kharcha Book's --hero-bg: no flash before the page paints
+                .background(Color(0xFFF0F4F8)) // the page's own background: no flash before it paints
         ) {
             KharchaWebViewScreen(
                 webViewRef = {
                     webView = it
                     onWebViewAttached(it)
                 },
+                onOpenSettings = { showSettings = true },
+                onPageReady = { ready -> if (!ready) pageHasSettingsButton = false },
+                onSummary = { json ->
+                    pageHasSettingsButton = true
+                    scope.launch {
+                        ServiceLocator.settingsManager.saveWebSummary(json)
+                        com.spendtrack.app.widget.KharchaWidget.refresh(appContext)
+                    }
+                },
                 modifier = Modifier.statusBarsPadding()
             )
-            IconButton(
-                onClick = { showSettings = true },
-                // zIndex is required here: an embedded AndroidView (the WebView) can otherwise
-                // render above sibling Compose content regardless of composition order.
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .statusBarsPadding()
-                    .padding(12.dp)
-                    .zIndex(10f)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primaryContainer)
-            ) {
-                Icon(
-                    Icons.Default.Settings,
-                    contentDescription = "App settings",
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
-                )
+            if (!pageHasSettingsButton) {
+                IconButton(
+                    onClick = { showSettings = true },
+                    // zIndex: an embedded AndroidView (the WebView) can otherwise draw over it.
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .statusBarsPadding()
+                        .padding(12.dp)
+                        .zIndex(10f)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer)
+                ) {
+                    Icon(
+                        Icons.Default.Settings,
+                        contentDescription = "App settings",
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
             }
         }
     }

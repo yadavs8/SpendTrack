@@ -31,6 +31,7 @@ object ExpenseFiler {
         repo.getTransactionById(transactionId)?.let { txn ->
             ExpensePromptNotifier.showLogged(context, txn, ExpensePromptNotifier.scopeLabel(scope, tripName))
         }
+        runCatching { com.spendtrack.app.widget.KharchaWidget.refresh(context) }
         ServiceLocator.cloudSyncRepository.syncPending()
     }
 }

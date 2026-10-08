@@ -1445,6 +1445,19 @@
       ul.appendChild(li);
     });
   }
+  // Inside the Android app: hand this month's numbers to the home-screen widget.
+  function reportNativeSummary(nowKey) {
+    var bridge = window.KharchaNative;
+    if (!bridge || !bridge.reportSummary) return;
+    try {
+      var fc = monthForecast(state.entries, nowKey, new Date());
+      bridge.reportSummary(JSON.stringify({
+        month: monthLabel(nowKey),
+        spentLabel: money(fc.spent),
+        projectedLabel: money(fc.projected)
+      }));
+    } catch (e) { /* widget is best-effort */ }
+  }
   function dayOrdinal(d) {
     if (d % 100 >= 11 && d % 100 <= 13) return 'th';
     return ['th', 'st', 'nd', 'rd'][d % 10] || 'th';
@@ -1460,6 +1473,7 @@
     var cur = months[idx];
 
     renderForecast(nowKey);
+    reportNativeSummary(nowKey);
 
     var list = visibleEntries(state.sel);
     var prevKey = prevMonthKey(state.sel);
@@ -3746,12 +3760,20 @@
     });
   }
 
+  // Phone-app settings (detection, cloud sync, trips) live natively; this button replaces the
+  // floating gear that used to cover the tabs.
+  var appSettingsBtn = $('app-settings-btn');
+  if (appSettingsBtn && window.KharchaNative && window.KharchaNative.openSettings) {
+    appSettingsBtn.hidden = false;
+    appSettingsBtn.addEventListener('click', function () { window.KharchaNative.openSettings(); });
+  }
+
   var updateBtn = $('force-update-btn');
   if (updateBtn) {
     updateBtn.addEventListener('click', function () {
       showConfirmModal({
         title: '🔄 Force Clear Cache & Reload',
-        message: 'Clear cached app data and reload to the latest v38?',
+        message: 'Clear cached app data and reload to the latest v39?',
         confirmText: 'Clear & Reload',
         onConfirm: function () {
           if ('caches' in window) {

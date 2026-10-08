@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.compose.compiler)
@@ -26,8 +28,28 @@ android {
         }
     }
 
+    // One signing key for every machine, so a build from either PC installs over the other's
+    // without uninstalling (which would wipe the phone's local data). The key lives outside the
+    // repo (it is public); keystore.properties (gitignored) points at it. See keystore.properties.example.
+    val keystoreProps = Properties().apply {
+        val f = rootProject.file("keystore.properties")
+        if (f.exists()) f.inputStream().use { load(it) }
+    }
+    val sharedSigning = keystoreProps.getProperty("storeFile")?.let { path ->
+        signingConfigs.create("shared") {
+            storeFile = file(path)
+            storePassword = keystoreProps.getProperty("storePassword")
+            keyAlias = keystoreProps.getProperty("keyAlias")
+            keyPassword = keystoreProps.getProperty("keyPassword")
+        }
+    }
+
     buildTypes {
+        debug {
+            sharedSigning?.let { signingConfig = it }
+        }
         release {
+            sharedSigning?.let { signingConfig = it }
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }

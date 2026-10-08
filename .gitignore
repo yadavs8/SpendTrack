@@ -20,3 +20,8 @@ local.properties
 *.db-wal
 *.db-shm
 
+
+# Signing key config + key files -- private, never commit
+keystore.properties
+*.jks
+*.keystore

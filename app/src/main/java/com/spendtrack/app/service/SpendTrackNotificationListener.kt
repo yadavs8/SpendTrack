@@ -119,6 +119,7 @@ class SpendTrackNotificationListener : NotificationListenerService() {
                         }
                         // Lands in Kharcha Book now if it has a bank/UPI ref (answering later
                         // updates the same row); see TransactionDao.getUnsyncedExpenses.
+                        runCatching { com.spendtrack.app.widget.KharchaWidget.refresh(applicationContext) }
                         ServiceLocator.cloudSyncRepository.syncPending()
                     }
                     is DeduplicationEngine.DeduplicationResult.MergedWithExisting -> {

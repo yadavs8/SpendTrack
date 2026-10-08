@@ -60,6 +60,7 @@ class SmsReceiver : BroadcastReceiver() {
                         ExpensePromptNotifier.show(context.applicationContext, txn, activeTrip)
                         NudgeScheduler.scheduleFirst(context.applicationContext, txn.id)
                     }
+                    runCatching { com.spendtrack.app.widget.KharchaWidget.refresh(context.applicationContext) }
                     ServiceLocator.cloudSyncRepository.syncPending()
                 }
             } catch (e: Exception) {
