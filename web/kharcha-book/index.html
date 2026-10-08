@@ -7,14 +7,14 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="styles.css?v=40">
+<link rel="stylesheet" href="styles.css?v=41">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0B5D75">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Kharcha">
-<link rel="apple-touch-icon" href="apple-touch-icon.png?v=40">
-<link rel="icon" href="icon-192.png?v=40" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=41">
+<link rel="icon" href="icon-192.png?v=41" type="image/png">
 <script>
   (function() {
     var V = '39';
@@ -37,10 +37,10 @@
 <body>
 <main class="app">
   <header class="top">
-    <h1><img class="logo" src="icon-192.png?v=40" width="36" height="36" alt="">Kharcha Book</h1>
+    <h1><img class="logo" src="icon-192.png?v=41" width="36" height="36" alt="">Kharcha Book</h1>
     <div class="top-r">
       <span class="sync" id="sync" data-state="pending">Loading…</span>
-      <button type="button" class="installbtn" id="force-update-btn" title="Force clear cache & reload latest v39">v39 🔄</button>
+      <button type="button" class="installbtn" id="force-update-btn" title="Force clear cache & reload latest version">v41 🔄</button>
       <button type="button" class="installbtn" id="app-settings-btn" title="Phone app settings" aria-label="Phone app settings" hidden>⚙️</button>
       <button type="button" class="installbtn" id="install-btn" hidden>📲 Install App</button>
       <button type="button" class="signout" id="signout" hidden>Sign out</button>
@@ -638,12 +638,12 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=40" onerror="void 0"></script>
-<script src="app.js?v=40"></script>
+<script src="config.js?v=41" onerror="void 0"></script>
+<script src="app.js?v=41"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('sw.js?v=40').then(function (reg) {
+      navigator.serviceWorker.register('sw.js?v=41').then(function (reg) {
         reg.update();
         reg.addEventListener('updatefound', function () {
           var newWorker = reg.installing;
