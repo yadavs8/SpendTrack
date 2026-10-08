@@ -33,6 +33,17 @@ import com.spendtrack.app.core.logger.SafeLogger
  * UPI app (with a chooser), intent:// as the page asked, anything else in the browser.
  */
 internal fun openExternally(context: Context, url: String) {
+    // WhatsApp links go straight to WhatsApp (then WhatsApp Business) instead of an "Open with" chooser.
+    val uri = Uri.parse(url)
+    val isWhatsApp = uri.scheme == "whatsapp" || uri.host == "wa.me" || uri.host == "api.whatsapp.com"
+    if (isWhatsApp) {
+        for (pkg in listOf("com.whatsapp", "com.whatsapp.w4b")) {
+            try {
+                context.startActivity(Intent(Intent.ACTION_VIEW, uri).setPackage(pkg).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                return
+            } catch (_: ActivityNotFoundException) { }
+        }
+    }
     try {
         val intent = if (url.startsWith("intent:")) {
             Intent.parseUri(url, Intent.URI_INTENT_SCHEME).apply {
