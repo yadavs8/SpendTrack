@@ -7,6 +7,9 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.IOException
 
+/** Supabase answered and refused the credentials (signed out elsewhere, revoked, wrong password). */
+class AuthRejectedException(message: String) : IOException(message)
+
 data class SupabaseSession(
     val accessToken: String,
     val refreshToken: String,
@@ -62,7 +65,9 @@ class SupabaseAuthClient(private val client: OkHttpClient = OkHttpClient()) {
             client.newCall(request).execute().use { response ->
                 val text = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
-                    throw IOException(extractErrorMessage(text, response.code))
+                    val message = extractErrorMessage(text, response.code)
+                    if (response.code in 400..499) throw AuthRejectedException(message)
+                    throw IOException(message)
                 }
                 parseSession(text)
             }

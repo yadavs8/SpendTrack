@@ -131,8 +131,14 @@ class CloudSyncRepository(
                 settingsManager.updateCloudSyncAccessToken(session.accessToken, session.refreshToken)
                 session.accessToken
             },
-            onFailure = {
-                settingsManager.setCloudSyncError("Session expired. Please sign in again.")
+            onFailure = { error ->
+                settingsManager.setCloudSyncError(
+                    if (error is com.spendtrack.app.core.network.AuthRejectedException)
+                        // Usually a sign-out from Kharcha Book on an old version, which signed out every device.
+                        "Signed out of Kharcha Book. Please sign in again here."
+                    else
+                        "Couldn't reach Kharcha Book (offline?). Will retry automatically."
+                )
                 null
             }
         )

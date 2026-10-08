@@ -4,6 +4,7 @@ import android.content.Context
 import com.spendtrack.app.core.model.ExpenseScope
 import com.spendtrack.app.core.nudge.NudgeScheduler
 import com.spendtrack.app.data.di.ServiceLocator
+import kotlinx.coroutines.flow.first
 
 /**
  * Files an auto-detected expense where the user chose -- from a notification button or the
@@ -33,5 +34,14 @@ object ExpenseFiler {
         }
         runCatching { com.spendtrack.app.widget.KharchaWidget.refresh(context) }
         ServiceLocator.cloudSyncRepository.syncPending()
+
+        // "✅ Logged" alone is misleading if it never reached Kharcha Book -- say so.
+        val settings = ServiceLocator.settingsManager
+        val stillLocal = repo.getTransactionById(transactionId)?.let { !it.syncedToCloud && it.transactionType.isExpense } ?: false
+        if (stillLocal && settings.isCloudSyncEnabled.first()) {
+            val reason = settings.cloudSyncLastError.first()
+                ?: if (settings.cloudSyncAccessToken.first() == null) "Cloud Sync is not signed in." else null
+            if (reason != null) ExpensePromptNotifier.showSyncProblem(context, reason)
+        }
     }
 }
