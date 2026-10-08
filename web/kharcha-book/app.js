@@ -217,7 +217,16 @@
     return null;
   }
 
-  function getTripSummary(monthEntries, tripName) {
+  function parseTripPayer(desc) {
+    if (!desc) return 'Me';
+    var d = desc.trim();
+    var m = d.match(/\[Paid by ([^\]]+)\]/i);
+    if (m && m[1]) return m[1].trim();
+    if (d.includes('🤝') || /friend paid/i.test(d)) return 'Friend';
+    return 'Me';
+  }
+
+  function getTripSummary(monthEntries, tripName, explicitFriends) {
     var filterName = (tripName || '').trim().toLowerCase();
     var list = (monthEntries || []).filter(function (e) {
       if (!isExpense(e) || !isTripEntry(e)) return false;
@@ -230,21 +239,52 @@
     var numDays = daySet.size || 1;
     var dailyAvg = totalSpent > 0 ? Math.round(totalSpent / numDays) : 0;
 
-    // Multi-payer trip tracking ("Paid by Me" vs "Paid by Friend")
-    var friendEntries = list.filter(function (e) {
-      var d = (e.desc || '').toLowerCase();
-      return d.includes('[paid by friend]') || d.includes('🤝') || d.includes('friend paid');
+    // Track all participants/friends
+    var friendSet = new Set();
+    friendSet.add('Me');
+    if (Array.isArray(explicitFriends)) {
+      explicitFriends.forEach(function (f) {
+        if (f && f.trim()) friendSet.add(f.trim());
+      });
+    }
+
+    // Tally payments per person
+    var payerTotals = {};
+    list.forEach(function (e) {
+      var payer = parseTripPayer(e.desc);
+      friendSet.add(payer);
+      if (!payerTotals[payer]) payerTotals[payer] = 0;
+      payerTotals[payer] = (payerTotals[payer] * 100 + paise(e.amount)) / 100;
     });
-    var meEntries = list.filter(function (e) {
-      var d = (e.desc || '').toLowerCase();
-      return !d.includes('[paid by friend]') && !d.includes('friend paid');
+
+    // If explicitFriends wasn't passed and only Me paid or binary Friend
+    var allParticipants = Array.from(friendSet);
+    if (allParticipants.length === 1 && allParticipants[0] === 'Me' && (!explicitFriends || !explicitFriends.length)) {
+      // Default to 2 people (Me & Friend) for 50/50 balance preview
+      if (list.some(function (e) { return parseTripPayer(e.desc) !== 'Me'; })) {
+        allParticipants.push('Friend');
+      }
+    }
+    var numPeople = Math.max(1, allParticipants.length);
+    var perPersonShare = totalSpent > 0 ? Math.round((totalSpent * 100) / numPeople) / 100 : 0;
+
+    // Balances breakdown
+    var balances = allParticipants.map(function (person) {
+      var paid = payerTotals[person] || 0;
+      var net = (paid * 100 - perPersonShare * 100) / 100;
+      return {
+        name: person,
+        paid: paid,
+        share: perPersonShare,
+        net: net // > 0: gets back from group, < 0: owes to group
+      };
     });
+
+    // Backward-compatible properties for 2-party view
+    var paidByMe = payerTotals['Me'] || 0;
+    var friendEntries = list.filter(function (e) { return parseTripPayer(e.desc) !== 'Me'; });
+    var meEntries = list.filter(function (e) { return parseTripPayer(e.desc) === 'Me'; });
     var paidByFriend = friendEntries.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
-    var paidByMe = meEntries.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
-    // Net balance: if 50/50 split of the total, each person's share = totalSpent / 2.
-    // If I paid paidByMe and friend paid paidByFriend:
-    // If paidByMe > paidByFriend: friend owes me (paidByMe - paidByFriend)/2
-    // If paidByFriend > paidByMe: I owe friend (paidByFriend - paidByMe)/2
     var netDiff = (paidByMe * 100 - paidByFriend * 100) / 200;
 
     return {
@@ -253,6 +293,9 @@
       itemsCount: list.length,
       daysCount: numDays,
       dailyAvg: dailyAvg,
+      participants: allParticipants,
+      perPersonShare: perPersonShare,
+      balances: balances,
       meEntries: meEntries,
       paidByMe: paidByMe,
       friendEntries: friendEntries,
@@ -639,7 +682,8 @@
     parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, parseSMSDate: parseSMSDate, findDuplicate: findDuplicate, categoryBreakdown: categoryBreakdown, monthCompare: monthCompare,
     isIncome: isIncome, isMotherSettlement: isMotherSettlement, isMotherPension: isMotherPension, isSalary: isSalary, isExpense: isExpense, isInvestment: isInvestment, getFamilySettlement: getFamilySettlement, getPersonalCashFlow: getPersonalCashFlow,
     isProjectEntry: isProjectEntry, isProjectMotherPaid: isProjectMotherPaid, getProjectSummary: getProjectSummary,
-    isTripEntry: isTripEntry, getTripSummary: getTripSummary,
+    isTripEntry: isTripEntry, getTripSummary: getTripSummary, parseTripPayer: parseTripPayer,
+    getAllTrips: getAllTrips, getTripFriends: getTripFriends, addTripFriend: addTripFriend, removeTripFriend: removeTripFriend,
     getEntryScope: getEntryScope, shiftScopeDesc: shiftScopeDesc,
     rememberMerchantScope: rememberMerchantScope, predictMerchantScope: predictMerchantScope
   };
@@ -1205,7 +1249,9 @@
     var settlement = getFamilySettlement(allMonthEntries);
     var cashFlow = getPersonalCashFlow(allMonthEntries);
     var projSummary = getProjectSummary(allMonthEntries);
-    var tripSummary = getTripSummary(allMonthEntries, getActiveTripName());
+    var curViewTrip = getSelectedViewTripName();
+    var curViewFriends = curViewTrip ? getTripFriends(curViewTrip) : ['Me'];
+    var tripSummary = getTripSummary(allMonthEntries, curViewTrip, curViewFriends);
 
     renderCashFlow(cashFlow, settlement);
     renderStreamSwitcher(monthExpenses.length, monthIncomings.length, projSummary.entries.length, monthInvestments.length, tripSummary.entries.length);
@@ -1819,6 +1865,39 @@
 
   /* ---------- Trips & Events View Rendering & State ---------- */
   var ACTIVE_TRIP_KEY = 'kharcha_active_trip_name';
+  var SELECTED_VIEW_TRIP_KEY = 'kharcha_selected_view_trip';
+  var ALL_TRIPS_KEY = 'kharcha_all_trips_list';
+
+  function getAllTrips() {
+    var tripSet = new Set();
+    // 1. Scan from existing entries
+    (state.entries || []).forEach(function (e) {
+      if (e && e.desc) {
+        var m = e.desc.match(/^[✈\u{2708}\u{FE0F}\u{1F6EB}\u{1F6EC}]+\s*([^:\[]+):/u);
+        if (m && m[1] && m[1].trim()) tripSet.add(m[1].trim());
+      }
+    });
+    // 2. Add from local storage saved trips
+    try {
+      var saved = JSON.parse(localStorage.getItem(ALL_TRIPS_KEY)) || [];
+      saved.forEach(function (t) { if (t && t.trim()) tripSet.add(t.trim()); });
+    } catch (e) {}
+    // 3. Active trip if set
+    var active = getActiveTripName();
+    if (active) tripSet.add(active);
+
+    return Array.from(tripSet);
+  }
+
+  function saveTripToList(name) {
+    if (!name || !name.trim()) return;
+    var trips = getAllTrips();
+    if (!trips.includes(name.trim())) {
+      trips.push(name.trim());
+      try { localStorage.setItem(ALL_TRIPS_KEY, JSON.stringify(trips)); } catch (e) {}
+    }
+  }
+
   function getActiveTripName() {
     try { return localStorage.getItem(ACTIVE_TRIP_KEY) || ''; } catch (e) { return ''; }
   }
@@ -1826,10 +1905,66 @@
     try {
       if (name && name.trim()) {
         localStorage.setItem(ACTIVE_TRIP_KEY, name.trim());
+        saveTripToList(name.trim());
+        setSelectedViewTripName(name.trim());
       } else {
         localStorage.removeItem(ACTIVE_TRIP_KEY);
       }
     } catch (e) {}
+  }
+
+  function getSelectedViewTripName() {
+    try {
+      var sel = localStorage.getItem(SELECTED_VIEW_TRIP_KEY);
+      if (sel && sel.trim()) return sel.trim();
+    } catch (e) {}
+    var active = getActiveTripName();
+    if (active) return active;
+    var all = getAllTrips();
+    return all.length ? all[0] : '';
+  }
+  function setSelectedViewTripName(name) {
+    try {
+      if (name && name.trim()) localStorage.setItem(SELECTED_VIEW_TRIP_KEY, name.trim());
+      else localStorage.removeItem(SELECTED_VIEW_TRIP_KEY);
+    } catch (e) {}
+  }
+
+  // Friends management per trip
+  var TRIP_FRIENDS_PREFIX = 'kharcha_trip_friends_';
+  function getTripFriends(tripName) {
+    if (!tripName) return ['Me'];
+    try {
+      var saved = JSON.parse(localStorage.getItem(TRIP_FRIENDS_PREFIX + tripName.trim()));
+      if (Array.isArray(saved) && saved.length) {
+        var set = new Set();
+        set.add('Me');
+        saved.forEach(function (f) { if (f && f.trim()) set.add(f.trim()); });
+        return Array.from(set);
+      }
+    } catch (e) {}
+    return ['Me'];
+  }
+  function setTripFriends(tripName, friendsList) {
+    if (!tripName) return;
+    try {
+      var clean = Array.from(new Set(friendsList)).filter(function (f) { return f && f.trim(); });
+      localStorage.setItem(TRIP_FRIENDS_PREFIX + tripName.trim(), JSON.stringify(clean));
+    } catch (e) {}
+  }
+  function addTripFriend(tripName, friendName) {
+    if (!tripName || !friendName || !friendName.trim()) return;
+    var list = getTripFriends(tripName);
+    var norm = friendName.trim();
+    if (!list.includes(norm)) {
+      list.push(norm);
+      setTripFriends(tripName, list);
+    }
+  }
+  function removeTripFriend(tripName, friendName) {
+    if (!tripName || !friendName || friendName === 'Me') return;
+    var list = getTripFriends(tripName).filter(function (f) { return f !== friendName; });
+    setTripFriends(tripName, list);
   }
 
   var TRIP_BUDGET_KEY_PREFIX = 'kharcha_trip_budget_';
@@ -1845,9 +1980,13 @@
     } catch (e) {}
   }
 
+  var selectedTripPayer = 'Me';
+
   function renderTripsView(tripSummary, monthEntries) {
-    var curTrip = getActiveTripName();
-    var hasActiveTrip = !!(curTrip && curTrip.trim());
+    var activeTrip = getActiveTripName();
+    var viewTrip = getSelectedViewTripName();
+    var hasActiveTrip = !!(activeTrip && activeTrip.trim());
+    var isViewingActive = hasActiveTrip && (viewTrip === activeTrip);
 
     // Update banner on Spends View
     var banner = $('active-trip-banner');
@@ -1855,25 +1994,64 @@
     var atbSpent = $('atb-trip-spent');
     if (banner) {
       banner.hidden = !hasActiveTrip;
-      if (atbName) atbName.textContent = curTrip;
-      if (atbSpent) atbSpent.textContent = money(tripSummary.totalSpent);
+      if (atbName) atbName.textContent = activeTrip;
+      if (atbSpent) {
+        var activeSummary = getTripSummary(monthEntries, activeTrip, getTripFriends(activeTrip));
+        atbSpent.textContent = money(activeSummary.totalSpent);
+      }
     }
 
-    // Update Trips Section Hero Card
-    var titleEl = $('trip-display-name');
+    // Populate Trip Selector Dropdown
+    var tripSelect = $('trip-select');
+    var allTrips = getAllTrips();
+    if (tripSelect) {
+      tripSelect.innerHTML = '';
+      if (!allTrips.length) {
+        var opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'No Trips Created (Tap + New Trip)';
+        tripSelect.appendChild(opt);
+      } else {
+        allTrips.forEach(function (t) {
+          var opt = document.createElement('option');
+          opt.value = t;
+          var tag = (t === activeTrip) ? ' (Active ✈️)' : '';
+          opt.textContent = '✈️ ' + t + tag;
+          if (t === viewTrip) opt.selected = true;
+          tripSelect.appendChild(opt);
+        });
+      }
+    }
+
+    // Update Trips Section Status Badge and Action Buttons
     var statusBadge = $('trip-badge-status');
     var toggleBtn = $('trip-toggle-btn');
     var totSpentEl = $('trip-total-spent');
     var countEl = $('trip-items-count');
     var avgEl = $('trip-daily-avg');
 
-    if (titleEl) titleEl.textContent = hasActiveTrip ? ('✈️ ' + curTrip) : '✈️ No Active Trip';
     if (statusBadge) {
-      statusBadge.textContent = hasActiveTrip ? '✈️ Active Trip' : '🏖️ Trip Closed';
-      statusBadge.className = 'trip-badge' + (hasActiveTrip ? '' : ' closed');
+      if (viewTrip && viewTrip === activeTrip) {
+        statusBadge.textContent = '✈️ Active Trip';
+        statusBadge.className = 'trip-badge';
+      } else if (viewTrip) {
+        statusBadge.textContent = '🏖️ Past / Archived Trip';
+        statusBadge.className = 'trip-badge closed';
+      } else {
+        statusBadge.textContent = '🏖️ No Trips';
+        statusBadge.className = 'trip-badge closed';
+      }
     }
     if (toggleBtn) {
-      toggleBtn.textContent = hasActiveTrip ? 'Close / End Trip' : 'Start New Trip';
+      if (viewTrip && viewTrip === activeTrip) {
+        toggleBtn.textContent = 'Close Trip';
+        toggleBtn.style.display = '';
+      } else if (viewTrip) {
+        toggleBtn.textContent = 'Set as Active';
+        toggleBtn.style.display = '';
+      } else {
+        toggleBtn.style.display = 'none';
+      }
     }
 
     if (totSpentEl) totSpentEl.textContent = money(tripSummary.totalSpent);
@@ -1881,7 +2059,7 @@
     if (avgEl) avgEl.textContent = money(tripSummary.dailyAvg) + '/day';
 
     // Trip Budget & Burn Pace Meter
-    var tripBudget = hasActiveTrip ? getTripBudget(curTrip) : 0;
+    var tripBudget = viewTrip ? getTripBudget(viewTrip) : 0;
     var budgetStatus = $('trip-budget-status');
     var budgetFill = $('trip-budget-fill');
     var budgetBtn = $('trip-budget-edit-btn');
@@ -1918,35 +2096,112 @@
       }
     }
 
-    // Split / Friend Balance Summary Card
-    var paidByMeEl = $('trip-paid-by-me');
-    var paidByFriendEl = $('trip-paid-by-friend');
-    var balanceEl = $('trip-split-balance');
-    if (paidByMeEl) paidByMeEl.textContent = money(tripSummary.paidByMe || 0);
-    if (paidByFriendEl) paidByFriendEl.textContent = money(tripSummary.paidByFriend || 0);
-    if (balanceEl) {
-      var net = tripSummary.netDiff || 0;
-      if (Math.abs(net) < 1) {
-        balanceEl.textContent = 'Settled 🎉';
-        balanceEl.style.color = '#10B981';
-      } else if (net > 0) {
-        balanceEl.textContent = 'Friend owes ' + money(net);
-        balanceEl.style.color = '#0284C7';
+    // Render Friends Chips Section
+    var friendsSec = $('trip-friends-sec');
+    var friendsChips = $('trip-friends-chips');
+    var tripFriends = viewTrip ? getTripFriends(viewTrip) : ['Me'];
+
+    if (friendsChips) {
+      friendsChips.innerHTML = '';
+      tripFriends.forEach(function (friend) {
+        var chip = el('span', 'friend-chip' + (friend === 'Me' ? ' is-me' : ''));
+        chip.textContent = (friend === 'Me' ? '👤 Me' : '🧑 ' + friend);
+        if (friend !== 'Me') {
+          var del = el('button', 'friend-chip-del', '×');
+          del.type = 'button';
+          del.title = 'Remove ' + friend;
+          del.addEventListener('click', function (ev) {
+            ev.stopPropagation();
+            removeTripFriend(viewTrip, friend);
+            render();
+            toast('Removed ' + friend);
+          });
+          chip.appendChild(del);
+        }
+        friendsChips.appendChild(chip);
+      });
+    }
+
+    // Render Multi-Friend Split & Balance Breakdown
+    var splitCountEl = $('trip-split-count');
+    var perHeadEl = $('trip-per-head-amt');
+    var balancesList = $('trip-balances-list');
+
+    var numPpl = tripSummary.participants ? tripSummary.participants.length : 1;
+    if (splitCountEl) splitCountEl.textContent = numPpl + (numPpl === 1 ? ' Person' : ' Friends Split');
+    if (perHeadEl) perHeadEl.textContent = money(tripSummary.perPersonShare) + ' / person';
+
+    if (balancesList) {
+      balancesList.innerHTML = '';
+      if (!tripSummary.balances || !tripSummary.balances.length) {
+        var row = el('div', 'friend-bal-row');
+        row.textContent = 'Add expenses to see who paid and who owes.';
+        balancesList.appendChild(row);
       } else {
-        balanceEl.textContent = 'You owe ' + money(Math.abs(net));
-        balanceEl.style.color = '#EA580C';
+        tripSummary.balances.forEach(function (b) {
+          var row = el('div', 'friend-bal-row');
+          var personCol = el('div', 'fbr-person');
+          var nameSpan = el('span', 'fbr-name', (b.name === 'Me' ? '👤 Me (You)' : '🧑 ' + b.name));
+          var paidSpan = el('span', 'fbr-paid', 'Paid ' + money(b.paid) + ' (Share: ' + money(b.share) + ')');
+          personCol.appendChild(nameSpan);
+          personCol.appendChild(paidSpan);
+
+          var netCol = el('div', 'fbr-net');
+          if (Math.abs(b.net) < 1) {
+            netCol.className = 'fbr-net settled';
+            netCol.textContent = 'Settled 🎉';
+          } else if (b.net > 0) {
+            netCol.className = 'fbr-net gets-back';
+            netCol.textContent = 'Gets back ' + money(b.net);
+          } else {
+            netCol.className = 'fbr-net owes';
+            netCol.textContent = 'Owes ' + money(Math.abs(b.net));
+          }
+
+          row.appendChild(personCol);
+          row.appendChild(netCol);
+          balancesList.appendChild(row);
+        });
       }
     }
 
+    // Render Who Paid dynamic radio pills in Add Form
+    var payerChips = $('trip-payer-chips');
+    if (payerChips) {
+      payerChips.innerHTML = '';
+      if (!tripFriends.includes(selectedTripPayer)) selectedTripPayer = 'Me';
+
+      tripFriends.forEach(function (friend) {
+        var label = el('label', 'scope-pill' + (selectedTripPayer === friend ? ' active' : ''));
+        var radio = document.createElement('input');
+        radio.type = 'radio';
+        radio.name = 'trip-payer';
+        radio.value = friend;
+        if (selectedTripPayer === friend) radio.checked = true;
+        label.appendChild(radio);
+        label.appendChild(el('span', null, ' ' + (friend === 'Me' ? '👤 Me' : '🧑 ' + friend)));
+
+        label.addEventListener('click', function () {
+          selectedTripPayer = friend;
+          payerChips.querySelectorAll('.scope-pill').forEach(function (p) {
+            var inp = p.querySelector('input');
+            p.classList.toggle('active', inp && inp.value === selectedTripPayer);
+          });
+        });
+        payerChips.appendChild(label);
+      });
+    }
+
+    // Timeline entries
     var daysBox = $('trip-days');
     if (!daysBox) return;
     daysBox.textContent = '';
 
     if (!tripSummary.entries.length) {
       var em = el('div', 'empty');
-      em.appendChild(el('p', null, hasActiveTrip
-        ? ('No expenses logged yet for ' + curTrip + ' in ' + monthLabel(state.sel) + '. Add flights, hotel, or meals above!')
-        : ('No trip expenses logged for ' + monthLabel(state.sel) + '. Tap "Start New Trip" to begin tracking!')));
+      em.appendChild(el('p', null, viewTrip
+        ? ('No expenses logged yet for ' + viewTrip + ' in ' + monthLabel(state.sel) + '. Add hotel, food, or travel above!')
+        : ('No trips created yet. Tap "+ New Trip" to start tracking!')));
       daysBox.appendChild(em);
       return;
     }
@@ -1976,24 +2231,99 @@
     });
   }
 
-  // Trip Toggle & Close Button Handlers
+  // Trip Toggle & Switcher Event Listeners
+  var tripSelectEl = $('trip-select');
+  if (tripSelectEl) {
+    tripSelectEl.addEventListener('change', function () {
+      var val = tripSelectEl.value;
+      if (val) {
+        setSelectedViewTripName(val);
+        render();
+      }
+    });
+  }
+
+  var tripNewBtn = $('trip-new-btn');
+  if (tripNewBtn) {
+    tripNewBtn.addEventListener('click', function () {
+      var name = window.prompt('Enter new trip heading (e.g. Manali Trip, Goa 2026, Dubai Vacation):', '');
+      if (name && name.trim()) {
+        var clean = name.trim();
+        saveTripToList(clean);
+        setActiveTripName(clean);
+        setSelectedViewTripName(clean);
+        render();
+        toast('Started & switched to ' + clean + '!');
+      }
+    });
+  }
+
+  var tripRenameBtn = $('trip-rename-btn');
+  if (tripRenameBtn) {
+    tripRenameBtn.addEventListener('click', function () {
+      var cur = getSelectedViewTripName();
+      if (!cur) return;
+      var next = window.prompt('Rename trip "' + cur + '" to:', cur);
+      if (next && next.trim() && next.trim() !== cur) {
+        var newName = next.trim();
+        saveTripToList(newName);
+        // Rename in localStorage
+        if (getActiveTripName() === cur) setActiveTripName(newName);
+        setSelectedViewTripName(newName);
+        // Copy friends list
+        var friends = getTripFriends(cur);
+        setTripFriends(newName, friends);
+        // Copy budget
+        var b = getTripBudget(cur);
+        if (b > 0) setTripBudget(newName, b);
+        render();
+        toast('Renamed trip to ' + newName);
+      }
+    });
+  }
+
+  var tripAddFriendBtn = $('trip-add-friend-btn');
+  if (tripAddFriendBtn) {
+    tripAddFriendBtn.addEventListener('click', function () {
+      var viewTrip = getSelectedViewTripName();
+      if (!viewTrip) {
+        toast('Select or create a trip first!');
+        return;
+      }
+      var name = window.prompt('Enter friend\'s name to add to ' + viewTrip + ' (e.g. Rohit, Amit, Priya):', '');
+      if (name && name.trim()) {
+        addTripFriend(viewTrip, name.trim());
+        render();
+        toast('Added ' + name.trim() + ' to ' + viewTrip);
+      }
+    });
+  }
+
   function promptTripToggle() {
-    var cur = getActiveTripName();
-    if (cur) {
+    var viewTrip = getSelectedViewTripName();
+    var curActive = getActiveTripName();
+
+    if (viewTrip && viewTrip === curActive) {
       showConfirmModal({
         title: '✈️ Close Active Trip?',
-        message: 'Close "' + cur + '"? New expenses will resume logging to Personal/Family normally.',
+        message: 'Close "' + viewTrip + '"? New expenses will resume logging to Personal/Family normally. You can still view ' + viewTrip + ' anytime from the trip switcher.',
         confirmText: 'Close Trip',
         onConfirm: function () {
           setActiveTripName('');
           render();
-          toast('Closed ' + cur);
+          toast('Closed ' + viewTrip);
         }
       });
+    } else if (viewTrip) {
+      setActiveTripName(viewTrip);
+      render();
+      toast('Trip Mode active: ' + viewTrip);
     } else {
-      var next = window.prompt('Enter trip / event name (e.g. Goa Trip, Manali, Dubai 2026):', 'Goa Trip');
+      var next = window.prompt('Enter trip / event name (e.g. Manali Trip, Goa, Dubai):', 'Manali Trip');
       if (next && next.trim()) {
+        saveTripToList(next.trim());
         setActiveTripName(next.trim());
+        setSelectedViewTripName(next.trim());
         render();
         toast('Trip Mode active: ' + next.trim());
       }
@@ -2008,9 +2338,9 @@
   var tripBudgetEditBtn = $('trip-budget-edit-btn');
   if (tripBudgetEditBtn) {
     tripBudgetEditBtn.addEventListener('click', function () {
-      var curTrip = getActiveTripName();
+      var curTrip = getSelectedViewTripName();
       if (!curTrip) {
-        toast('Start a trip first to set its budget!');
+        toast('Select or start a trip first to set its budget!');
         return;
       }
       var cur = getTripBudget(curTrip);
@@ -2050,27 +2380,6 @@
     });
   }
 
-  // Payer Radio Pills for Trip Add Form
-  function getTripPayer() {
-    var checked = document.querySelector('input[name="trip-payer"]:checked');
-    return checked ? checked.value : 'me';
-  }
-  function setTripPayer(val) {
-    var radios = document.querySelectorAll('input[name="trip-payer"]');
-    radios.forEach(function (r) {
-      r.checked = (r.value === val);
-      r.parentElement.classList.toggle('active', r.checked);
-    });
-  }
-  var tripPayerMePill = $('trip-payer-me-pill');
-  if (tripPayerMePill) {
-    tripPayerMePill.addEventListener('click', function () { setTripPayer('me'); });
-  }
-  var tripPayerFriendPill = $('trip-payer-friend-pill');
-  if (tripPayerFriendPill) {
-    tripPayerFriendPill.addEventListener('click', function () { setTripPayer('friend'); });
-  }
-
   // Add Trip Expense Form
   var addTripForm = $('add-trip-expense');
   var tripExpAmtInput = $('trip-exp-amt');
@@ -2095,11 +2404,11 @@
         return;
       }
 
-      var tripName = getActiveTripName() || 'Trip';
+      var tripName = getSelectedViewTripName() || getActiveTripName() || 'Trip';
       var rawDesc = $('trip-exp-desc') ? $('trip-exp-desc').value.trim() : '';
       var clean = cleanScopePrefix(rawDesc) || 'Expense';
-      var payer = getTripPayer();
-      var payerTag = payer === 'friend' ? ' [Paid by Friend]' : '';
+      var payer = selectedTripPayer || 'Me';
+      var payerTag = (payer && payer !== 'Me') ? (' [Paid by ' + payer + ']') : '';
       var desc = '✈️ ' + tripName + ': ' + clean + payerTag;
 
       var spentVal = $('trip-exp-date') ? $('trip-exp-date').value : '';
@@ -2112,8 +2421,9 @@
         if ($('trip-exp-date')) $('trip-exp-date').value = '';
         var ts = spentAt ? Date.parse(spentAt) : Date.now();
         state.sel = monthKey(ts);
+        saveTripToList(tripName);
         render();
-        var payerLabel = payer === 'friend' ? ' (Paid by Friend)' : '';
+        var payerLabel = (payer && payer !== 'Me') ? (' (Paid by ' + payer + ')') : '';
         toast('Logged ' + money(amt) + ' to ' + tripName + payerLabel);
         tripExpAmtInput.focus();
       }).catch(function (err) {
@@ -3067,7 +3377,7 @@
     updateBtn.addEventListener('click', function () {
       showConfirmModal({
         title: '🔄 Force Clear Cache & Reload',
-        message: 'Clear cached app data and reload to the latest v34?',
+        message: 'Clear cached app data and reload to the latest v36?',
         confirmText: 'Clear & Reload',
         onConfirm: function () {
           if ('caches' in window) {

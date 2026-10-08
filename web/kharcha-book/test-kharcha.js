@@ -57,7 +57,7 @@ windowMock.window = windowMock;
 const code = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8');
 vm.runInNewContext(code, windowMock);
 
-const { parseAmount, normDesc, money, groupByDay, byDescription, monthTotals, toLocalISOString, isFamilyEntry, parseBankSMS, parseSMSDate, findDuplicate, categoryBreakdown, monthCompare, isIncome, isMotherSettlement, isMotherPension, isSalary, isExpense, isInvestment, getFamilySettlement, getPersonalCashFlow, isProjectEntry, isProjectMotherPaid, getProjectSummary, isTripEntry, getTripSummary, getEntryScope, shiftScopeDesc, rememberMerchantScope, predictMerchantScope } = windowMock.__kharcha;
+const { parseAmount, normDesc, money, groupByDay, byDescription, monthTotals, toLocalISOString, isFamilyEntry, parseBankSMS, parseSMSDate, findDuplicate, categoryBreakdown, monthCompare, isIncome, isMotherSettlement, isMotherPension, isSalary, isExpense, isInvestment, getFamilySettlement, getPersonalCashFlow, isProjectEntry, isProjectMotherPaid, getProjectSummary, isTripEntry, getTripSummary, parseTripPayer, getEntryScope, shiftScopeDesc, rememberMerchantScope, predictMerchantScope } = windowMock.__kharcha;
 
 let passed = 0;
 let failed = 0;
@@ -406,6 +406,33 @@ assert(splitSummary.paidByMe === 5000, 'Paid by me = 4000 + 1000 = 5000');
 assert(splitSummary.paidByFriend === 2000, 'Paid by friend = 2000');
 // Total is 7000, each share is 3500. I paid 5000, friend owes me 1500 (5000 - 2000)/2 = 1500
 assert(splitSummary.netDiff === 1500, 'Friend owes me (5000 - 2000) / 2 = 1500');
+
+// 20. Multiple Named Friends Split Tests (3+ Friends: Me, Rohit, Amit)
+assert(parseTripPayer('✈️ Manali Trip: Cottage Resort [Paid by Rohit]') === 'Rohit', 'parseTripPayer extracts named payer Rohit');
+assert(parseTripPayer('✈️ Manali Trip: Fuel & Toll [Paid by Amit]') === 'Amit', 'parseTripPayer extracts named payer Amit');
+assert(parseTripPayer('✈️ Manali Trip: Dinner [Paid by Priya]') === 'Priya', 'parseTripPayer extracts named payer Priya');
+assert(parseTripPayer('✈️ Manali Trip: Taxi ride') === 'Me', 'parseTripPayer defaults to Me');
+
+const multiFriendsEntries = [
+  { id: 'm1', amount: 6000, desc: '✈️ Manali Trip: Cottage [Paid by Me]', ts: Date.now() },
+  { id: 'm2', amount: 3000, desc: '✈️ Manali Trip: Paragliding [Paid by Rohit]', ts: Date.now() },
+  { id: 'm3', amount: 0, desc: '✈️ Manali Trip: Sightseeing [Paid by Amit]', ts: Date.now() } // Amit paid 0
+];
+const manaliSummary = getTripSummary(multiFriendsEntries, 'Manali Trip', ['Me', 'Rohit', 'Amit']);
+assert(manaliSummary.totalSpent === 9000, 'Manali total spent = 6000 + 3000 = 9000');
+assert(manaliSummary.participants.length === 3, 'Manali has 3 participants (Me, Rohit, Amit)');
+assert(manaliSummary.perPersonShare === 3000, 'Each person share = 9000 / 3 = 3000');
+
+const balMe = manaliSummary.balances.find(b => b.name === 'Me');
+const balRohit = manaliSummary.balances.find(b => b.name === 'Rohit');
+const balAmit = manaliSummary.balances.find(b => b.name === 'Amit');
+
+assert(balMe.paid === 6000, 'Me paid 6000');
+assert(balMe.net === 3000, 'Me gets back 3000 (paid 6000 - share 3000)');
+assert(balRohit.paid === 3000, 'Rohit paid 3000');
+assert(balRohit.net === 0, 'Rohit is settled (paid 3000 - share 3000)');
+assert(balAmit.paid === 0, 'Amit paid 0');
+assert(balAmit.net === -3000, 'Amit owes 3000 (paid 0 - share 3000)');
 
 console.log(`\nResults: ${passed} passed, ${failed} failed.`);
 if (failed > 0) process.exit(1);

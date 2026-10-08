@@ -7,17 +7,17 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="styles.css?v=35">
+<link rel="stylesheet" href="styles.css?v=36">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0B5D75">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Kharcha">
-<link rel="apple-touch-icon" href="apple-touch-icon.png?v=35">
-<link rel="icon" href="icon-192.png?v=35" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=36">
+<link rel="icon" href="icon-192.png?v=36" type="image/png">
 <script>
   (function() {
-    var V = '35';
+    var V = '36';
     if (localStorage.getItem('kharcha_app_v') !== V) {
       localStorage.setItem('kharcha_app_v', V);
       if ('caches' in window) {
@@ -37,10 +37,10 @@
 <body>
 <main class="app">
   <header class="top">
-    <h1><img class="logo" src="icon-192.png?v=35" width="36" height="36" alt="">Kharcha Book</h1>
+    <h1><img class="logo" src="icon-192.png?v=36" width="36" height="36" alt="">Kharcha Book</h1>
     <div class="top-r">
       <span class="sync" id="sync" data-state="pending">Loading…</span>
-      <button type="button" class="installbtn" id="force-update-btn" title="Force clear cache & reload latest v35">v35 🔄</button>
+      <button type="button" class="installbtn" id="force-update-btn" title="Force clear cache & reload latest v36">v36 🔄</button>
       <button type="button" class="installbtn" id="install-btn" hidden>📲 Install App</button>
       <button type="button" class="signout" id="signout" hidden>Sign out</button>
     </div>
@@ -446,9 +446,23 @@
     <div class="trip-hero-card">
       <div class="trip-card-top">
         <span class="trip-badge" id="trip-badge-status">✈️ In Progress</span>
-        <button type="button" class="trip-manage-btn" id="trip-toggle-btn">Start New Trip</button>
+        <div class="trip-actions-row">
+          <button type="button" class="trip-manage-btn" id="trip-new-btn">+ New Trip</button>
+          <button type="button" class="trip-manage-btn" id="trip-toggle-btn">Close Trip</button>
+        </div>
       </div>
-      <h2 class="trip-title" id="trip-display-name">✈️ Goa Trip</h2>
+
+      <!-- Dynamic Trip Selector Dropdown & Switcher -->
+      <div class="trip-select-wrap">
+        <label for="trip-select" class="trip-select-label">Current Trip:</label>
+        <div class="trip-select-row">
+          <select id="trip-select" class="trip-select" aria-label="Select Trip to View or Manage">
+            <option value="">No Trips Created</option>
+          </select>
+          <button type="button" class="trip-icon-btn" id="trip-rename-btn" title="Rename Trip">✏️</button>
+        </div>
+      </div>
+
       <p class="trip-subtitle" id="trip-dates-sub">All expenses during this trip are tracked together</p>
 
       <div class="trip-total-banner">
@@ -482,19 +496,25 @@
         </div>
       </div>
 
-      <!-- Friend Balance / Split Summary Card -->
+      <!-- Multi-Friend Participants & Manager -->
+      <div class="trip-friends-sec" id="trip-friends-sec">
+        <div class="tfs-head">
+          <span class="tfs-lbl">👥 Friends in Trip:</span>
+          <button type="button" class="trip-add-friend-btn" id="trip-add-friend-btn">+ Add Friend</button>
+        </div>
+        <div class="trip-friends-chips" id="trip-friends-chips">
+          <!-- Dynamic friend pills inserted here -->
+        </div>
+      </div>
+
+      <!-- Multi-Friend Split & Balance Breakdown Ledger -->
       <div class="trip-split-card" id="trip-split-card">
-        <div class="tsc-item">
-          <span class="tsc-lbl">👤 Paid by Me</span>
-          <span class="tsc-amt" id="trip-paid-by-me">₹0</span>
+        <div class="tsc-header">
+          <span class="tsc-title">⚖️ Split Balances (<span id="trip-split-count">Equal Split</span>)</span>
+          <span class="tsc-per-head" id="trip-per-head-amt">₹0 / person</span>
         </div>
-        <div class="tsc-item">
-          <span class="tsc-lbl">🤝 Paid by Friend</span>
-          <span class="tsc-amt" id="trip-paid-by-friend">₹0</span>
-        </div>
-        <div class="tsc-item tsc-net">
-          <span class="tsc-lbl">⚖️ Balance</span>
-          <span class="tsc-amt" id="trip-split-balance">Settled</span>
+        <div class="trip-balances-list" id="trip-balances-list">
+          <!-- Per friend balance rows rendered here -->
         </div>
       </div>
     </div>
@@ -502,9 +522,10 @@
     <!-- Quick Add Trip Expense Form -->
     <form class="add trip-add-form" id="add-trip-expense" autocomplete="off" novalidate>
       <div class="scope-picker">
-        <span class="scope-label">Paid By:</span>
-        <label class="scope-pill active" id="trip-payer-me-pill"><input type="radio" name="trip-payer" value="me" checked> 👤 Paid by Me</label>
-        <label class="scope-pill" id="trip-payer-friend-pill"><input type="radio" name="trip-payer" value="friend"> 🤝 Paid by Friend</label>
+        <span class="scope-label">Who Paid:</span>
+        <div class="trip-payer-chips" id="trip-payer-chips">
+          <!-- Dynamic payer radio pills (Me, Friend 1, Friend 2...) rendered here -->
+        </div>
       </div>
       <div class="add-row">
         <div class="field">
@@ -513,7 +534,7 @@
         </div>
         <div class="field">
           <label for="trip-exp-desc">Description</label>
-          <input class="input" id="trip-exp-desc" maxlength="60" placeholder="e.g. Flight, Hotel, Dinner, Taxi…">
+          <input class="input" id="trip-exp-desc" maxlength="60" placeholder="e.g. Flight, Hotel, Dinner, Taxi, Drinks…">
         </div>
       </div>
       <div class="add-row add-row-extra">
@@ -523,13 +544,13 @@
         </div>
       </div>
       <div class="add-foot">
-        <p class="stamp" id="trip-payer-note">Auto-tags with active trip</p>
+        <p class="stamp" id="trip-payer-note">Auto-tags with selected trip</p>
         <button class="primary trip-btn" type="submit" id="add-trip-exp-btn" disabled>+ Add Trip Expense</button>
       </div>
       <p class="err" id="trip-exp-err" role="alert" hidden></p>
     </form>
 
-    <h2 class="sec-title" style="margin-top:16px;">Trip Expenses</h2>
+    <h2 class="sec-title" style="margin-top:16px;">Trip Expenses Timeline</h2>
     <div id="trip-days" aria-live="polite"></div>
   </section>
 
@@ -609,12 +630,12 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=35" onerror="void 0"></script>
-<script src="app.js?v=35"></script>
+<script src="config.js?v=36" onerror="void 0"></script>
+<script src="app.js?v=36"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('sw.js?v=35').then(function (reg) {
+      navigator.serviceWorker.register('sw.js?v=36').then(function (reg) {
         reg.update();
         reg.addEventListener('updatefound', function () {
           var newWorker = reg.installing;

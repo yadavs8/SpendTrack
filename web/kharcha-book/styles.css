@@ -1183,39 +1183,214 @@ button.cat-row { width: 100%; text-align: left; background: none; border: 0; pad
 .tbr-label { color: var(--muted); font-weight: 500; }
 .tbr-val { font-weight: 700; color: var(--ink); }
 
-/* Trip Split & Friend Balance Card */
-.trip-split-card {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1.1fr;
+/* Trip Actions & Selector */
+.trip-actions-row {
+  display: flex;
+  align-items: center;
   gap: 6px;
+}
+.trip-select-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 2px 0;
+}
+.trip-select-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.trip-select-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.trip-select {
+  flex: 1;
+  height: 40px;
+  background: var(--bg);
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  padding: 0 12px;
+  font: 700 1.05rem/1.2 var(--f-display);
+  color: var(--ink);
+  cursor: pointer;
+}
+.trip-select:focus {
+  border-color: #0284C7;
+  outline: none;
+}
+.trip-icon-btn {
+  height: 40px;
+  width: 40px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.trip-icon-btn:hover {
+  border-color: #0284C7;
+  background: rgba(2, 132, 199, 0.08);
+}
+
+/* Multi-Friend Participants & Manager */
+.trip-friends-sec {
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 12px;
-  padding: 8px 10px;
-}
-.tsc-item {
+  padding: 8px 12px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 6px;
 }
-.tsc-lbl {
-  font-size: 0.67rem;
+.tfs-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.tfs-lbl {
+  font-size: 0.74rem;
   font-weight: 600;
   color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
-.tsc-amt {
-  font: 700 0.92rem/1.2 var(--f-display);
+.trip-add-friend-btn {
+  background: transparent;
+  border: 1px dashed var(--accent);
+  color: var(--accent);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.trip-add-friend-btn:hover {
+  background: var(--accent-soft);
+}
+.trip-friends-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.friend-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 0.76rem;
+  font-weight: 600;
   color: var(--ink);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
-.tsc-net .tsc-amt { color: #0284C7; }
-:root[data-theme="dark"] .tsc-net .tsc-amt { color: #38BDF8; }
+.friend-chip.is-me {
+  border-color: #0284C7;
+  color: #0284C7;
+  background: rgba(2, 132, 199, 0.08);
+}
+.friend-chip-del {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+  cursor: pointer;
+  margin-left: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.friend-chip-del:hover {
+  color: var(--danger);
+}
+
+/* Trip Split & Friend Balance Ledger Card */
+.trip-split-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+.tsc-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 6px;
+}
+.tsc-title {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.tsc-per-head {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #0284C7;
+  font-family: var(--f-display);
+}
+:root[data-theme="dark"] .tsc-per-head { color: #38BDF8; }
+
+.trip-balances-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.friend-bal-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 6px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  font-size: 0.8rem;
+}
+.fbr-person {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.fbr-name {
+  font-weight: 600;
+  color: var(--ink);
+}
+.fbr-paid {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+.fbr-net {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 700;
+  font-family: var(--f-display);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.84rem;
+}
+.fbr-net.gets-back { color: #10B981; }
+.fbr-net.owes { color: #EA580C; }
+.fbr-net.settled { color: var(--muted); font-size: 0.75rem; }
+
+.trip-payer-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
 
 /* Swipe to Move & Quick Action Row Styling */
 .entry-swipe-wrap {
