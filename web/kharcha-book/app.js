@@ -3768,12 +3768,22 @@
     appSettingsBtn.addEventListener('click', function () { window.KharchaNative.openSettings(); });
   }
 
+  // The running version, read from this script's own ?v= so the label can't drift from the real build.
+  var APP_VERSION = (function () {
+    var s = document.querySelector('script[src*="app.js"]');
+    var m = s && /[?&]v=(\d+)/.exec(s.getAttribute('src'));
+    return m ? 'v' + m[1] : '';
+  })();
   var updateBtn = $('force-update-btn');
   if (updateBtn) {
+    if (APP_VERSION) {
+      updateBtn.textContent = APP_VERSION + ' 🔄';
+      updateBtn.title = 'Force clear cache & reload (running ' + APP_VERSION + ')';
+    }
     updateBtn.addEventListener('click', function () {
       showConfirmModal({
         title: '🔄 Force Clear Cache & Reload',
-        message: 'Clear cached app data and reload to the latest v39?',
+        message: 'Clear cached app data and reload to the latest version? (now running ' + (APP_VERSION || 'unknown') + ')',
         confirmText: 'Clear & Reload',
         onConfirm: function () {
           if ('caches' in window) {
