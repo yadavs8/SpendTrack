@@ -48,21 +48,43 @@ class ExpenseScopeTest {
         assertEquals("Expense", desc)
     }
 
+    private val owners = ExpenseScope.parseOwners("Sanjeev Yadav, sanjeev@okhdfcbank")
+
     @Test
-    fun selfPayment_detectsSanjeevYadav() {
-        val isSelf1 = ExpenseScope.isSelfPayment("Sanjeev Yadav", null, "Paid to Sanjeev Yadav UPI")
-        assertEquals(true, isSelf1)
+    fun selfPayment_detectsOwnerNameUpiIdAndPhrases() {
+        assertEquals(true, ExpenseScope.isSelfPayment("Sanjeev Yadav", null, "Paid to Sanjeev Yadav UPI", owners))
+        assertEquals(true, ExpenseScope.isSelfPayment(null, "sanjeev@okhdfcbank", null, owners))
+        assertEquals(true, ExpenseScope.isSelfPayment(null, null, "Self transfer between ICICI and HDFC"))
+        assertEquals(true, ExpenseScope.isSelfPayment("HDFC Bank", null, "Transfer to my account in HDFC from ICICI"))
+        assertEquals(false, ExpenseScope.isSelfPayment("Swiggy", "swiggy@icici", "Swiggy order", owners))
+    }
 
-        val isSelf2 = ExpenseScope.isSelfPayment(null, "sanjeev@okhdfcbank", null)
-        assertEquals(true, isSelf2)
+    @Test
+    fun selfPayment_ignoresGreetingAndSharedFirstNames() {
+        // Bank greets the account holder by name on every payment -- that is not a self-transfer.
+        assertEquals(false, ExpenseScope.isSelfPayment("Swiggy", "swiggy@icici", "Dear Sanjeev, Rs 450 debited to Swiggy", owners))
+        // A different person / shop that shares the first name.
+        assertEquals(false, ExpenseScope.isSelfPayment("Sanjeev Medical Store", "sanjeevmed@ybl", null, owners))
+        assertEquals(false, ExpenseScope.isSelfPayment("Sanjeev Kumar", "sanjeev@ybl", null, owners))
+        // "linked account" appears in ordinary debit SMS.
+        assertEquals(false, ExpenseScope.isSelfPayment("Zepto", null, "Rs 300 debited from your linked account XX12 to Zepto", owners))
+        // No owners configured: only explicit self-transfer phrasing counts.
+        assertEquals(false, ExpenseScope.isSelfPayment("Sanjeev Yadav", null, null))
+    }
 
-        val isSelf3 = ExpenseScope.isSelfPayment(null, null, "Self transfer between ICICI and HDFC")
-        assertEquals(true, isSelf3)
+    @Test
+    fun investment_shortBrokerNamesNeedWholeWords() {
+        assertEquals(false, ExpenseScope.isInvestment("Govardhan Dairy", null, "Paid to Govardhan Dairy"))
+        assertEquals(false, ExpenseScope.isInvestment("Dhanlaxmi Kirana", null, "Kirana"))
+        assertEquals(false, ExpenseScope.isInvestment("Kitekat Pet Store", null, "Cat food"))
+        assertEquals(true, ExpenseScope.isInvestment("Dhan", "raise@dhan", "Add funds to Dhan"))
+    }
 
-        val isSelf4 = ExpenseScope.isSelfPayment("HDFC Bank", null, "Transfer to my account in HDFC from ICICI")
-        assertEquals(true, isSelf4)
-
-        assertEquals(false, ExpenseScope.isSelfPayment("Swiggy", "swiggy@icici", "Swiggy order"))
+    @Test
+    fun stripScope_removesTripAndProjectLabels() {
+        assertEquals("Fuel", ExpenseScope.stripScope("✈️ Goa: Fuel"))
+        assertEquals("🔨 Fuel", ExpenseScope.describe("HPCL", "✈️ Goa: Fuel", true, ExpenseScope.PROJECT))
+        assertEquals("✈️ Goa: Fuel", ExpenseScope.describe("HPCL", "🏠 Fuel", true, ExpenseScope.TRIP, "Goa"))
     }
 
     @Test

@@ -39,9 +39,9 @@ object NudgeScheduler {
 
     /**
      * Triggered when the user explicitly clears/swipes away an unreviewed notification without answering.
-     * Uses AlarmManager to guarantee a timely 5-minute re-prompt even under aggressive battery management.
+     * Uses AlarmManager so the reminder still fires under aggressive battery management (OnePlus).
      */
-    fun scheduleDismissalReprompt(context: Context, transactionId: String, delayMinutes: Long = 5L) {
+    fun scheduleDismissalReprompt(context: Context, transactionId: String, delayMinutes: Long = 30L) {
         try {
             val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
             val intent = Intent(context, QuickActionReceiver::class.java).apply {

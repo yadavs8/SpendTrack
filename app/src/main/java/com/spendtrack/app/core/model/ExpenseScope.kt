@@ -1,17 +1,20 @@
 package com.spendtrack.app.core.model
 
 /**
- * Kharcha Book has no scope column -- a family expense is just a description starting with "🏠 ".
- * This builds that description for an auto-detected expense once the user picks Personal/Family.
+ * Kharcha Book has no scope column -- the scope is a description prefix ("🏠 ", "📈 ", "✈️ Goa: ",
+ * "🔨 "). This builds that description once the user picks where an auto-detected expense belongs,
+ * and holds the heuristics that file an expense without asking.
  */
 object ExpenseScope {
     const val PERSONAL = "personal"
     const val FAMILY = "family"
     const val INVESTMENT = "investment"
     const val TRIP = "trip"
+    const val PROJECT = "project"
     private const val FAMILY_PREFIX = "🏠 "
     private const val INVESTMENT_PREFIX = "📈 "
     private const val TRIP_PREFIX = "✈️ "
+    private const val PROJECT_PREFIX = "🔨 "
 
     /**
      * Base text is the user's own note if they typed one (isEdited), else the merchant name --
@@ -21,13 +24,11 @@ object ExpenseScope {
         val base = (if (isEdited) description?.takeIf { it.isNotBlank() } else null)
             ?: merchantName?.takeIf { it.isNotBlank() }
             ?: "Expense"
-        val clean = base.trim()
-            .removePrefix("🏠").removePrefix("👤").removePrefix("📈").removePrefix("✈️")
-            .replace(Regex("^[\\[\\(]?[Tt]rip:?[^\\]\\)]*[\\]\\)]?\\s*"), "")
-            .trim()
+        val clean = stripScope(base)
         return when {
             scope.equals(FAMILY, ignoreCase = true) -> FAMILY_PREFIX + clean
             scope.equals(INVESTMENT, ignoreCase = true) -> INVESTMENT_PREFIX + clean
+            scope.equals(PROJECT, ignoreCase = true) -> PROJECT_PREFIX + clean
             scope.equals(TRIP, ignoreCase = true) -> {
                 val label = tripName?.trim()?.takeIf { it.isNotBlank() } ?: "Trip"
                 "$TRIP_PREFIX$label: $clean"
@@ -36,39 +37,68 @@ object ExpenseScope {
         }
     }
 
-    private val SELF_KEYWORDS = listOf(
-        "sanjeev yadav",
-        "sanjeev",
-        "self transfer",
-        "own account",
-        "transfer to self",
-        "transfer to own",
-        "to self",
-        "to own account",
-        "to my account",
-        "hdfc to icici",
-        "icici to hdfc",
-        "linked account"
+    /** Removes any existing scope prefix, including a "✈️ Goa: " trip label, so scopes never stack. */
+    fun stripScope(text: String): String {
+        var t = text.trim()
+        if (t.startsWith("✈")) {
+            t = t.removePrefix("✈️").removePrefix("✈").trim()
+            val colon = t.indexOf(':')
+            if (colon in 1..40) t = t.substring(colon + 1)
+        }
+        return t.trim()
+            .removePrefix("🏠").removePrefix("👤").removePrefix("📈").removePrefix("🔨")
+            .replace(Regex("^[\\[\\(]?[Tt]rip:?[^\\]\\)]*[\\]\\)]?\\s*"), "")
+            .trim()
+    }
+
+    // Explicit "this is my own money moving" phrasing in the SMS/notification text.
+    private val SELF_TRANSFER_PHRASES = Regex(
+        """(?i)\bself[- ]?transfer\b|\btransfer(?:red)?\s+to\s+(?:self|own|my)\b|\bto\s+(?:your\s+)?own\s+(?:account|a/c)\b|\bto\s+self\b"""
     )
+
+    /**
+     * True when money is moving between the user's own accounts.
+     *
+     * [owners] are the user's own full name(s) and UPI ID(s), from settings. They are matched only
+     * against the payee name and UPI ID -- never the whole SMS, which often greets the account
+     * holder by name ("Dear Sanjeev, Rs 500 debited...") on every payment. A full name is required
+     * (a payee merely sharing a first name is someone else), and UPI IDs must match exactly.
+     */
+    fun isSelfPayment(merchantName: String?, merchantVpa: String?, rawText: String?, owners: List<String> = emptyList()): Boolean {
+        if (SELF_TRANSFER_PHRASES.containsMatchIn(rawText ?: "")) return true
+        val payee = (merchantName ?: "").lowercase().replace(Regex("\\s+"), " ").trim()
+        val vpa = (merchantVpa ?: "").lowercase().trim()
+        return owners.map { it.lowercase().replace(Regex("\\s+"), " ").trim() }.any { owner ->
+            when {
+                owner.contains('@') -> vpa.isNotBlank() && vpa == owner
+                owner.split(' ').size < 2 -> false
+                else -> payee == owner || payee.startsWith("$owner ")
+            }
+        }
+    }
+
+    /** Parses the comma/newline separated "your name and UPI IDs" setting. */
+    fun parseOwners(setting: String?): List<String> =
+        (setting ?: "").split(',', '\n').map { it.trim() }.filter { it.isNotBlank() }
 
     private val INVESTMENT_SUBSTRING_KEYWORDS = listOf(
         // Clearing Corporations & Settlement
         "india clearing", "indian clearing", "clearing corp", "clearing corporation",
-        "iccl", "nsccl", "nse clearing", "bse clearing", "ccil",
-        // Brokers & Apps
-        "zerodha", "kite",
+        "nse clearing", "bse clearing",
+        // Brokers & Apps (short names like "dhan"/"kite" are whole-word only, below)
+        "zerodha",
         "groww", "nextbillion",
         "angelone", "angel one", "angel broking",
         "indmoney", "ind money", "finzoom",
         "upstox", "rksv",
         "kuvera",
-        "dhan", "raise financial",
+        "raise financial",
         "5paisa",
         "paytm money",
         "sharekhan", "geojit", "motilal oswal", "icici direct", "hdfc sky", "kotak securities",
         // AMCs / Mutual Funds
         "mutual fund", "mf central", "camsonline", "camsinvest",
-        "kfintech", "kfin",
+        "kfintech",
         "nippon india", "nippon mutual fund",
         "hdfc amc", "hdfc mutual fund", "hdfc mf",
         "icici pru", "icici prudential", "icici mutual fund",
@@ -81,12 +111,13 @@ object ExpenseScope {
         "public provident fund",
         "national pension", "cra-nsdl", "protean",
         "sukanya",
-        "sovereign gold", "rbi retail direct",
-        "cdsl", "nsdl"
+        "sovereign gold", "rbi retail direct"
     )
 
+    // Short tokens that appear inside ordinary words ("Govardhan Dairy", "Dhanlaxmi Kirana",
+    // "kite shop") must match as whole words only.
     private val INVESTMENT_WORD_REGEX = Regex(
-        """(?i)\b(?:sip|ppf|nps|sgb|ssy|cams|etf|iccl|nsccl|ccil)\b"""
+        """(?i)\b(?:sip|ppf|nps|sgb|ssy|cams|etf|iccl|nsccl|ccil|dhan|kite|kfin|cdsl|nsdl)\b"""
     )
 
     private val INVESTMENT_VPA_PATTERNS = listOf(
@@ -95,22 +126,7 @@ object ExpenseScope {
         "@iccl", "@nsccl", "@bse", "@nse"
     )
 
-    /**
-     * Checks if a transaction is a payment to oneself (Sanjeev Yadav / self account).
-     */
-    fun isSelfPayment(merchantName: String?, merchantVpa: String?, rawText: String?): Boolean {
-        val name = (merchantName ?: "").lowercase()
-        val vpa = (merchantVpa ?: "").lowercase()
-        val raw = (rawText ?: "").lowercase()
-        val combined = "$name $vpa $raw"
-
-        return SELF_KEYWORDS.any { combined.contains(it) } ||
-                vpa.contains("sanjeev") || vpa.contains("yadavs")
-    }
-
-    /**
-     * Checks if a transaction is destined for an investment broker, AMC, mutual fund, SIP, or government scheme.
-     */
+    /** True for payments to a broker, AMC, mutual fund, SIP, clearing corp or government scheme. */
     fun isInvestment(merchantName: String?, merchantVpa: String?, rawText: String?): Boolean {
         val name = (merchantName ?: "").lowercase()
         val vpa = (merchantVpa ?: "").lowercase()

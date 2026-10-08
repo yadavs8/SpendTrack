@@ -20,6 +20,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 class SpendTrackNotificationListener : NotificationListenerService() {
 
@@ -91,32 +92,37 @@ class SpendTrackNotificationListener : NotificationListenerService() {
 
                 SafeLogger.i("Parsed transaction from notification ($packageName): Amount=${parsed.amount}, Type=${parsed.transactionType}")
 
+                // Pick up a trip started on the web a moment ago (bounded, so a slow network
+                // never delays the prompt for long; offline just uses the cached copy).
+                withTimeoutOrNull(2500) { runCatching { ServiceLocator.cloudSyncRepository.refreshSharedSettings() } }
+
                 val result = ServiceLocator.transactionRepository.ingestTransaction(parsed)
 
                 when (result) {
                     is DeduplicationEngine.DeduplicationResult.NewTransaction -> {
                         val txn = result.transaction
-                        if (txn.needsReview) {
-                            // Unclear what this was for -- ask right away, then keep nudging until answered.
-                            val activeTrip = ServiceLocator.settingsManager.activeTripNameFlow.first()
-                            ExpensePromptNotifier.show(applicationContext, txn, activeTrip)
-                            NudgeScheduler.scheduleFirst(applicationContext, txn.id)
-                            // Lands in Kharcha Book now if it has a bank/UPI ref (answering later
-                            // updates the same row); see TransactionDao.getUnsyncedExpenses.
-                            ServiceLocator.cloudSyncRepository.syncPending()
-                        } else {
-                            // Confident match -- good enough description already, sync it now.
-                            ServiceLocator.cloudSyncRepository.syncPending()
-                            if (ServiceLocator.settingsManager.showConfirmationNotifs.first()) {
-                                showExpenseNotification(
-                                    "Expense recorded: ₹${txn.amount.toInt()} at ${txn.merchantName}",
-                                    "Method: ${txn.paymentMethod.displayName}"
-                                )
+                        when {
+                            // Own-account transfer: not spending, nothing to ask or announce.
+                            txn.isExcluded -> Unit
+                            txn.needsReview -> {
+                                // Ask right away, then keep reminding until answered.
+                                val activeTrip = ServiceLocator.settingsManager.activeTripNameFlow.first()
+                                ExpensePromptNotifier.show(applicationContext, txn, activeTrip)
+                                NudgeScheduler.scheduleFirst(applicationContext, txn.id)
                             }
+                            // Filed automatically (investment / remembered merchant): one quiet note.
+                            ServiceLocator.settingsManager.showConfirmationNotifs.first() ->
+                                ExpensePromptNotifier.showLogged(
+                                    applicationContext, txn,
+                                    ExpensePromptNotifier.labelForDescription(txn.description) + " (auto)"
+                                )
                         }
+                        // Lands in Kharcha Book now if it has a bank/UPI ref (answering later
+                        // updates the same row); see TransactionDao.getUnsyncedExpenses.
+                        ServiceLocator.cloudSyncRepository.syncPending()
                     }
                     is DeduplicationEngine.DeduplicationResult.MergedWithExisting -> {
-                        // Merged multi-source, no spam
+                        // Second copy of a payment we already have (e.g. Truecaller + Messages): no new prompt.
                     }
                 }
             } catch (e: Exception) {
@@ -136,29 +142,5 @@ class SpendTrackNotificationListener : NotificationListenerService() {
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
         }
-    }
-
-    private fun showExpenseNotification(title: String, message: String) {
-        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val contentIntent = android.app.PendingIntent.getActivity(
-            this,
-            0,
-            android.content.Intent(this, com.spendtrack.app.MainActivity::class.java).apply {
-                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
-            },
-            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(com.spendtrack.app.R.drawable.ic_notification)
-            .setColor(0xFF0B5D75.toInt())
-            .setContentTitle(title)
-            .setContentText(message)
-            .setContentIntent(contentIntent)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setAutoCancel(true)
-            .build()
-
-        notificationManager.notify((System.currentTimeMillis() % 10000).toInt(), notification)
     }
 }

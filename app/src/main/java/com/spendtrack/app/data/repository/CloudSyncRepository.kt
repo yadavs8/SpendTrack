@@ -85,6 +85,44 @@ class CloudSyncRepository(
         }
     }
 
+    /**
+     * Pulls the shared settings (trips, active trip, owner identity...) the web app edits.
+     * Server wins for keys it has; keys only this phone knows are kept and pushed back. A no-op when
+     * signed out, offline, or before the kharcha_settings table exists.
+     */
+    suspend fun refreshSharedSettings() {
+        if (!settingsManager.isCloudSyncEnabled.first()) return
+        val server = withFreshToken { token -> syncClient.fetchSettings(token) }?.getOrNull()
+        val local = settingsManager.sharedSettingsFlow.first()
+        if (server == null) {
+            if (local.length() > 0) pushSharedSettings(local)
+            return
+        }
+        var hadLocalOnly = false
+        local.keys().forEach { key ->
+            if (!server.has(key)) { server.put(key, local.get(key)); hadLocalOnly = true }
+        }
+        settingsManager.replaceShared(server)
+        if (hadLocalOnly) pushSharedSettings(server)
+    }
+
+    suspend fun pushSharedSettings(doc: org.json.JSONObject) {
+        if (!settingsManager.isCloudSyncEnabled.first()) return
+        val result = withFreshToken { token -> syncClient.pushSettings(token, doc) }
+        result?.exceptionOrNull()?.let { SafeLogger.e("Settings push failed", it as? Exception) }
+    }
+
+    /** Runs a Supabase call, refreshing an expired session once. Null when not signed in. */
+    private suspend fun <T> withFreshToken(call: (String) -> Result<T>): Result<T>? {
+        val token = settingsManager.cloudSyncAccessToken.first() ?: return null
+        var result = withContext(Dispatchers.IO) { call(token) }
+        if (result.isFailure && isUnauthorized(result.exceptionOrNull())) {
+            val fresh = refreshAccessToken() ?: return result
+            result = withContext(Dispatchers.IO) { call(fresh) }
+        }
+        return result
+    }
+
     private suspend fun refreshAccessToken(): String? {
         val refreshToken = settingsManager.cloudSyncRefreshToken.first() ?: return null
         val result = withContext(Dispatchers.IO) { authClient.refreshSession(refreshToken) }

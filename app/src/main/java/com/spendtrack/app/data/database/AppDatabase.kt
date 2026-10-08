@@ -30,7 +30,7 @@ import kotlinx.coroutines.launch
         UserAccountEntity::class,
         TemplateRuleEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -54,7 +54,7 @@ abstract class AppDatabase : RoomDatabase() {
                     "spendtrack_database"
                 )
                     .addCallback(DatabaseCallback())
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                     .fallbackToDestructiveMigration(false)
                     .build()
                 INSTANCE = instance
@@ -162,6 +162,15 @@ abstract class AppDatabase : RoomDatabase() {
         val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE merchant_rules ADD COLUMN scope TEXT DEFAULT NULL")
+            }
+        }
+
+        // How many times in a row the user gave the same Personal/Family/... answer for a merchant.
+        // Existing rules start at 1, so they need one more matching answer before auto-filing.
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE merchant_rules ADD COLUMN scopeConfirmations INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE merchant_rules SET scopeConfirmations = 1 WHERE scope IS NOT NULL")
             }
         }
 

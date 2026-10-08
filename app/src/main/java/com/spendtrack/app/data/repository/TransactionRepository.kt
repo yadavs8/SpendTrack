@@ -15,6 +15,8 @@ import com.spendtrack.app.data.database.entity.TransactionEntity
 import com.spendtrack.app.data.datastore.SettingsManager
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.Calendar
 import java.util.UUID
 
@@ -25,6 +27,11 @@ class TransactionRepository(
     private val merchantRuleRepository: MerchantRuleRepository,
     private val settingsManager: SettingsManager? = null
 ) {
+
+    companion object {
+        /** A merchant is filed automatically once answered the same way this many times in a row. */
+        const val AUTO_FILE_AFTER_ANSWERS = 2
+    }
 
     val allExpenses: Flow<List<TransactionEntity>> = transactionDao.getAllExpenses()
     val needsReviewExpenses: Flow<List<TransactionEntity>> = transactionDao.getNeedsReviewTransactions()
@@ -50,13 +57,19 @@ class TransactionRepository(
     suspend fun getTransactionById(id: String): TransactionEntity? =
         transactionDao.getTransactionById(id)
 
+    // Truecaller and Messages post the same bank SMS within milliseconds. Processed in parallel, both
+    // would pass the duplicate check before either is saved -- two rows, two prompts. One at a time.
+    private val ingestMutex = Mutex()
+
     /**
-     * Ingest an incoming parsed transaction through normalization, categorization, and deduplication.
-     * Every new real expense is flagged `needsReview` -- the signal the notification listener uses to
-     * ask "Personal or Family?". Refunds and own-account transfers (isExcluded) never count toward
-     * spending, so they are never asked about.
+     * Ingest a parsed payment: normalise, deduplicate, then decide whether to ask the user.
+     *
+     * Filed without asking: own-account transfers (excluded -- moving your own money is not
+     * spending), investments, and merchants answered the same way twice in a row. During an active
+     * trip the merchant memory is skipped and the user is always asked (trip offered first): the
+     * petrol pump you use every week could be trip fuel today.
      */
-    suspend fun ingestTransaction(parsed: ParsedTransaction): DeduplicationEngine.DeduplicationResult {
+    suspend fun ingestTransaction(parsed: ParsedTransaction): DeduplicationEngine.DeduplicationResult = ingestMutex.withLock {
         val normalizedMerchant = MerchantNormalizer.normalize(parsed.merchantRaw, parsed.merchantVpa)
         val categoryResult = categoryEngine.resolveCategory(normalizedMerchant, parsed.merchantVpa)
 
@@ -66,105 +79,48 @@ class TransactionRepository(
             categoryId = categoryResult.categoryId
         )
 
-        if (result is DeduplicationEngine.DeduplicationResult.NewTransaction &&
-            !result.transaction.needsReview &&
-            !result.transaction.isExcluded &&
-            result.transaction.transactionType == TransactionType.EXPENSE
-        ) {
-            val rawText = result.transaction.rawNotificationText ?: result.transaction.description
-            val isSelf = ExpenseScope.isSelfPayment(
-                merchantName = result.transaction.merchantName,
-                merchantVpa = result.transaction.merchantVpa,
-                rawText = rawText
-            )
-            val isInvestment = ExpenseScope.isInvestment(
-                merchantName = result.transaction.merchantName,
-                merchantVpa = result.transaction.merchantVpa,
-                rawText = rawText
-            )
-            val merchantKey = result.transaction.merchantName ?: result.transaction.merchantVpa
-            val learnedRule = if (!merchantKey.isNullOrBlank()) {
-                merchantRuleRepository.findMatchingRule(merchantKey)
-            } else null
+        if (result !is DeduplicationEngine.DeduplicationResult.NewTransaction ||
+            result.transaction.isExcluded ||
+            result.transaction.transactionType != TransactionType.EXPENSE
+        ) return@withLock result
 
-            val activeTrip = try {
-                settingsManager?.activeTripNameFlow?.first()
-            } catch (e: Exception) { null }
+        val txn = result.transaction
+        val now = System.currentTimeMillis()
+        // Already flagged by dedup (low-confidence parse, or a same-amount payment moments ago):
+        // that needs a human look, never an automatic filing.
+        if (txn.needsReview) return@withLock result
 
-            val updatedTxn = when {
-                isSelf -> {
-                    // Self payment to user's own account (Sanjeev Yadav) -> automatically Personal!
-                    result.transaction.copy(
-                        description = ExpenseScope.describe(
-                            merchantName = result.transaction.merchantName,
-                            description = result.transaction.description,
-                            isEdited = result.transaction.isEdited,
-                            scope = ExpenseScope.PERSONAL
-                        ),
-                        needsReview = false,
-                        isEdited = true,
-                        updatedAt = System.currentTimeMillis()
-                    )
-                }
-                isInvestment -> {
-                    // Investment broker / AMC (Zerodha, Groww, Angel One, AMCs, etc.) -> automatically Investment!
-                    result.transaction.copy(
-                        description = ExpenseScope.describe(
-                            merchantName = result.transaction.merchantName,
-                            description = result.transaction.description,
-                            isEdited = result.transaction.isEdited,
-                            scope = ExpenseScope.INVESTMENT
-                        ),
-                        categoryId = "cat_financial",
-                        needsReview = false,
-                        isEdited = true,
-                        updatedAt = System.currentTimeMillis()
-                    )
-                }
-                !activeTrip.isNullOrBlank() -> {
-                    // Active Trip mode is ON -> automatically log all new spends into this trip until closed!
-                    result.transaction.copy(
-                        description = ExpenseScope.describe(
-                            merchantName = result.transaction.merchantName,
-                            description = result.transaction.description,
-                            isEdited = result.transaction.isEdited,
-                            scope = ExpenseScope.TRIP,
-                            tripName = activeTrip
-                        ),
-                        needsReview = false,
-                        isEdited = true,
-                        updatedAt = System.currentTimeMillis()
-                    )
-                }
-                learnedRule?.scope != null -> {
-                    // Learned merchant memory from past user decision -> automatically apply remembered scope!
-                    result.transaction.copy(
-                        description = ExpenseScope.describe(
-                            merchantName = result.transaction.merchantName,
-                            description = result.transaction.description,
-                            isEdited = result.transaction.isEdited,
-                            scope = learnedRule.scope
-                        ),
-                        categoryId = learnedRule.categoryId.takeIf { it.isNotBlank() && it != "cat_other" }
-                            ?: result.transaction.categoryId,
-                        needsReview = false,
-                        isEdited = true,
-                        updatedAt = System.currentTimeMillis()
-                    )
-                }
-                else -> {
-                    // First time merchant -> ask user "Personal, Family, or Investment?"
-                    result.transaction.copy(
-                        needsReview = true,
-                        updatedAt = System.currentTimeMillis()
-                    )
-                }
-            }
-            transactionDao.updateTransaction(updatedTxn)
-            return DeduplicationEngine.DeduplicationResult.NewTransaction(updatedTxn)
+        val raw = txn.rawNotificationText ?: txn.description
+        val owners = ExpenseScope.parseOwners(runCatching { settingsManager?.ownerIdentityFlow?.first() }.getOrNull())
+        val activeTrip = runCatching { settingsManager?.activeTripNameFlow?.first() }.getOrNull()
+        val merchantKey = txn.merchantName ?: txn.merchantVpa
+        val rule = if (!merchantKey.isNullOrBlank()) merchantRuleRepository.findMatchingRule(merchantKey) else null
+
+        val updated = when {
+            ExpenseScope.isSelfPayment(txn.merchantName, txn.merchantVpa, raw, owners) -> txn.copy(
+                transactionType = TransactionType.INTERNAL_TRANSFER,
+                isExcluded = true,
+                needsReview = false,
+                updatedAt = now
+            )
+            ExpenseScope.isInvestment(txn.merchantName, txn.merchantVpa, raw) -> txn.copy(
+                description = ExpenseScope.describe(txn.merchantName, txn.description, txn.isEdited, ExpenseScope.INVESTMENT),
+                categoryId = "cat_financial",
+                needsReview = false,
+                isEdited = true,
+                updatedAt = now
+            )
+            activeTrip.isNullOrBlank() && rule?.scope != null && rule.scopeConfirmations >= AUTO_FILE_AFTER_ANSWERS -> txn.copy(
+                description = ExpenseScope.describe(txn.merchantName, txn.description, txn.isEdited, rule.scope),
+                categoryId = rule.categoryId.takeIf { it.isNotBlank() && it != "cat_other" } ?: txn.categoryId,
+                needsReview = false,
+                isEdited = true,
+                updatedAt = now
+            )
+            else -> txn.copy(needsReview = true, updatedAt = now)
         }
-
-        return result
+        transactionDao.updateTransaction(updated)
+        DeduplicationEngine.DeduplicationResult.NewTransaction(updated)
     }
 
     /**
@@ -202,16 +158,20 @@ class TransactionRepository(
     }
 
     /** Resolves the "Personal, Family, Investment, or Trip?" prompt for an auto-detected expense and remembers the merchant scope. */
+    /** Returns the ids of duplicate copies that were resolved along with it (their prompts must be cleared too). */
     suspend fun resolveScope(
         transactionId: String,
         scope: String,
         tripName: String? = null
-    ) {
-        val transaction = transactionDao.getTransactionById(transactionId) ?: return
+    ): List<String> {
+        val transaction = transactionDao.getTransactionById(transactionId) ?: return emptyList()
 
         // Auto-learn / remember user's scope decision for this merchant so they are never asked again! (unless it's a temporary trip)
         val merchantKey = transaction.merchantName ?: transaction.merchantVpa
-        if (!merchantKey.isNullOrBlank() && !scope.equals(ExpenseScope.TRIP, ignoreCase = true)) {
+        // Trips and projects are temporary, so they never train the per-merchant memory.
+        if (!merchantKey.isNullOrBlank() &&
+            !scope.equals(ExpenseScope.TRIP, ignoreCase = true) &&
+            !scope.equals(ExpenseScope.PROJECT, ignoreCase = true)) {
             merchantRuleRepository.saveScopeRule(merchantKey, scope)
         }
 
@@ -230,11 +190,16 @@ class TransactionRepository(
         )
         transactionDao.updateTransaction(updated)
 
-        // Resolve companion duplicates for same amount/merchant in DB so orphan nudges never re-prompt
-        resolveCompanionDuplicates(transaction, scope, tripName)
+        // Copies of the same payment saved before the duplicate guard existed: resolve them too.
+        return resolveCompanionDuplicates(transaction)
     }
 
-    private suspend fun resolveCompanionDuplicates(primary: TransactionEntity, scope: String, tripName: String? = null) {
+    /**
+     * Unanswered copies of the same payment (same bank/UPI ref, or same merchant and amount minutes
+     * apart with no conflicting ref) are marked excluded so they never count twice or re-prompt.
+     * A different merchant with the same amount is a different payment and is left alone.
+     */
+    private suspend fun resolveCompanionDuplicates(primary: TransactionEntity): List<String> {
         val window = 10 * 60 * 1000L
         val companions = transactionDao.findPotentialDuplicates(
             amount = primary.amount,
@@ -242,24 +207,20 @@ class TransactionRepository(
             endWindow = primary.dateTime + window,
             upiRef = primary.upiReference
         )
+        val resolvedIds = mutableListOf<String>()
         for (c in companions) {
-            if (c.id != primary.id && c.needsReview) {
-                val resolved = c.copy(
-                    description = ExpenseScope.describe(
-                        merchantName = c.merchantName ?: primary.merchantName,
-                        description = c.description,
-                        isEdited = true,
-                        scope = scope,
-                        tripName = tripName
-                    ),
-                    needsReview = false,
-                    isEdited = true,
-                    isExcluded = true,
-                    updatedAt = System.currentTimeMillis()
-                )
-                transactionDao.updateTransaction(resolved)
-            }
+            if (c.id == primary.id || !c.needsReview) continue
+            val sameRef = !primary.upiReference.isNullOrBlank() && c.upiReference == primary.upiReference
+            val conflictingRef = !primary.upiReference.isNullOrBlank() && !c.upiReference.isNullOrBlank() &&
+                    c.upiReference != primary.upiReference
+            val sameMerchant = !c.merchantName.isNullOrBlank() && c.merchantName.equals(primary.merchantName, ignoreCase = true)
+            if (conflictingRef || !(sameRef || sameMerchant)) continue
+            transactionDao.updateTransaction(
+                c.copy(needsReview = false, isExcluded = true, updatedAt = System.currentTimeMillis())
+            )
+            resolvedIds += c.id
         }
+        return resolvedIds
     }
 
     /**
@@ -269,11 +230,12 @@ class TransactionRepository(
      */
     suspend fun repairAndAutoRouteInvestments(): Int {
         val unreviewed = transactionDao.getNeedsReviewTransactionsSync()
+        val owners = ExpenseScope.parseOwners(runCatching { settingsManager?.ownerIdentityFlow?.first() }.getOrNull())
         var fixedCount = 0
         for (txn in unreviewed) {
             val raw = txn.rawNotificationText ?: txn.description
             val isInvestment = ExpenseScope.isInvestment(txn.merchantName, txn.merchantVpa, raw)
-            val isSelf = ExpenseScope.isSelfPayment(txn.merchantName, txn.merchantVpa, raw)
+            val isSelf = ExpenseScope.isSelfPayment(txn.merchantName, txn.merchantVpa, raw, owners)
 
             if (isInvestment) {
                 val resolved = txn.copy(
@@ -291,15 +253,11 @@ class TransactionRepository(
                 transactionDao.updateTransaction(resolved)
                 fixedCount++
             } else if (isSelf) {
+                // Moving money between your own accounts is not spending.
                 val resolved = txn.copy(
-                    description = ExpenseScope.describe(
-                        merchantName = txn.merchantName,
-                        description = txn.description,
-                        isEdited = txn.isEdited,
-                        scope = ExpenseScope.PERSONAL
-                    ),
+                    transactionType = TransactionType.INTERNAL_TRANSFER,
+                    isExcluded = true,
                     needsReview = false,
-                    isEdited = true,
                     updatedAt = System.currentTimeMillis()
                 )
                 transactionDao.updateTransaction(resolved)

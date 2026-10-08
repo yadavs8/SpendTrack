@@ -21,6 +21,8 @@ class SpendTrackApp : Application() {
             } catch (e: Exception) {
                 SafeLogger.e("Error warming database", e)
             }
+            // Trips / owner identity edited on the web since the app last ran.
+            runCatching { ServiceLocator.cloudSyncRepository.refreshSharedSettings() }
         }
     }
 }

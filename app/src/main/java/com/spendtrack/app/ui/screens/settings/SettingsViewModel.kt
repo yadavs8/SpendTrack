@@ -30,7 +30,8 @@ data class SettingsUiState(
     val cloudSyncLastError: String? = null,
     val cloudSyncLastSuccessAt: Long? = null,
     val isCloudSyncBusy: Boolean = false,
-    val activeTripName: String? = null
+    val activeTripName: String? = null,
+    val ownerIdentity: String = ""
 )
 
 class SettingsViewModel : ViewModel() {
@@ -65,7 +66,8 @@ class SettingsViewModel : ViewModel() {
                 settingsManager.cloudSyncEmail,
                 settingsManager.cloudSyncLastError,
                 settingsManager.cloudSyncLastSuccessAt,
-                settingsManager.activeTripNameFlow
+                settingsManager.activeTripNameFlow,
+                settingsManager.ownerIdentityFlow
             ) { values ->
                 @Suppress("UNCHECKED_CAST")
                 val apps = values[0] as Set<String>
@@ -84,6 +86,7 @@ class SettingsViewModel : ViewModel() {
                 val cloudSyncLastError = values[11] as String?
                 val cloudSyncLastSuccessAt = values[12] as Long?
                 val activeTrip = values[13] as String?
+                val ownerIdentity = values[14] as String
 
                 SettingsUiState(
                     monitoredApps = apps,
@@ -100,7 +103,8 @@ class SettingsViewModel : ViewModel() {
                     cloudSyncLastError = cloudSyncLastError,
                     cloudSyncLastSuccessAt = cloudSyncLastSuccessAt,
                     isCloudSyncBusy = _uiState.value.isCloudSyncBusy,
-                    activeTripName = activeTrip
+                    activeTripName = activeTrip,
+                    ownerIdentity = ownerIdentity
                 )
             }.collect { state ->
                 _uiState.value = state
@@ -183,7 +187,13 @@ class SettingsViewModel : ViewModel() {
 
     fun setActiveTrip(tripName: String?) {
         viewModelScope.launch {
-            settingsManager.setActiveTripName(tripName)
+            ServiceLocator.cloudSyncRepository.pushSharedSettings(settingsManager.setActiveTripName(tripName))
+        }
+    }
+
+    fun setOwnerIdentity(value: String) {
+        viewModelScope.launch {
+            ServiceLocator.cloudSyncRepository.pushSharedSettings(settingsManager.setOwnerIdentity(value))
         }
     }
 

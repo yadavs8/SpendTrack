@@ -30,6 +30,16 @@
             </intent-filter>
         </activity>
 
+        <!-- "Log to…" sheet opened from an expense notification; shows over the current app -->
+        <activity
+            android:name=".ui.log.LogExpenseActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:launchMode="singleTop"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.SpendTrack.Overlay" />
+
         <!-- Real-time UPI & Bank Notification Detection Service -->
         <service
             android:name=".service.SpendTrackNotificationListener"

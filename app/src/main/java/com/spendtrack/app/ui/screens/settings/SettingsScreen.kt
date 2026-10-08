@@ -226,6 +226,36 @@ fun SettingsScreen(
                 }
             }
 
+            // 1.2 Self-transfer detection: the user's own name and UPI IDs
+            item {
+                var ownerInput by remember(uiState.ownerIdentity) { mutableStateOf(uiState.ownerIdentity) }
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Your accounts", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            "Your full name and UPI IDs, comma separated. Payments to these are treated as moving money between your own accounts, not spending.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                        OutlinedTextField(
+                            value = ownerInput,
+                            onValueChange = { ownerInput = it },
+                            placeholder = { Text("e.g. Sanjeev Yadav, sanjeev@okhdfcbank") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Button(
+                            onClick = { viewModel.setOwnerIdentity(ownerInput) },
+                            enabled = ownerInput.trim() != uiState.ownerIdentity.trim(),
+                            modifier = Modifier.align(Alignment.End)
+                        ) { Text("Save") }
+                    }
+                }
+            }
+
             // 1.25 Active Trip / Event Mode
             item {
                 Card(

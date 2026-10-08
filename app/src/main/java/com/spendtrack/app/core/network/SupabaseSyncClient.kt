@@ -67,6 +67,49 @@ class SupabaseSyncClient(private val client: OkHttpClient = OkHttpClient()) {
     }
 
     /**
+     * Reads the shared settings document (kharcha_settings.data) the web app also uses.
+     * Success(null) = no row yet, or the table hasn't been created (v4 SQL not run) -- callers then
+     * keep using the local copy.
+     */
+    fun fetchSettings(accessToken: String): Result<JSONObject?> {
+        val request = Request.Builder()
+            .url("${SupabaseConfig.SUPABASE_URL}/rest/v1/kharcha_settings?select=data")
+            .addHeader("apikey", SupabaseConfig.SUPABASE_ANON_KEY)
+            .addHeader("Authorization", "Bearer $accessToken")
+            .get()
+            .build()
+        return runCatching {
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (response.code == 404 || body.contains("PGRST205") || body.contains("42P01")) return@use null
+                if (!response.isSuccessful) throw IOException("Settings fetch failed (${response.code}): $body")
+                val rows = JSONArray(body)
+                if (rows.length() == 0) null else rows.getJSONObject(0).optJSONObject("data") ?: JSONObject()
+            }
+        }
+    }
+
+    /** Writes the whole shared settings document (one row per user, keyed by user_id). */
+    fun pushSettings(accessToken: String, data: JSONObject): Result<Unit> {
+        val payload = JSONArray().put(JSONObject().put("data", data)).toString().toRequestBody(jsonMediaType)
+        val request = Request.Builder()
+            .url("${SupabaseConfig.SUPABASE_URL}/rest/v1/kharcha_settings?on_conflict=user_id")
+            .addHeader("apikey", SupabaseConfig.SUPABASE_ANON_KEY)
+            .addHeader("Authorization", "Bearer $accessToken")
+            .addHeader("Content-Type", "application/json")
+            .addHeader("Prefer", "resolution=merge-duplicates,return=minimal")
+            .post(payload)
+            .build()
+        return runCatching {
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (response.code == 404 || body.contains("PGRST205") || body.contains("42P01")) return@use
+                if (!response.isSuccessful) throw IOException("Settings push failed (${response.code}): $body")
+            }
+        }
+    }
+
+    /**
      * A user-edited description (Personal/Family answer or typed note) wins. Otherwise the merchant
      * name -- never an unedited `description`, which for auto-detected expenses is the raw bank SMS
      * (account digits and all).

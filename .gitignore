@@ -15,3 +15,8 @@ local.properties
 # Device screenshots taken while testing
 /test_*.png
 
+# Database copies pulled off the phone -- real transaction history, never commit (repo is public)
+*.db
+*.db-wal
+*.db-shm
+
