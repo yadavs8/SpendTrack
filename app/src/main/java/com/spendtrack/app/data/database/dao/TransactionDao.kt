@@ -48,6 +48,9 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE needsReview = 1 AND isExcluded = 0 ORDER BY dateTime DESC")
     fun getNeedsReviewTransactions(): Flow<List<TransactionEntity>>
 
+    @Query("SELECT * FROM transactions WHERE needsReview = 1 AND isExcluded = 0 ORDER BY dateTime DESC")
+    suspend fun getNeedsReviewTransactionsSync(): List<TransactionEntity>
+
     @Query("""
         SELECT categoryId, SUM(amount) AS total, COUNT(*) AS count 
         FROM transactions 

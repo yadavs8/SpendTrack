@@ -42,31 +42,29 @@ class DeduplicationEngine(
             val isSameAmount = candidate.amount == parsed.amount
             val isWithinWindow = abs(candidate.dateTime - parsed.dateTime) <= timeWindowMillis
             val isExactMerchant = isExactMerchantMatch(candidate.merchantName, normalizedMerchant)
-            val isSameAccount = !parsed.accountLast4.isNullOrBlank() &&
-                    candidate.accountLast4 == parsed.accountLast4
+            val isFuzzyMerchant = isFuzzyMerchantMatch(candidate.merchantName, normalizedMerchant)
+            val isMerchantMatch = isExactMerchant || isFuzzyMerchant || candidate.merchantName.isNullOrBlank() || normalizedMerchant.isBlank()
+
+            val hasConflictingAccount = !parsed.accountLast4.isNullOrBlank() &&
+                    !candidate.accountLast4.isNullOrBlank() &&
+                    candidate.accountLast4 != parsed.accountLast4
+
+            val hasConflictingRef = !parsed.upiReference.isNullOrBlank() &&
+                    !candidate.upiReference.isNullOrBlank() &&
+                    candidate.upiReference != parsed.upiReference
 
             // Candidate and parsed source analysis for dual ingestion pairing
             val candidateIsUpiApp = candidate.sourcePackage != null && com.spendtrack.app.core.parser.TransactionParser.MONITORED_UPI_PACKAGES.contains(candidate.sourcePackage)
             val parsedIsUpiApp = parsed.sourcePackage != null && com.spendtrack.app.core.parser.TransactionParser.MONITORED_UPI_PACKAGES.contains(parsed.sourcePackage)
-            val candidateIsBankOrSms = candidate.sourcePackage == null ||
-                    com.spendtrack.app.core.parser.TransactionParser.MESSAGING_PACKAGES.contains(candidate.sourcePackage) ||
-                    candidate.sourcePackage.contains("bank", ignoreCase = true)
-            val parsedIsBankOrSms = parsed.sourcePackage == null ||
-                    com.spendtrack.app.core.parser.TransactionParser.MESSAGING_PACKAGES.contains(parsed.sourcePackage) ||
-                    parsed.sourcePackage.contains("bank", ignoreCase = true)
 
-            val isUpiAndBankPair = isSameAmount && isWithinWindow && (
-                (candidateIsUpiApp && parsedIsBankOrSms) || (candidateIsBankOrSms && parsedIsUpiApp)
-            ) && (isExactMerchant || candidate.merchantName.isNullOrBlank() || normalizedMerchant.isBlank() || isFuzzyMerchantMatch(candidate.merchantName, normalizedMerchant))
-
-            // Auto-merge condition:
+            // Comprehensive merge conditions:
             // 1. Exact UPI reference / UTR match
-            // 2. OR: Same amount + within window + same account + same merchant
-            // 3. OR: Different source (Notification vs SMS) for exact same merchant and amount within window
-            // 4. OR: UPI App push notification + Bank SMS pairing for the same spend within window
-            val isMultiSourcePair = candidate.source != parsed.source && isSameAmount && isWithinWindow && isExactMerchant
+            // 2. Same amount within 5 min for same merchant with no conflicting ref or account (catches repeated notification updates, PhonePe/GPay updates, and SMS)
+            val shouldMerge = isExactRefMatch || (
+                isSameAmount && isWithinWindow && isMerchantMatch && !hasConflictingRef && !hasConflictingAccount
+            )
 
-            if (isExactRefMatch || (isSameAmount && isWithinWindow && isSameAccount && isExactMerchant) || isMultiSourcePair || isUpiAndBankPair) {
+            if (shouldMerge) {
                 val bestMerchant = when {
                     candidateIsUpiApp && !candidate.merchantName.isNullOrBlank() -> candidate.merchantName
                     parsedIsUpiApp && !normalizedMerchant.isNullOrBlank() -> normalizedMerchant
@@ -80,8 +78,11 @@ class DeduplicationEngine(
                     accountLast4 = candidate.accountLast4 ?: parsed.accountLast4,
                     merchantVpa = candidate.merchantVpa ?: parsed.merchantVpa,
                     rawNotificationText = candidate.rawNotificationText ?: parsed.rawText,
-                    source = if (candidate.source != parsed.source) "${candidate.source}+${parsed.source}" else "DUAL_INGEST",
+                    source = if (candidate.source != parsed.source) "${candidate.source}+${parsed.source}" else candidate.source,
                     confidenceScore = 1.0f,
+                    // PRESERVE user's review state: if user already answered/saved, keep it resolved!
+                    needsReview = candidate.needsReview,
+                    isEdited = candidate.isEdited,
                     updatedAt = System.currentTimeMillis()
                 )
                 transactionDao.updateTransaction(merged)

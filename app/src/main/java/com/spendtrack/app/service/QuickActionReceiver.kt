@@ -21,6 +21,8 @@ class QuickActionReceiver : BroadcastReceiver() {
         const val ACTION_QUICK_CATEGORIZE = "com.spendtrack.app.ACTION_QUICK_CATEGORIZE"
         const val ACTION_ADD_NOTE = "com.spendtrack.app.ACTION_ADD_NOTE"
         const val ACTION_SET_SCOPE = "com.spendtrack.app.ACTION_SET_SCOPE"
+        const val ACTION_NOTIFICATION_DISMISSED = "com.spendtrack.app.ACTION_NOTIFICATION_DISMISSED"
+        const val ACTION_REPROMPT_NUDGE = "com.spendtrack.app.ACTION_REPROMPT_NUDGE"
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -33,6 +35,24 @@ class QuickActionReceiver : BroadcastReceiver() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 when (intent.action) {
+                    ACTION_NOTIFICATION_DISMISSED -> {
+                        // User cleared notification without answering.
+                        // If transaction is still unreviewed, schedule a guaranteed 5-minute re-prompt!
+                        val txn = ServiceLocator.transactionRepository.getTransactionById(transactionId)
+                        if (txn != null && txn.needsReview && !txn.isExcluded) {
+                            NudgeScheduler.scheduleDismissalReprompt(appContext, transactionId)
+                        }
+                        return@launch
+                    }
+                    ACTION_REPROMPT_NUDGE -> {
+                        // AlarmManager re-prompt fired: re-display notification prompt if still unreviewed
+                        val txn = ServiceLocator.transactionRepository.getTransactionById(transactionId)
+                        if (txn != null && txn.needsReview && !txn.isExcluded) {
+                            ExpensePromptNotifier.show(appContext, txn)
+                            NudgeScheduler.scheduleFirst(appContext, txn.id)
+                        }
+                        return@launch
+                    }
                     ACTION_SET_SCOPE -> {
                         val scope = intent.getStringExtra(ExpensePromptNotifier.EXTRA_SCOPE) ?: ExpensePromptNotifier.SCOPE_PERSONAL
                         ServiceLocator.transactionRepository.resolveScope(

@@ -52,10 +52,12 @@ class MainActivity : FragmentActivity() {
             "if (typeof refreshData === 'function') { refreshData(); }",
             null
         )
-        // Background backfill for any missed SMS from battery saver / sleep
+        // Background backfill for missed SMS and self-healing auto-route for investments
         lifecycleScope.launch(Dispatchers.IO) {
+            val repaired = ServiceLocator.transactionRepository.repairAndAutoRouteInvestments()
             val newEntries = SmsBackfillManager.backfillMissedSms(applicationContext)
-            if (newEntries > 0) {
+            if (repaired > 0 || newEntries > 0) {
+                ServiceLocator.cloudSyncRepository.syncPending()
                 withContext(Dispatchers.Main) {
                     activeWebView?.evaluateJavascript(
                         "if (typeof refreshData === 'function') { refreshData(); }",

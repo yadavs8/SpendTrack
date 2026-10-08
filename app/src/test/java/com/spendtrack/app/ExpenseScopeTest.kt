@@ -89,10 +89,19 @@ class ExpenseScopeTest {
         assertEquals(true, ExpenseScope.isInvestment(null, null, "Transfer towards PPF account"))
         assertEquals(true, ExpenseScope.isInvestment(null, null, "Contribution to NPS Tier 1"))
 
+        // Clearing Corporations & Depositories (ICCL, NSE Clearing, NSCCL)
+        assertEquals(true, ExpenseScope.isInvestment("India Clearing Corp", null, "Paid to India Clearing Corp"))
+        assertEquals(true, ExpenseScope.isInvestment("Indian Clearing Corp", null, "Debit to Indian Clearing Corp"))
+        assertEquals(true, ExpenseScope.isInvestment("Indian Clearing Corporation Ltd", null, "Settlement debit"))
+        assertEquals(true, ExpenseScope.isInvestment(null, "iccl@icici", "UPI/12345/ICCL/Pay"))
+        assertEquals(true, ExpenseScope.isInvestment("NSE Clearing", null, "NSE Clearing trade debit"))
+        assertEquals(true, ExpenseScope.isInvestment("NSCCL", null, "NSCCL funds transfer"))
+
         // Rejections (Regular spends)
         assertEquals(false, ExpenseScope.isInvestment("Swiggy", null, "Food delivery"))
         assertEquals(false, ExpenseScope.isInvestment("Starbucks Coffee", null, "Coffee at outlet"))
         assertEquals(false, ExpenseScope.isInvestment("Amazon India", null, "Amazon shopping"))
         assertEquals(false, ExpenseScope.isInvestment("Zepto", null, "Grocery order"))
+        assertEquals(false, ExpenseScope.isInvestment("Lavish Kirana", null, "Kirana groceries"))
     }
 }

@@ -52,6 +52,18 @@ object ExpensePromptNotifier {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val dismissIntent = Intent(context, QuickActionReceiver::class.java).apply {
+            action = QuickActionReceiver.ACTION_NOTIFICATION_DISMISSED
+            putExtra(EXTRA_TRANSACTION_ID, transaction.id)
+            putExtra(EXTRA_NOTIFICATION_ID, notificationId)
+        }
+        val deletePendingIntent = PendingIntent.getBroadcast(
+            context,
+            (transaction.id + "_dismiss").hashCode(),
+            dismissIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         val title = if (merchantLabel != null) "$amountLabel at $merchantLabel" else "$amountLabel spent"
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(com.spendtrack.app.R.drawable.ic_notification)
@@ -59,6 +71,7 @@ object ExpensePromptNotifier {
             .setContentTitle(title)
             .setContentText("Personal, Family, or Investment?")
             .setContentIntent(contentIntent)
+            .setDeleteIntent(deletePendingIntent)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setAutoCancel(true)

@@ -205,6 +205,83 @@ class TransactionRepository(
             updatedAt = System.currentTimeMillis()
         )
         transactionDao.updateTransaction(updated)
+
+        // Resolve companion duplicates for same amount/merchant in DB so orphan nudges never re-prompt
+        resolveCompanionDuplicates(transaction, scope)
+    }
+
+    private suspend fun resolveCompanionDuplicates(primary: TransactionEntity, scope: String) {
+        val window = 10 * 60 * 1000L
+        val companions = transactionDao.findPotentialDuplicates(
+            amount = primary.amount,
+            startWindow = primary.dateTime - window,
+            endWindow = primary.dateTime + window,
+            upiRef = primary.upiReference
+        )
+        for (c in companions) {
+            if (c.id != primary.id && c.needsReview) {
+                val resolved = c.copy(
+                    description = ExpenseScope.describe(
+                        merchantName = c.merchantName ?: primary.merchantName,
+                        description = c.description,
+                        isEdited = true,
+                        scope = scope
+                    ),
+                    needsReview = false,
+                    isEdited = true,
+                    isExcluded = true,
+                    updatedAt = System.currentTimeMillis()
+                )
+                transactionDao.updateTransaction(resolved)
+            }
+        }
+    }
+
+    /**
+     * Self-healing repair: scans all currently unreviewed transactions in the database.
+     * If any match investment brokers/clearing houses (like India Clearing Corp) or self-transfers,
+     * auto-resolves them immediately so user does not have to manually re-enter anything.
+     */
+    suspend fun repairAndAutoRouteInvestments(): Int {
+        val unreviewed = transactionDao.getNeedsReviewTransactionsSync()
+        var fixedCount = 0
+        for (txn in unreviewed) {
+            val raw = txn.rawNotificationText ?: txn.description
+            val isInvestment = ExpenseScope.isInvestment(txn.merchantName, txn.merchantVpa, raw)
+            val isSelf = ExpenseScope.isSelfPayment(txn.merchantName, txn.merchantVpa, raw)
+
+            if (isInvestment) {
+                val resolved = txn.copy(
+                    description = ExpenseScope.describe(
+                        merchantName = txn.merchantName,
+                        description = txn.description,
+                        isEdited = txn.isEdited,
+                        scope = ExpenseScope.INVESTMENT
+                    ),
+                    categoryId = "cat_financial",
+                    needsReview = false,
+                    isEdited = true,
+                    updatedAt = System.currentTimeMillis()
+                )
+                transactionDao.updateTransaction(resolved)
+                fixedCount++
+            } else if (isSelf) {
+                val resolved = txn.copy(
+                    description = ExpenseScope.describe(
+                        merchantName = txn.merchantName,
+                        description = txn.description,
+                        isEdited = txn.isEdited,
+                        scope = ExpenseScope.PERSONAL
+                    ),
+                    needsReview = false,
+                    isEdited = true,
+                    updatedAt = System.currentTimeMillis()
+                )
+                transactionDao.updateTransaction(resolved)
+                fixedCount++
+            }
+        }
+        return fixedCount
     }
 
     /**

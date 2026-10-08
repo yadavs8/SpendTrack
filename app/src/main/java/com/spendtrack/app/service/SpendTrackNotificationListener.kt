@@ -26,6 +26,11 @@ class SpendTrackNotificationListener : NotificationListenerService() {
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val CHANNEL_ID = "spendtrack_expense_channel"
 
+    companion object {
+        private val processedNotificationCache = java.util.concurrent.ConcurrentHashMap<String, Long>()
+        private const val DEBOUNCE_WINDOW_MS = 60_000L
+    }
+
     override fun onCreate() {
         super.onCreate()
         ServiceLocator.init(applicationContext)
@@ -46,6 +51,7 @@ class SpendTrackNotificationListener : NotificationListenerService() {
         if (sbn == null) return
 
         val packageName = sbn.packageName
+        if (packageName == applicationContext.packageName) return
         val extras = sbn.notification?.extras ?: return
 
         // Extract text fields
@@ -56,6 +62,13 @@ class SpendTrackNotificationListener : NotificationListenerService() {
 
         // Never log notification text: this listener sees every app's notifications (chats, OTPs).
         val fullText = listOfNotNull(text, bigText, subText).joinToString(" ")
+
+        val now = System.currentTimeMillis()
+        processedNotificationCache.entries.removeIf { now - it.value > DEBOUNCE_WINDOW_MS }
+        val fingerprint = "${sbn.key}:$fullText"
+        if (processedNotificationCache.putIfAbsent(fingerprint, now) != null) {
+            return
+        }
 
         serviceScope.launch {
             try {

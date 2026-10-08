@@ -43,6 +43,10 @@ object ExpenseScope {
     )
 
     private val INVESTMENT_SUBSTRING_KEYWORDS = listOf(
+        // Clearing Corporations & Settlement
+        "india clearing", "indian clearing", "clearing corp", "clearing corporation",
+        "iccl", "nsccl", "nse clearing", "bse clearing", "ccil",
+        // Brokers & Apps
         "zerodha", "kite",
         "groww", "nextbillion",
         "angelone", "angel one", "angel broking",
@@ -53,6 +57,7 @@ object ExpenseScope {
         "5paisa",
         "paytm money",
         "sharekhan", "geojit", "motilal oswal", "icici direct", "hdfc sky", "kotak securities",
+        // AMCs / Mutual Funds
         "mutual fund", "mf central", "camsonline", "camsinvest",
         "kfintech", "kfin",
         "nippon india", "nippon mutual fund",
@@ -72,12 +77,13 @@ object ExpenseScope {
     )
 
     private val INVESTMENT_WORD_REGEX = Regex(
-        """(?i)\b(?:sip|ppf|nps|sgb|ssy|cams|etf)\b"""
+        """(?i)\b(?:sip|ppf|nps|sgb|ssy|cams|etf|iccl|nsccl|ccil)\b"""
     )
 
     private val INVESTMENT_VPA_PATTERNS = listOf(
         "@zerodha", "@groww", "@angelone", "@abma", "@indmoney", "@upstox",
-        "@kuvera", "@dhan", "@5paisa", "@paytmmoney", "@mfcentral", "@nippon"
+        "@kuvera", "@dhan", "@5paisa", "@paytmmoney", "@mfcentral", "@nippon",
+        "@iccl", "@nsccl", "@bse", "@nse"
     )
 
     /**
