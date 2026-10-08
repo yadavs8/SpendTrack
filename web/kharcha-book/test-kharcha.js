@@ -29,7 +29,15 @@ const windowMock = {
   btoa: (s) => Buffer.from(s, 'binary').toString('base64'),
   atob: (s) => Buffer.from(s, 'base64').toString('binary'),
   crypto: { getRandomValues: (arr) => arr },
-  localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+  localStorage: (function() {
+    const store = new Map();
+    return {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => { store.set(k, String(v)); },
+      removeItem: (k) => { store.delete(k); },
+      clear: () => { store.clear(); }
+    };
+  })(),
   navigator: { serviceWorker: null },
   setInterval: () => {},
   clearInterval: () => {},
@@ -49,7 +57,7 @@ windowMock.window = windowMock;
 const code = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8');
 vm.runInNewContext(code, windowMock);
 
-const { parseAmount, normDesc, money, groupByDay, byDescription, monthTotals, toLocalISOString, isFamilyEntry, parseBankSMS, parseSMSDate, findDuplicate, categoryBreakdown, monthCompare, isIncome, isMotherSettlement, isMotherPension, isSalary, isExpense, isInvestment, getFamilySettlement, getPersonalCashFlow, isProjectEntry, isProjectMotherPaid, getProjectSummary, isTripEntry, getTripSummary, getEntryScope, shiftScopeDesc } = windowMock.__kharcha;
+const { parseAmount, normDesc, money, groupByDay, byDescription, monthTotals, toLocalISOString, isFamilyEntry, parseBankSMS, parseSMSDate, findDuplicate, categoryBreakdown, monthCompare, isIncome, isMotherSettlement, isMotherPension, isSalary, isExpense, isInvestment, getFamilySettlement, getPersonalCashFlow, isProjectEntry, isProjectMotherPaid, getProjectSummary, isTripEntry, getTripSummary, getEntryScope, shiftScopeDesc, rememberMerchantScope, predictMerchantScope } = windowMock.__kharcha;
 
 let passed = 0;
 let failed = 0;
@@ -377,6 +385,27 @@ assert(goaSummary.totalSpent === 9200, 'getTripSummary sums Goa trip spent: 4500
 assert(goaSummary.itemsCount === 3, 'getTripSummary counts 3 trip items (excludes grocery)');
 assert(goaSummary.daysCount === 2, 'getTripSummary counts 2 unique trip days');
 assert(goaSummary.dailyAvg === 4600, 'getTripSummary calculates daily average: 9200 / 2 = 4600');
+
+// 18. Continuous Merchant Scope Memory Tests
+rememberMerchantScope('Swiggy Instamart Order', 'family');
+assert(predictMerchantScope('Swiggy Instamart Order') === 'family', 'predictMerchantScope matches exact merchant core');
+assert(predictMerchantScope('Swiggy food delivery') === 'family', 'predictMerchantScope matches partial merchant name');
+rememberMerchantScope('Zerodha Broking Ltd', 'investment');
+assert(predictMerchantScope('Zerodha Broking Ltd') === 'investment', 'predictMerchantScope matches investment merchant');
+assert(predictMerchantScope('Random New Shop') === null, 'predictMerchantScope returns null for unknown merchant');
+
+// 19. Trip Friend Split & Balance Tests
+const tripSplitEntries = [
+  { id: 't1', amount: 4000, desc: '✈️ Goa Trip: Hotel (Paid by Me)', ts: Date.now() },
+  { id: 't2', amount: 2000, desc: '✈️ Goa Trip: Dinner [Paid by Friend]', ts: Date.now() },
+  { id: 't3', amount: 1000, desc: '✈️ Goa Trip: Taxi Cab', ts: Date.now() } // Paid by me
+];
+const splitSummary = getTripSummary(tripSplitEntries, 'Goa Trip');
+assert(splitSummary.totalSpent === 7000, 'Split total spent = 7000');
+assert(splitSummary.paidByMe === 5000, 'Paid by me = 4000 + 1000 = 5000');
+assert(splitSummary.paidByFriend === 2000, 'Paid by friend = 2000');
+// Total is 7000, each share is 3500. I paid 5000, friend owes me 1500 (5000 - 2000)/2 = 1500
+assert(splitSummary.netDiff === 1500, 'Friend owes me (5000 - 2000) / 2 = 1500');
 
 console.log(`\nResults: ${passed} passed, ${failed} failed.`);
 if (failed > 0) process.exit(1);

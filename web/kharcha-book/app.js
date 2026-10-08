@@ -174,6 +174,49 @@
     };
   }
 
+  /* ---------- Continuous Merchant Auto-Memory ---------- */
+  var MERCHANT_SCOPE_KEY = 'kharcha_merchant_scope_map';
+  function merchantScopeMap() {
+    try { return JSON.parse(localStorage.getItem(MERCHANT_SCOPE_KEY)) || {}; } catch (e) { return {}; }
+  }
+  function extractMerchantCore(desc) {
+    if (!desc) return '';
+    var clean = cleanScopePrefix(desc);
+    clean = clean.replace(/\[Paid by Friend\]/gi, '').trim();
+    // Remove leading emoji and punctuation
+    clean = clean.replace(/^[^\p{L}\p{N}]+/u, '').trim();
+    // Take first 1-2 words or whole string if short
+    var words = clean.split(/\s+/).slice(0, 3).join(' ').toLowerCase();
+    return words;
+  }
+  function rememberMerchantScope(desc, scope) {
+    if (!desc || !scope) return;
+    var core = extractMerchantCore(desc);
+    if (!core || core.length < 2) return;
+    var map = merchantScopeMap();
+    map[core] = scope;
+    try { localStorage.setItem(MERCHANT_SCOPE_KEY, JSON.stringify(map)); } catch (e) {}
+  }
+  function predictMerchantScope(desc) {
+    if (!desc) return null;
+    var core = extractMerchantCore(desc);
+    if (!core) return null;
+    var map = merchantScopeMap();
+    if (map[core]) return map[core];
+    // Check word-based or substring overlap
+    var coreTokens = core.split(/\s+/).filter(function (t) { return t.length >= 3; });
+    var keys = Object.keys(map);
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      if (core.includes(k) || k.includes(core)) return map[k];
+      var kTokens = k.split(/\s+/).filter(function (t) { return t.length >= 3; });
+      for (var j = 0; j < coreTokens.length; j++) {
+        if (kTokens.includes(coreTokens[j])) return map[k];
+      }
+    }
+    return null;
+  }
+
   function getTripSummary(monthEntries, tripName) {
     var filterName = (tripName || '').trim().toLowerCase();
     var list = (monthEntries || []).filter(function (e) {
@@ -186,12 +229,35 @@
     var daySet = new Set(list.map(function (e) { return dayKey(e.ts); }));
     var numDays = daySet.size || 1;
     var dailyAvg = totalSpent > 0 ? Math.round(totalSpent / numDays) : 0;
+
+    // Multi-payer trip tracking ("Paid by Me" vs "Paid by Friend")
+    var friendEntries = list.filter(function (e) {
+      var d = (e.desc || '').toLowerCase();
+      return d.includes('[paid by friend]') || d.includes('🤝') || d.includes('friend paid');
+    });
+    var meEntries = list.filter(function (e) {
+      var d = (e.desc || '').toLowerCase();
+      return !d.includes('[paid by friend]') && !d.includes('friend paid');
+    });
+    var paidByFriend = friendEntries.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
+    var paidByMe = meEntries.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
+    // Net balance: if 50/50 split of the total, each person's share = totalSpent / 2.
+    // If I paid paidByMe and friend paid paidByFriend:
+    // If paidByMe > paidByFriend: friend owes me (paidByMe - paidByFriend)/2
+    // If paidByFriend > paidByMe: I owe friend (paidByFriend - paidByMe)/2
+    var netDiff = (paidByMe * 100 - paidByFriend * 100) / 200;
+
     return {
       entries: list,
       totalSpent: totalSpent,
       itemsCount: list.length,
       daysCount: numDays,
-      dailyAvg: dailyAvg
+      dailyAvg: dailyAvg,
+      meEntries: meEntries,
+      paidByMe: paidByMe,
+      friendEntries: friendEntries,
+      paidByFriend: paidByFriend,
+      netDiff: netDiff
     };
   }
 
@@ -574,7 +640,8 @@
     isIncome: isIncome, isMotherSettlement: isMotherSettlement, isMotherPension: isMotherPension, isSalary: isSalary, isExpense: isExpense, isInvestment: isInvestment, getFamilySettlement: getFamilySettlement, getPersonalCashFlow: getPersonalCashFlow,
     isProjectEntry: isProjectEntry, isProjectMotherPaid: isProjectMotherPaid, getProjectSummary: getProjectSummary,
     isTripEntry: isTripEntry, getTripSummary: getTripSummary,
-    getEntryScope: getEntryScope, shiftScopeDesc: shiftScopeDesc
+    getEntryScope: getEntryScope, shiftScopeDesc: shiftScopeDesc,
+    rememberMerchantScope: rememberMerchantScope, predictMerchantScope: predictMerchantScope
   };
 
   var TABLE = 'daily_expenses';
@@ -975,6 +1042,17 @@
       }
     });
   });
+
+  /* Hero Insights & Stats Accordion Toggle */
+  var insightsToggle = $('hero-insights-toggle');
+  var insightsPanel = $('hero-insights-panel');
+  if (insightsToggle && insightsPanel) {
+    insightsToggle.addEventListener('click', function () {
+      var isHidden = insightsPanel.hidden;
+      insightsPanel.hidden = !isHidden;
+      insightsToggle.setAttribute('aria-expanded', String(isHidden));
+    });
+  }
 
   /* ---------- Search & CSV Export ---------- */
   $('search').addEventListener('input', function (ev) {
@@ -1754,6 +1832,19 @@
     } catch (e) {}
   }
 
+  var TRIP_BUDGET_KEY_PREFIX = 'kharcha_trip_budget_';
+  function getTripBudget(tripName) {
+    if (!tripName) return 0;
+    try { return Number(localStorage.getItem(TRIP_BUDGET_KEY_PREFIX + tripName.trim())) || 0; } catch (e) { return 0; }
+  }
+  function setTripBudget(tripName, val) {
+    if (!tripName) return;
+    try {
+      if (val > 0) localStorage.setItem(TRIP_BUDGET_KEY_PREFIX + tripName.trim(), String(val));
+      else localStorage.removeItem(TRIP_BUDGET_KEY_PREFIX + tripName.trim());
+    } catch (e) {}
+  }
+
   function renderTripsView(tripSummary, monthEntries) {
     var curTrip = getActiveTripName();
     var hasActiveTrip = !!(curTrip && curTrip.trim());
@@ -1788,6 +1879,64 @@
     if (totSpentEl) totSpentEl.textContent = money(tripSummary.totalSpent);
     if (countEl) countEl.textContent = String(tripSummary.itemsCount);
     if (avgEl) avgEl.textContent = money(tripSummary.dailyAvg) + '/day';
+
+    // Trip Budget & Burn Pace Meter
+    var tripBudget = hasActiveTrip ? getTripBudget(curTrip) : 0;
+    var budgetStatus = $('trip-budget-status');
+    var budgetFill = $('trip-budget-fill');
+    var budgetBtn = $('trip-budget-edit-btn');
+    var burnPace = $('trip-burn-pace');
+
+    if (budgetStatus && budgetFill) {
+      if (tripBudget > 0) {
+        var pct = Math.round((tripSummary.totalSpent / tripBudget) * 100);
+        budgetStatus.textContent = 'Trip Budget: ' + money(tripSummary.totalSpent) + ' of ' + money(tripBudget) + ' (' + pct + '%)';
+        budgetFill.style.width = Math.min(100, pct) + '%';
+        budgetFill.className = 'budget-progress-fill' + (pct >= 100 ? ' danger' : (pct >= 80 ? ' warning' : ''));
+        if (budgetBtn) budgetBtn.textContent = 'Edit Budget';
+
+        // Calculate Remaining / Burn Pace
+        var rem = tripBudget - tripSummary.totalSpent;
+        if (burnPace) {
+          if (rem > 0) {
+            burnPace.textContent = money(rem) + ' left (' + money(tripSummary.dailyAvg) + '/day pace)';
+            burnPace.style.color = '#10B981';
+          } else {
+            burnPace.textContent = 'Exceeded by ' + money(Math.abs(rem));
+            burnPace.style.color = 'var(--danger)';
+          }
+        }
+      } else {
+        budgetStatus.textContent = 'Trip Budget: Not set';
+        budgetFill.style.width = '0%';
+        budgetFill.className = 'budget-progress-fill';
+        if (budgetBtn) budgetBtn.textContent = 'Set Trip Budget';
+        if (burnPace) {
+          burnPace.textContent = tripSummary.dailyAvg > 0 ? (money(tripSummary.dailyAvg) + '/day spent') : 'No spend yet';
+          burnPace.style.color = '';
+        }
+      }
+    }
+
+    // Split / Friend Balance Summary Card
+    var paidByMeEl = $('trip-paid-by-me');
+    var paidByFriendEl = $('trip-paid-by-friend');
+    var balanceEl = $('trip-split-balance');
+    if (paidByMeEl) paidByMeEl.textContent = money(tripSummary.paidByMe || 0);
+    if (paidByFriendEl) paidByFriendEl.textContent = money(tripSummary.paidByFriend || 0);
+    if (balanceEl) {
+      var net = tripSummary.netDiff || 0;
+      if (Math.abs(net) < 1) {
+        balanceEl.textContent = 'Settled 🎉';
+        balanceEl.style.color = '#10B981';
+      } else if (net > 0) {
+        balanceEl.textContent = 'Friend owes ' + money(net);
+        balanceEl.style.color = '#0284C7';
+      } else {
+        balanceEl.textContent = 'You owe ' + money(Math.abs(net));
+        balanceEl.style.color = '#EA580C';
+      }
+    }
 
     var daysBox = $('trip-days');
     if (!daysBox) return;
@@ -1856,6 +2005,34 @@
     tripToggleBtn.addEventListener('click', promptTripToggle);
   }
 
+  var tripBudgetEditBtn = $('trip-budget-edit-btn');
+  if (tripBudgetEditBtn) {
+    tripBudgetEditBtn.addEventListener('click', function () {
+      var curTrip = getActiveTripName();
+      if (!curTrip) {
+        toast('Start a trip first to set its budget!');
+        return;
+      }
+      var cur = getTripBudget(curTrip);
+      openBudgetModal({
+        title: '✈️ ' + curTrip + ' Budget',
+        intro: 'Set your total spending budget for ' + curTrip + '. We will track your daily burn rate against this limit.',
+        currentValue: cur || 0,
+        presets: [10000, 25000, 50000, 100000],
+        onSave: function (n) {
+          setTripBudget(curTrip, n);
+          render();
+          toast('Trip budget set to ' + money(n));
+        },
+        onClear: function () {
+          setTripBudget(curTrip, 0);
+          render();
+          toast('Trip budget cleared');
+        }
+      });
+    });
+  }
+
   var atbCloseBtn = $('atb-close-btn');
   if (atbCloseBtn) {
     atbCloseBtn.addEventListener('click', function () {
@@ -1871,6 +2048,27 @@
         }
       });
     });
+  }
+
+  // Payer Radio Pills for Trip Add Form
+  function getTripPayer() {
+    var checked = document.querySelector('input[name="trip-payer"]:checked');
+    return checked ? checked.value : 'me';
+  }
+  function setTripPayer(val) {
+    var radios = document.querySelectorAll('input[name="trip-payer"]');
+    radios.forEach(function (r) {
+      r.checked = (r.value === val);
+      r.parentElement.classList.toggle('active', r.checked);
+    });
+  }
+  var tripPayerMePill = $('trip-payer-me-pill');
+  if (tripPayerMePill) {
+    tripPayerMePill.addEventListener('click', function () { setTripPayer('me'); });
+  }
+  var tripPayerFriendPill = $('trip-payer-friend-pill');
+  if (tripPayerFriendPill) {
+    tripPayerFriendPill.addEventListener('click', function () { setTripPayer('friend'); });
   }
 
   // Add Trip Expense Form
@@ -1900,7 +2098,9 @@
       var tripName = getActiveTripName() || 'Trip';
       var rawDesc = $('trip-exp-desc') ? $('trip-exp-desc').value.trim() : '';
       var clean = cleanScopePrefix(rawDesc) || 'Expense';
-      var desc = '✈️ ' + tripName + ': ' + clean;
+      var payer = getTripPayer();
+      var payerTag = payer === 'friend' ? ' [Paid by Friend]' : '';
+      var desc = '✈️ ' + tripName + ': ' + clean + payerTag;
 
       var spentVal = $('trip-exp-date') ? $('trip-exp-date').value : '';
       var spentAt = spentVal ? new Date(spentVal).toISOString() : null;
@@ -1913,7 +2113,8 @@
         var ts = spentAt ? Date.parse(spentAt) : Date.now();
         state.sel = monthKey(ts);
         render();
-        toast('Logged ' + money(amt) + ' to ' + tripName);
+        var payerLabel = payer === 'friend' ? ' (Paid by Friend)' : '';
+        toast('Logged ' + money(amt) + ' to ' + tripName + payerLabel);
         tripExpAmtInput.focus();
       }).catch(function (err) {
         var msg = (err && (err.message || 'Check your connection.')) || 'Failed to save.';
@@ -2249,19 +2450,82 @@
   // Lists grouped under a day header show the time; flat month-long lists (settlement) show the date.
   var rowDateFmt = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short' });
   function entryRow(e, showDate) {
+    var wrap = el('div', 'entry-swipe-wrap');
+
     var b = el('button', 'row');
     b.type = 'button';
     b.setAttribute('aria-label', 'Edit ' + e.desc + ', ' + money(e.amount));
     b.appendChild(el('span', 't', (showDate ? rowDateFmt : tFmt).format(new Date(e.ts))));
     b.appendChild(el('span', 'd', e.desc));
     b.appendChild(el('span', 'a', money(e.amount)));
+
+    // Actions revealed on swipe
+    var actionsLeft = el('div', 'entry-swipe-actions', null);
+    actionsLeft.hidden = true;
+    var curScope = getEntryScope(e);
+
+    function makeQuickShiftPill(targetScope, icon, label) {
+      var pill = el('button', 'quick-shift-pill' + (curScope === targetScope ? ' active' : ''), icon + ' ' + label);
+      pill.type = 'button';
+      pill.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var newDesc = shiftScopeDesc(e.desc, targetScope);
+        rememberMerchantScope(e.desc, targetScope);
+        store.update(e.id, { amount: e.amount, desc: newDesc, spent_at: new Date(e.ts).toISOString() }).then(function () {
+          render();
+          toast('Moved to ' + label);
+        }).catch(function (err) {
+          toast('Could not move: ' + (err.message || 'error'));
+        });
+      });
+      return pill;
+    }
+
+    if (curScope !== 'personal') actionsLeft.appendChild(makeQuickShiftPill('personal', '👤', 'Personal'));
+    if (curScope !== 'family') actionsLeft.appendChild(makeQuickShiftPill('family', '🏠', 'Family'));
+    if (curScope !== 'investment') actionsLeft.appendChild(makeQuickShiftPill('investment', '📈', 'Invest'));
+    var curTrip = getActiveTripName();
+    if (curScope !== 'trip') actionsLeft.appendChild(makeQuickShiftPill('trip', '✈️', curTrip || 'Trip'));
+
+    // Touch Swipe Gestures
+    var touchStartX = 0, touchStartY = 0, swiped = false;
+    b.addEventListener('touchstart', function (ev) {
+      if (ev.touches && ev.touches[0]) {
+        touchStartX = ev.touches[0].clientX;
+        touchStartY = ev.touches[0].clientY;
+      }
+    }, { passive: true });
+
+    b.addEventListener('touchmove', function (ev) {
+      if (!ev.touches || !ev.touches[0]) return;
+      var dx = ev.touches[0].clientX - touchStartX;
+      var dy = ev.touches[0].clientY - touchStartY;
+      if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 35) {
+        swiped = true;
+      }
+    }, { passive: true });
+
+    b.addEventListener('touchend', function (ev) {
+      if (swiped) {
+        actionsLeft.hidden = !actionsLeft.hidden;
+        swiped = false;
+      }
+    });
+
     b.addEventListener('click', function () {
+      if (actionsLeft && !actionsLeft.hidden) {
+        actionsLeft.hidden = true;
+        return;
+      }
       state.editing = e.id;
       state.draft = { amount: String(e.amount), desc: e.desc, spent_at: toLocalISOString(e.ts) };
       render();
       var f = $('edit-amt'); if (f) f.focus();
     });
-    return b;
+
+    wrap.appendChild(actionsLeft);
+    wrap.appendChild(b);
+    return wrap;
   }
 
   function editRow(e) {
@@ -2306,6 +2570,7 @@
         if (amt == null) { msg.textContent = 'Enter an amount greater than zero.'; msg.hidden = false; return; }
         save.disabled = true;
         var newTs = state.draft.spent_at ? new Date(state.draft.spent_at).toISOString() : null;
+        rememberMerchantScope(e.desc, targetScope);
         store.update(e.id, { amount: amt, desc: newDesc, spent_at: newTs }).then(function () {
           state.editing = null;
           render();

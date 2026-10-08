@@ -7,17 +7,17 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="styles.css?v=34">
+<link rel="stylesheet" href="styles.css?v=35">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0B5D75">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Kharcha">
-<link rel="apple-touch-icon" href="apple-touch-icon.png?v=34">
-<link rel="icon" href="icon-192.png?v=34" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=35">
+<link rel="icon" href="icon-192.png?v=35" type="image/png">
 <script>
   (function() {
-    var V = '34';
+    var V = '35';
     if (localStorage.getItem('kharcha_app_v') !== V) {
       localStorage.setItem('kharcha_app_v', V);
       if ('caches' in window) {
@@ -37,10 +37,10 @@
 <body>
 <main class="app">
   <header class="top">
-    <h1><img class="logo" src="icon-192.png?v=34" width="36" height="36" alt="">Kharcha Book</h1>
+    <h1><img class="logo" src="icon-192.png?v=35" width="36" height="36" alt="">Kharcha Book</h1>
     <div class="top-r">
       <span class="sync" id="sync" data-state="pending">Loading…</span>
-      <button type="button" class="installbtn" id="force-update-btn" title="Force clear cache & reload latest v34">v34 🔄</button>
+      <button type="button" class="installbtn" id="force-update-btn" title="Force clear cache & reload latest v35">v35 🔄</button>
       <button type="button" class="installbtn" id="install-btn" hidden>📲 Install App</button>
       <button type="button" class="signout" id="signout" hidden>Sign out</button>
     </div>
@@ -99,9 +99,14 @@
     <div class="scope-tabs" id="scope-filter">
       <button type="button" class="scopetab active" data-scope="all">All Spends</button>
       <button type="button" class="scopetab" data-scope="personal">👤 Personal</button>
-      <button type="button" class="scopetab" data-scope="family">🏠 Family & Bills</button>
+      <button type="button" class="scopetab" data-scope="family">🏠 Family</button>
     </div>
-    <p class="total" id="mtotal">₹0</p>
+    <div class="hero-amount-block">
+      <p class="total" id="mtotal">₹0</p>
+      <button type="button" class="hero-insights-toggle" id="hero-insights-toggle" aria-expanded="false" title="Toggle detailed cashflow & stats">
+        <span>Insights & Stats</span> <span class="insights-arrow">▾</span>
+      </button>
+    </div>
     <p class="vs-last" id="vs-last" hidden></p>
     <div class="budget-bar-wrap" id="budget-wrap">
       <div class="budget-head">
@@ -110,33 +115,35 @@
       </div>
       <div class="budget-progress-track"><div class="budget-progress-fill" id="budget-fill" style="width: 0%"></div></div>
     </div>
-    <dl class="stats">
-      <div><dt>Entries</dt><dd id="st-count">0</dd></div>
-      <div><dt>Spent most on</dt><dd id="st-top">—</dd></div>
-      <div><dt>Highest day</dt><dd id="st-high">—</dd></div>
-    </dl>
-    <div class="cashflow-grid" id="cashflow-grid">
-      <div class="cashflow-card cf-personal">
-        <span class="cf-title">👤 My Savings</span>
-        <span class="cf-amount" id="cf-personal-savings">₹0</span>
-        <span class="cf-sub" id="cf-personal-sub">0% saved</span>
-      </div>
-      <div class="cashflow-card cf-family">
-        <span class="cf-title">🏠 Family Spends</span>
-        <span class="cf-amount" id="cf-family-spent">₹0</span>
-        <span class="cf-sub" id="cf-family-count">0 items</span>
-      </div>
-      <div class="cashflow-card cf-mother">
-        <span class="cf-title">👵 Mother Settle</span>
-        <span class="cf-amount" id="cf-mother-status">₹0</span>
-        <span class="cf-sub" id="cf-mother-sub">Settled</span>
+    <div class="hero-collapsible" id="hero-insights-panel" hidden>
+      <dl class="stats">
+        <div><dt>Entries</dt><dd id="st-count">0</dd></div>
+        <div><dt>Top Spend</dt><dd id="st-top">—</dd></div>
+        <div><dt>Highest Day</dt><dd id="st-high">—</dd></div>
+      </dl>
+      <div class="cashflow-grid" id="cashflow-grid">
+        <div class="cashflow-card cf-personal">
+          <span class="cf-title">👤 My Savings</span>
+          <span class="cf-amount" id="cf-personal-savings">₹0</span>
+          <span class="cf-sub" id="cf-personal-sub">0% saved</span>
+        </div>
+        <div class="cashflow-card cf-family">
+          <span class="cf-title">🏠 Family Spends</span>
+          <span class="cf-amount" id="cf-family-spent">₹0</span>
+          <span class="cf-sub" id="cf-family-count">0 items</span>
+        </div>
+        <div class="cashflow-card cf-mother">
+          <span class="cf-title">👵 Mother Settle</span>
+          <span class="cf-amount" id="cf-mother-status">₹0</span>
+          <span class="cf-sub" id="cf-mother-sub">Settled</span>
+        </div>
       </div>
     </div>
   </section>
 
   <div class="stream-switcher" id="stream-switcher">
     <button type="button" class="streambtn active" id="stream-spends-btn" data-stream="spends">💳 Spends (<span id="spends-count">0</span>)</button>
-    <button type="button" class="streambtn" id="stream-incomings-btn" data-stream="incomings">💰 Incomings (<span id="incomings-count">0</span>)</button>
+    <button type="button" class="streambtn" id="stream-incomings-btn" data-stream="incomings">💰 Income (<span id="incomings-count">0</span>)</button>
     <button type="button" class="streambtn" id="stream-settlement-btn" data-stream="settlement">👵 Settle</button>
     <button type="button" class="streambtn" id="stream-investments-btn" data-stream="investments">📈 Invest (<span id="investments-count">0</span>)</button>
     <button type="button" class="streambtn" id="stream-trips-btn" data-stream="trips">✈️ Trips (<span id="trips-count">0</span>)</button>
@@ -449,6 +456,21 @@
         <span class="trip-tot-amt" id="trip-total-spent">₹0</span>
       </div>
 
+      <!-- Trip Budget & Daily Burn Rate Meter -->
+      <div class="trip-budget-wrap" id="trip-budget-wrap">
+        <div class="trip-budget-head">
+          <span id="trip-budget-status">Trip Budget: ₹0</span>
+          <button type="button" class="trip-budget-btn" id="trip-budget-edit-btn">Set Trip Budget</button>
+        </div>
+        <div class="budget-progress-track">
+          <div class="budget-progress-fill" id="trip-budget-fill" style="width: 0%"></div>
+        </div>
+        <div class="trip-burn-rate-row" id="trip-burn-rate-row">
+          <span class="tbr-label">Daily Burn Pace:</span>
+          <span class="tbr-val" id="trip-burn-pace">—</span>
+        </div>
+      </div>
+
       <div class="trip-stats-grid">
         <div class="trip-stat-box">
           <span class="tsb-title">Items Logged</span>
@@ -459,10 +481,31 @@
           <span class="tsb-amt" id="trip-daily-avg">₹0</span>
         </div>
       </div>
+
+      <!-- Friend Balance / Split Summary Card -->
+      <div class="trip-split-card" id="trip-split-card">
+        <div class="tsc-item">
+          <span class="tsc-lbl">👤 Paid by Me</span>
+          <span class="tsc-amt" id="trip-paid-by-me">₹0</span>
+        </div>
+        <div class="tsc-item">
+          <span class="tsc-lbl">🤝 Paid by Friend</span>
+          <span class="tsc-amt" id="trip-paid-by-friend">₹0</span>
+        </div>
+        <div class="tsc-item tsc-net">
+          <span class="tsc-lbl">⚖️ Balance</span>
+          <span class="tsc-amt" id="trip-split-balance">Settled</span>
+        </div>
+      </div>
     </div>
 
     <!-- Quick Add Trip Expense Form -->
     <form class="add trip-add-form" id="add-trip-expense" autocomplete="off" novalidate>
+      <div class="scope-picker">
+        <span class="scope-label">Paid By:</span>
+        <label class="scope-pill active" id="trip-payer-me-pill"><input type="radio" name="trip-payer" value="me" checked> 👤 Paid by Me</label>
+        <label class="scope-pill" id="trip-payer-friend-pill"><input type="radio" name="trip-payer" value="friend"> 🤝 Paid by Friend</label>
+      </div>
       <div class="add-row">
         <div class="field">
           <label for="trip-exp-amt">Amount</label>
@@ -480,7 +523,7 @@
         </div>
       </div>
       <div class="add-foot">
-        <p class="stamp">Auto-tags with active trip</p>
+        <p class="stamp" id="trip-payer-note">Auto-tags with active trip</p>
         <button class="primary trip-btn" type="submit" id="add-trip-exp-btn" disabled>+ Add Trip Expense</button>
       </div>
       <p class="err" id="trip-exp-err" role="alert" hidden></p>
@@ -566,12 +609,12 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=34" onerror="void 0"></script>
-<script src="app.js?v=34"></script>
+<script src="config.js?v=35" onerror="void 0"></script>
+<script src="app.js?v=35"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('sw.js?v=34').then(function (reg) {
+      navigator.serviceWorker.register('sw.js?v=35').then(function (reg) {
         reg.update();
         reg.addEventListener('updatefound', function () {
           var newWorker = reg.installing;
