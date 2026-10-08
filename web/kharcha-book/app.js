@@ -1372,11 +1372,18 @@
       var descStr = '"' + e.desc.replace(/"/g, '""') + '"';
       csv.push(dateStr + ',' + timeStr + ',' + catStr + ',' + descStr + ',' + e.amount);
     });
+    var fileName = 'kharcha-' + state.scopeFilter + '-' + state.sel + '.csv';
+    // Inside the SpendTrack app there are no browser downloads; hand the file to Android's share sheet.
+    if (window.KharchaNative && typeof window.KharchaNative.shareFile === 'function') {
+      window.KharchaNative.shareFile(fileName, 'text/csv', csv.join('\n'));
+      toast('CSV ready for ' + monthLabel(state.sel) + ' — choose where to save it');
+      return;
+    }
     var blob = new Blob([csv.join('\n')], { type: 'text/csv;charset=utf-8;' });
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
-    a.download = 'kharcha-' + state.scopeFilter + '-' + state.sel + '.csv';
+    a.download = fileName;
     a.click();
     URL.revokeObjectURL(url);
     toast('Downloaded CSV for ' + monthLabel(state.sel));
@@ -3771,7 +3778,8 @@
   // The running version, read from this script's own ?v= so the label can't drift from the real build.
   var APP_VERSION = (function () {
     var s = document.querySelector('script[src*="app.js"]');
-    var m = s && /[?&]v=(\d+)/.exec(s.getAttribute('src'));
+    var src = (s && typeof s.getAttribute === 'function' && s.getAttribute('src')) || '';
+    var m = /[?&]v=(\d+)/.exec(src);
     return m ? 'v' + m[1] : '';
   })();
   var updateBtn = $('force-update-btn');
