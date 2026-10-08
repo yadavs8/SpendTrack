@@ -7,17 +7,17 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="styles.css?v=36">
+<link rel="stylesheet" href="styles.css?v=37">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0B5D75">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Kharcha">
-<link rel="apple-touch-icon" href="apple-touch-icon.png?v=36">
-<link rel="icon" href="icon-192.png?v=36" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=37">
+<link rel="icon" href="icon-192.png?v=37" type="image/png">
 <script>
   (function() {
-    var V = '36';
+    var V = '37';
     if (localStorage.getItem('kharcha_app_v') !== V) {
       localStorage.setItem('kharcha_app_v', V);
       if ('caches' in window) {
@@ -37,10 +37,10 @@
 <body>
 <main class="app">
   <header class="top">
-    <h1><img class="logo" src="icon-192.png?v=36" width="36" height="36" alt="">Kharcha Book</h1>
+    <h1><img class="logo" src="icon-192.png?v=37" width="36" height="36" alt="">Kharcha Book</h1>
     <div class="top-r">
       <span class="sync" id="sync" data-state="pending">Loading…</span>
-      <button type="button" class="installbtn" id="force-update-btn" title="Force clear cache & reload latest v36">v36 🔄</button>
+      <button type="button" class="installbtn" id="force-update-btn" title="Force clear cache & reload latest v37">v37 🔄</button>
       <button type="button" class="installbtn" id="install-btn" hidden>📲 Install App</button>
       <button type="button" class="signout" id="signout" hidden>Sign out</button>
     </div>
@@ -116,6 +116,11 @@
       <div class="budget-progress-track"><div class="budget-progress-fill" id="budget-fill" style="width: 0%"></div></div>
     </div>
     <div class="hero-collapsible" id="hero-insights-panel" hidden>
+      <div class="forecast-card" id="forecast-card" hidden>
+        <div class="fc-row"><span>📅 Month-end forecast</span><strong id="fc-projected">₹0</strong></div>
+        <p class="fc-sub" id="fc-sub"></p>
+        <ul class="fc-bills" id="fc-bills"></ul>
+      </div>
       <dl class="stats">
         <div><dt>Entries</dt><dd id="st-count">0</dd></div>
         <div><dt>Top Spend</dt><dd id="st-top">—</dd></div>
@@ -138,6 +143,7 @@
           <span class="cf-sub" id="cf-mother-sub">Settled</span>
         </div>
       </div>
+      <button type="button" class="budget-btn your-details-btn" id="your-details-btn">⚙️ Your details (name &amp; UPI)</button>
     </div>
   </section>
 
@@ -287,6 +293,7 @@
       <h3 class="settle-title" id="settle-title">Family Settlement</h3>
       <p class="settle-msg" id="settle-msg">Calculating settlement balance…</p>
       <button type="button" class="primary settle-action-btn" id="settle-now-btn" hidden>📥 Settle from Mother's Account</button>
+      <a class="settle-ask-btn" id="settle-ask-btn" target="_blank" rel="noopener" hidden>📲 Ask on WhatsApp</a>
     </div>
 
     <div class="settle-cards-grid">
@@ -630,12 +637,12 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=36" onerror="void 0"></script>
-<script src="app.js?v=36"></script>
+<script src="config.js?v=37" onerror="void 0"></script>
+<script src="app.js?v=37"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('sw.js?v=36').then(function (reg) {
+      navigator.serviceWorker.register('sw.js?v=37').then(function (reg) {
         reg.update();
         reg.addEventListener('updatefound', function () {
           var newWorker = reg.installing;

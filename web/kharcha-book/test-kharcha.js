@@ -57,7 +57,7 @@ windowMock.window = windowMock;
 const code = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8');
 vm.runInNewContext(code, windowMock);
 
-const { parseAmount, normDesc, money, groupByDay, byDescription, monthTotals, toLocalISOString, isFamilyEntry, parseBankSMS, parseSMSDate, findDuplicate, categoryBreakdown, monthCompare, isIncome, isMotherSettlement, isMotherPension, isSalary, isExpense, isInvestment, getFamilySettlement, getPersonalCashFlow, isProjectEntry, isProjectMotherPaid, getProjectSummary, isTripEntry, getTripSummary, parseTripPayer, getEntryScope, shiftScopeDesc, rememberMerchantScope, predictMerchantScope } = windowMock.__kharcha;
+const { parseAmount, normDesc, money, groupByDay, byDescription, monthTotals, toLocalISOString, isFamilyEntry, parseBankSMS, parseSMSDate, findDuplicate, categoryBreakdown, monthCompare, isIncome, isMotherSettlement, isMotherPension, isSalary, isExpense, isInvestment, getFamilySettlement, getPersonalCashFlow, isProjectEntry, isProjectMotherPaid, getProjectSummary, isTripEntry, getTripSummary, parseTripPayer, getEntryScope, shiftScopeDesc, rememberMerchantScope, predictMerchantScope, recentSpendsForTrip, recurringBills, monthForecast, upiPayLink, settleMessage, whatsappLink } = windowMock.__kharcha;
 
 let passed = 0;
 let failed = 0;
@@ -433,6 +433,51 @@ assert(balRohit.paid === 3000, 'Rohit paid 3000');
 assert(balRohit.net === 0, 'Rohit is settled (paid 3000 - share 3000)');
 assert(balAmit.paid === 0, 'Amit paid 0');
 assert(balAmit.net === -3000, 'Amit owes 3000 (paid 0 - share 3000)');
+
+// 21. Investment words must be whole words
+assert(isInvestment({ desc: 'Sipping Chai Cafe' }) === false, 'isInvestment ignores "sip" inside another word');
+assert(isInvestment({ desc: 'SIP Axis Bluechip' }) === true, 'isInvestment matches SIP as a word');
+
+// 22. Trip backfill: fuel bought before trip mode was switched on
+const nowT = new Date(2026, 9, 8, 12, 0).getTime();
+const backfill = recentSpendsForTrip([
+  { id: 'f', amount: 2000, desc: 'HPCL Fuel', ts: nowT - 5 * 3600000 },
+  { id: 'o', amount: 300, desc: 'Old snack', ts: nowT - 20 * 3600000 },
+  { id: 't', amount: 500, desc: '✈️ Goa: Toll', ts: nowT - 2 * 3600000 },
+  { id: 'i', amount: 5000, desc: '📈 Zerodha', ts: nowT - 1 * 3600000 },
+  { id: 's', amount: 50000, desc: '💼 Salary 1', ts: nowT - 3 * 3600000 }
+], nowT, 12);
+assert(backfill.length === 1 && backfill[0].id === 'f', 'recentSpendsForTrip offers only the untagged recent spend (fuel)');
+
+// 23. Recurring bills and month-end forecast
+const mk = (y, m, d) => new Date(y, m, d, 10).getTime();
+const billEntries = [
+  { id: 'n1', amount: 649, desc: 'Netflix', ts: mk(2026, 6, 5) },
+  { id: 'n2', amount: 649, desc: 'Netflix', ts: mk(2026, 7, 5) },
+  { id: 'n3', amount: 649, desc: 'Netflix', ts: mk(2026, 8, 5) },
+  { id: 'r1', amount: 15000, desc: '🏠 House Rent', ts: mk(2026, 7, 1) },
+  { id: 'r2', amount: 15000, desc: '🏠 House Rent', ts: mk(2026, 8, 1) },
+  { id: 'r3', amount: 15000, desc: '🏠 House Rent', ts: mk(2026, 9, 1) },
+  { id: 'v1', amount: 120, desc: 'Random snack', ts: mk(2026, 8, 12) },
+  { id: 'c1', amount: 1000, desc: 'Groceries', ts: mk(2026, 9, 3) }
+];
+const bills = recurringBills(billEntries, '2026-10');
+const netflix = bills.find(b => b.key === 'netflix');
+const rent = bills.find(b => b.key === 'house rent');
+assert(netflix && netflix.amount === 649 && !netflix.paidThisMonth, 'recurringBills finds Netflix, not yet paid in October');
+assert(rent && rent.paidThisMonth, 'recurringBills finds rent, already paid in October');
+assert(!bills.find(b => b.key === 'random snack'), 'recurringBills ignores one-off spends');
+const fc = monthForecast(billEntries, '2026-10', new Date(2026, 9, 10));
+assert(fc.spent === 16000, 'monthForecast spent so far = 15000 rent + 1000 groceries');
+assert(fc.upcoming === 649, 'monthForecast upcoming = Netflix still due');
+assert(fc.projected === 16000 + 649 + Math.round(1000 / 10 * 21), 'monthForecast projects variable spend at the current daily pace');
+
+// 24. Settle-up links
+const link = upiPayLink('sanjeev@okhdfcbank', 'Sanjeev', 1250, 'Goa trip');
+assert(link === 'upi://pay?pa=sanjeev%40okhdfcbank&pn=Sanjeev&am=1250.00&cu=INR&tn=Goa%20trip', 'upiPayLink pre-fills payee, amount and note');
+const msg = settleMessage('Rohit', 1250, 'Goa trip', 'sanjeev@okhdfcbank');
+assert(msg.includes('₹1,250') && msg.includes('sanjeev@okhdfcbank') && msg.includes('upi://pay'), 'settleMessage spells out amount and UPI ID');
+assert(whatsappLink('a b').startsWith('https://wa.me/?text=a%20b'), 'whatsappLink encodes the message');
 
 console.log(`\nResults: ${passed} passed, ${failed} failed.`);
 if (failed > 0) process.exit(1);

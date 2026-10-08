@@ -77,10 +77,12 @@
     return d.includes('✈️') || d.startsWith('trip:') || d.includes('trip:');
   }
 
+  // Short tokens as whole words only: "sip" must not match "Sipping Chai Cafe".
+  var INVESTMENT_WORDS = /\b(?:sip|ppf|nps|fd|stocks|shares)\b/;
   function isInvestment(e) {
     if (!e || !e.desc) return false;
     var d = e.desc.trim().toLowerCase();
-    return d.includes('📈') || d.startsWith('investment') || d.includes('mutual fund') || d.includes('sip') || d.includes('ppf') || d.includes('nps') || d.includes('fixed deposit') || d.includes('fd ') || d.includes('stocks') || d.includes('shares');
+    return d.includes('📈') || d.startsWith('investment') || d.includes('mutual fund') || d.includes('fixed deposit') || INVESTMENT_WORDS.test(d);
   }
 
   function isExpense(e) {
@@ -134,6 +136,97 @@
     return clean;
   }
 
+  /* ---------- Trip backfill ----------
+     The first trip spend often happens before leaving town (fuel, airport cab), before trip mode is
+     on. When a trip starts, these are the recent spends worth offering to move into it. */
+  function recentSpendsForTrip(entries, nowMs, hours) {
+    var since = nowMs - (hours || 12) * 3600000;
+    return (entries || []).filter(function (e) {
+      return e && e.ts >= since && e.ts <= nowMs && isExpense(e) && !isTripEntry(e) && !isProjectEntry(e.desc);
+    }).sort(function (a, b) { return a.ts - b.ts; });
+  }
+
+  /* ---------- Recurring bills & month-end forecast ---------- */
+  function recurringKey(desc) {
+    return cleanScopePrefix(desc).toLowerCase()
+      .replace(/\([^)]*\)/g, ' ').replace(/[^a-z\s]/g, ' ').trim()
+      .split(/\s+/).slice(0, 3).join(' ');
+  }
+  function median(nums) {
+    var s = nums.slice().sort(function (a, b) { return a - b; });
+    var m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  }
+  // A bill = the same payee with a similar amount (within 25%) in at least 2 of the last 3 months.
+  function recurringBills(entries, curMonthKey) {
+    var prev = [prevMonthKey(curMonthKey)];
+    prev.push(prevMonthKey(prev[0]));
+    prev.push(prevMonthKey(prev[1]));
+    var groups = {};
+    (entries || []).forEach(function (e) {
+      if (!e || isIncome(e) || isTripEntry(e)) return;
+      var key = recurringKey(e.desc);
+      if (key.length < 3) return;
+      var mk = monthKey(e.ts);
+      if (prev.indexOf(mk) < 0 && mk !== curMonthKey) return;
+      (groups[key] = groups[key] || []).push(e);
+    });
+    var bills = [];
+    Object.keys(groups).forEach(function (key) {
+      var list = groups[key];
+      var past = list.filter(function (e) { return monthKey(e.ts) !== curMonthKey; });
+      var months = {};
+      past.forEach(function (e) { months[monthKey(e.ts)] = true; });
+      if (Object.keys(months).length < 2) return;
+      var amounts = past.map(function (e) { return e.amount; });
+      var lo = Math.min.apply(null, amounts), hi = Math.max.apply(null, amounts);
+      if (lo <= 0 || hi / lo > 1.25) return;
+      var latest = past.slice().sort(function (a, b) { return b.ts - a.ts; })[0];
+      bills.push({
+        key: key,
+        label: cleanScopePrefix(latest.desc),
+        amount: Math.round(median(amounts)),
+        day: Math.round(median(past.map(function (e) { return new Date(e.ts).getDate(); }))),
+        paidThisMonth: list.some(function (e) { return monthKey(e.ts) === curMonthKey; }),
+        isExpense: isExpense(latest)
+      });
+    });
+    return bills.sort(function (a, b) { return a.day - b.day; });
+  }
+  // Projected month-end spend = spent so far + bills still due + the daily pace of everything else.
+  function monthForecast(entries, curMonthKey, now) {
+    var monthList = (entries || []).filter(function (e) { return monthKey(e.ts) === curMonthKey && isExpense(e); });
+    var spent = sumRupees(monthList);
+    var bills = recurringBills(entries, curMonthKey).filter(function (b) { return b.isExpense; });
+    var due = bills.filter(function (b) { return !b.paidThisMonth; });
+    var upcoming = due.reduce(function (s, b) { return s + b.amount; }, 0);
+    var paidBills = bills.filter(function (b) { return b.paidThisMonth; }).reduce(function (s, b) { return s + b.amount; }, 0);
+    var d = now || new Date();
+    var daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    var elapsed = Math.max(1, d.getDate());
+    var variablePerDay = Math.max(0, spent - paidBills) / elapsed;
+    return {
+      spent: spent,
+      upcoming: upcoming,
+      dueBills: due,
+      projected: Math.round(spent + upcoming + variablePerDay * (daysInMonth - elapsed))
+    };
+  }
+
+  /* ---------- Settle-up links ---------- */
+  // A UPI "pay me" link the other person taps on their phone; amount and note come pre-filled.
+  function upiPayLink(vpa, name, amount, note) {
+    return 'upi://pay?pa=' + encodeURIComponent(vpa) + '&pn=' + encodeURIComponent(name || 'Kharcha Book') +
+      '&am=' + Number(amount).toFixed(2) + '&cu=INR&tn=' + encodeURIComponent(note || 'Settle up');
+  }
+  // WhatsApp does not linkify upi:// everywhere, so the UPI ID and amount are spelled out too.
+  function settleMessage(toName, amount, reason, myVpa) {
+    var msg = 'Hi ' + toName + ', ' + money(amount) + ' for ' + reason + '.';
+    if (myVpa) msg += '\nPay to UPI ID: ' + myVpa + '\n' + upiPayLink(myVpa, 'Settle up', amount, reason);
+    return msg;
+  }
+  function whatsappLink(text) { return 'https://wa.me/?text=' + encodeURIComponent(text); }
+
   function getProjectSummary(monthEntries) {
     var list = (monthEntries || []).filter(function (e) {
       return isExpense(e) && isProjectEntry(e.desc);
@@ -177,7 +270,7 @@
   /* ---------- Continuous Merchant Auto-Memory ---------- */
   var MERCHANT_SCOPE_KEY = 'kharcha_merchant_scope_map';
   function merchantScopeMap() {
-    try { return JSON.parse(localStorage.getItem(MERCHANT_SCOPE_KEY)) || {}; } catch (e) { return {}; }
+    try { return JSON.parse(kv.get(MERCHANT_SCOPE_KEY)) || {}; } catch (e) { return {}; }
   }
   function extractMerchantCore(desc) {
     if (!desc) return '';
@@ -195,7 +288,7 @@
     if (!core || core.length < 2) return;
     var map = merchantScopeMap();
     map[core] = scope;
-    try { localStorage.setItem(MERCHANT_SCOPE_KEY, JSON.stringify(map)); } catch (e) {}
+    try { kv.set(MERCHANT_SCOPE_KEY, JSON.stringify(map)); } catch (e) {}
   }
   function predictMerchantScope(desc) {
     if (!desc) return null;
@@ -685,7 +778,9 @@
     isTripEntry: isTripEntry, getTripSummary: getTripSummary, parseTripPayer: parseTripPayer,
     getAllTrips: getAllTrips, getTripFriends: getTripFriends, addTripFriend: addTripFriend, removeTripFriend: removeTripFriend,
     getEntryScope: getEntryScope, shiftScopeDesc: shiftScopeDesc,
-    rememberMerchantScope: rememberMerchantScope, predictMerchantScope: predictMerchantScope
+    rememberMerchantScope: rememberMerchantScope, predictMerchantScope: predictMerchantScope,
+    recentSpendsForTrip: recentSpendsForTrip, recurringBills: recurringBills, monthForecast: monthForecast,
+    upiPayLink: upiPayLink, settleMessage: settleMessage, whatsappLink: whatsappLink
   };
 
   var TABLE = 'daily_expenses';
@@ -719,6 +814,75 @@
   var state = { mode: 'pending', entries: [], sel: null, editing: null, draft: null, scopeFilter: 'all', activeStream: 'spends', expandedDays: {} };
   var searchQuery = '';
   var sb = null;
+
+  /* ---------- Shared settings: one row in Supabase kharcha_settings, used by web + phone ----------
+     Same keys and string values as localStorage, so feature code just swaps localStorage for kv.
+     localStorage stays as the offline cache, and is all there is until the v4 SQL has been run. */
+  var SHARED_KEYS = ['kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
+    'kharcha_active_trip_name', 'kharcha_all_trips_list', 'kharcha_category_budgets', 'kharcha_merchant_memory',
+    'kharcha_owner_identity', 'kharcha_my_upi'];
+  var SHARED_PREFIXES = ['kharcha_trip_friends_', 'kharcha_trip_budget_'];
+  function isSharedKey(k) {
+    return SHARED_KEYS.indexOf(k) >= 0 || SHARED_PREFIXES.some(function (p) { return k.indexOf(p) === 0; });
+  }
+  var kv = {
+    data: {}, remote: false, userId: null, timer: null,
+    get: function (k) {
+      if (Object.prototype.hasOwnProperty.call(this.data, k)) return this.data[k];
+      try { return localStorage.getItem(k); } catch (e) { return null; }
+    },
+    set: function (k, v) {
+      v = String(v);
+      this.data[k] = v;
+      try { localStorage.setItem(k, v); } catch (e) {}
+      this.schedulePush();
+    },
+    remove: function (k) {
+      this.data[k] = null; // null (not delete) so the removal reaches the other devices
+      try { localStorage.removeItem(k); } catch (e) {}
+      this.schedulePush();
+    },
+    localSharedValues: function () {
+      var out = {};
+      try {
+        for (var i = 0; i < localStorage.length; i++) {
+          var k = localStorage.key(i);
+          if (isSharedKey(k)) out[k] = localStorage.getItem(k);
+        }
+      } catch (e) {}
+      return out;
+    },
+    // Server wins for keys it has; keys only this device knows are kept and pushed up.
+    load: async function () {
+      try {
+        var user = (await sb.auth.getUser()).data.user;
+        if (!user) return;
+        this.userId = user.id;
+        var res = await sb.from('kharcha_settings').select('data').maybeSingle();
+        if (res.error) { console.warn('Kharcha: shared settings unavailable (' + res.error.message + '); using this device only'); return; }
+        var server = (res.data && res.data.data) || {};
+        var local = this.localSharedValues();
+        var changed = !res.data;
+        Object.keys(local).forEach(function (k) { if (!Object.prototype.hasOwnProperty.call(server, k)) { server[k] = local[k]; changed = true; } });
+        this.data = server;
+        Object.keys(server).forEach(function (k) {
+          try { if (server[k] == null) localStorage.removeItem(k); else localStorage.setItem(k, String(server[k])); } catch (e) {}
+        });
+        this.remote = true;
+        if (changed) await this.push();
+      } catch (e) { console.warn('Kharcha: shared settings load failed', e); }
+    },
+    schedulePush: function () {
+      var self = this;
+      clearTimeout(this.timer);
+      this.timer = setTimeout(function () { self.timer = null; self.push(); }, 600);
+    },
+    push: async function () {
+      if (!this.remote || !this.userId) return;
+      var res = await sb.from('kharcha_settings').upsert({ user_id: this.userId, data: this.data, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+      if (res.error) console.warn('Kharcha: shared settings save failed', res.error.message);
+    }
+  };
 
   function $(id) { return document.getElementById(id); }
   function el(tag, cls, text) {
@@ -838,8 +1002,8 @@
 
   /* ---------- Budget Feature ---------- */
   var BUDGET_KEY = 'kharcha_monthly_budget';
-  function getBudget() { try { return Number(localStorage.getItem(BUDGET_KEY)) || 0; } catch (e) { return 0; } }
-  function setBudget(val) { try { if (val > 0) localStorage.setItem(BUDGET_KEY, String(val)); else localStorage.removeItem(BUDGET_KEY); } catch (e) {} }
+  function getBudget() { try { return Number(kv.get(BUDGET_KEY)) || 0; } catch (e) { return 0; } }
+  function setBudget(val) { try { if (val > 0) kv.set(BUDGET_KEY, String(val)); else kv.remove(BUDGET_KEY); } catch (e) {} }
 
   function renderBudget(curTotal) {
     var b = getBudget();
@@ -1207,6 +1371,31 @@
     return list;
   }
 
+  function renderForecast(nowKey) {
+    var card = $('forecast-card');
+    if (!card) return;
+    if (state.sel !== nowKey) { card.hidden = true; return; }
+    var fc = monthForecast(state.entries, nowKey, new Date());
+    var bills = recurringBills(state.entries, nowKey);
+    if (!fc.spent && !bills.length) { card.hidden = true; return; }
+    card.hidden = false;
+    $('fc-projected').textContent = money(fc.projected);
+    $('fc-sub').textContent = 'Spent ' + money(fc.spent) + ' so far' +
+      (fc.upcoming ? ' · ' + money(fc.upcoming) + ' in bills still due' : '') + ' · rest at your current daily pace';
+    var ul = $('fc-bills');
+    ul.textContent = '';
+    bills.forEach(function (b) {
+      var li = el('li', b.paidThisMonth ? 'fc-bill paid' : 'fc-bill');
+      li.appendChild(el('span', null, (b.paidThisMonth ? '✓ ' : '⏳ ') + b.label));
+      li.appendChild(el('span', null, money(b.amount) + ' · ~' + b.day + dayOrdinal(b.day)));
+      ul.appendChild(li);
+    });
+  }
+  function dayOrdinal(d) {
+    if (d % 100 >= 11 && d % 100 <= 13) return 'th';
+    return ['th', 'st', 'nd', 'rd'][d % 10] || 'th';
+  }
+
   function render() {
     var nowKey = monthKey(Date.now());
     var months = monthTotals(state.entries);
@@ -1215,6 +1404,8 @@
     if (!state.sel || !months.some(function (m) { return m.key === state.sel; })) state.sel = nowKey;
     var idx = months.findIndex(function (m) { return m.key === state.sel; });
     var cur = months[idx];
+
+    renderForecast(nowKey);
 
     var list = visibleEntries(state.sel);
     var prevKey = prevMonthKey(state.sel);
@@ -1441,6 +1632,14 @@
       }
     }
 
+    var askBtn = $('settle-ask-btn');
+    if (askBtn) {
+      askBtn.hidden = !(setl.pending > 0);
+      if (setl.pending > 0) {
+        askBtn.href = whatsappLink(settleMessage('Maa', setl.pending, 'family expenses in ' + monthLabel(state.sel), (kv.get('kharcha_my_upi') || '').trim()));
+      }
+    }
+
     if (entriesBox) {
       entriesBox.textContent = '';
       if (!setl.familyExpenses.length) {
@@ -1571,10 +1770,10 @@
   /* ---------- Projects & Renovation View Rendering ---------- */
   var PROJ_NAME_KEY = 'kharcha_active_project_name';
   function getActiveProjectName() {
-    try { return localStorage.getItem(PROJ_NAME_KEY) || 'House Renovation'; } catch (e) { return 'House Renovation'; }
+    try { return kv.get(PROJ_NAME_KEY) || 'House Renovation'; } catch (e) { return 'House Renovation'; }
   }
   function setActiveProjectName(name) {
-    try { localStorage.setItem(PROJ_NAME_KEY, name || 'House Renovation'); } catch (e) {}
+    try { kv.set(PROJ_NAME_KEY, name || 'House Renovation'); } catch (e) {}
   }
 
   function renderProjectView(proj) {
@@ -1879,7 +2078,7 @@
     });
     // 2. Add from local storage saved trips
     try {
-      var saved = JSON.parse(localStorage.getItem(ALL_TRIPS_KEY)) || [];
+      var saved = JSON.parse(kv.get(ALL_TRIPS_KEY)) || [];
       saved.forEach(function (t) { if (t && t.trim()) tripSet.add(t.trim()); });
     } catch (e) {}
     // 3. Active trip if set
@@ -1894,21 +2093,21 @@
     var trips = getAllTrips();
     if (!trips.includes(name.trim())) {
       trips.push(name.trim());
-      try { localStorage.setItem(ALL_TRIPS_KEY, JSON.stringify(trips)); } catch (e) {}
+      try { kv.set(ALL_TRIPS_KEY, JSON.stringify(trips)); } catch (e) {}
     }
   }
 
   function getActiveTripName() {
-    try { return localStorage.getItem(ACTIVE_TRIP_KEY) || ''; } catch (e) { return ''; }
+    try { return kv.get(ACTIVE_TRIP_KEY) || ''; } catch (e) { return ''; }
   }
   function setActiveTripName(name) {
     try {
       if (name && name.trim()) {
-        localStorage.setItem(ACTIVE_TRIP_KEY, name.trim());
+        kv.set(ACTIVE_TRIP_KEY, name.trim());
         saveTripToList(name.trim());
         setSelectedViewTripName(name.trim());
       } else {
-        localStorage.removeItem(ACTIVE_TRIP_KEY);
+        kv.remove(ACTIVE_TRIP_KEY);
       }
     } catch (e) {}
   }
@@ -1935,7 +2134,7 @@
   function getTripFriends(tripName) {
     if (!tripName) return ['Me'];
     try {
-      var saved = JSON.parse(localStorage.getItem(TRIP_FRIENDS_PREFIX + tripName.trim()));
+      var saved = JSON.parse(kv.get(TRIP_FRIENDS_PREFIX + tripName.trim()));
       if (Array.isArray(saved) && saved.length) {
         var set = new Set();
         set.add('Me');
@@ -1949,7 +2148,7 @@
     if (!tripName) return;
     try {
       var clean = Array.from(new Set(friendsList)).filter(function (f) { return f && f.trim(); });
-      localStorage.setItem(TRIP_FRIENDS_PREFIX + tripName.trim(), JSON.stringify(clean));
+      kv.set(TRIP_FRIENDS_PREFIX + tripName.trim(), JSON.stringify(clean));
     } catch (e) {}
   }
   function addTripFriend(tripName, friendName) {
@@ -1970,13 +2169,13 @@
   var TRIP_BUDGET_KEY_PREFIX = 'kharcha_trip_budget_';
   function getTripBudget(tripName) {
     if (!tripName) return 0;
-    try { return Number(localStorage.getItem(TRIP_BUDGET_KEY_PREFIX + tripName.trim())) || 0; } catch (e) { return 0; }
+    try { return Number(kv.get(TRIP_BUDGET_KEY_PREFIX + tripName.trim())) || 0; } catch (e) { return 0; }
   }
   function setTripBudget(tripName, val) {
     if (!tripName) return;
     try {
-      if (val > 0) localStorage.setItem(TRIP_BUDGET_KEY_PREFIX + tripName.trim(), String(val));
-      else localStorage.removeItem(TRIP_BUDGET_KEY_PREFIX + tripName.trim());
+      if (val > 0) kv.set(TRIP_BUDGET_KEY_PREFIX + tripName.trim(), String(val));
+      else kv.remove(TRIP_BUDGET_KEY_PREFIX + tripName.trim());
     } catch (e) {}
   }
 
@@ -2138,6 +2337,17 @@
         row.textContent = 'Add expenses to see who paid and who owes.';
         balancesList.appendChild(row);
       } else {
+        // What each friend owes *me*: my "gets back" amount shared out across those who owe.
+        var askFrom = {};
+        var meBal = tripSummary.balances.filter(function (b) { return b.name === 'Me'; })[0];
+        var stillOwedToMe = meBal && meBal.net > 0 ? meBal.net : 0;
+        tripSummary.balances.forEach(function (b) {
+          if (b.name === 'Me' || b.net >= 0 || stillOwedToMe < 1) return;
+          var amt = Math.min(Math.abs(b.net), stillOwedToMe);
+          askFrom[b.name] = Math.round(amt);
+          stillOwedToMe -= amt;
+        });
+        var myUpi = (kv.get('kharcha_my_upi') || '').trim();
         tripSummary.balances.forEach(function (b) {
           var row = el('div', 'friend-bal-row');
           var personCol = el('div', 'fbr-person');
@@ -2160,6 +2370,14 @@
 
           row.appendChild(personCol);
           row.appendChild(netCol);
+          if (askFrom[b.name] > 0) {
+            var ask = el('a', 'fbr-ask', '📲 Ask ' + money(askFrom[b.name]));
+            ask.href = whatsappLink(settleMessage(b.name, askFrom[b.name], (viewTrip || 'the') + ' trip', myUpi));
+            ask.target = '_blank';
+            ask.rel = 'noopener';
+            if (!myUpi) ask.title = 'Add your UPI ID in Insights → Your details to include a pay link';
+            row.appendChild(ask);
+          }
           balancesList.appendChild(row);
         });
       }
@@ -2254,6 +2472,7 @@
         setSelectedViewTripName(clean);
         render();
         toast('Started & switched to ' + clean + '!');
+        offerTripBackfill(clean);
       }
     });
   }
@@ -2299,6 +2518,70 @@
     });
   }
 
+  /* Trip just started: offer to move spends from the last 12 hours into it -- the fuel filled in
+     your own city before leaving, the cab to the airport -- which trip mode could not have caught. */
+  function offerTripBackfill(tripName) {
+    var picks = recentSpendsForTrip(state.entries, Date.now(), 12);
+    if (!picks.length) return;
+    var back = el('div', 'modal-backdrop');
+    var card = el('div', 'modal-card');
+    var head = el('div', 'modal-head');
+    head.appendChild(el('h3', null, '✈️ Add earlier spends to ' + tripName + '?'));
+    card.appendChild(head);
+    card.appendChild(el('p', 'modal-intro', 'These were logged in the last 12 hours, before the trip started. Tick the ones that belong to it.'));
+    var boxes = [];
+    picks.forEach(function (e) {
+      var row = el('label', 'backfill-row');
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = true;
+      boxes.push({ cb: cb, e: e });
+      row.appendChild(cb);
+      var txt = el('span', 'backfill-txt', cleanScopePrefix(e.desc));
+      txt.appendChild(el('small', null, ' ' + dFmt.format(new Date(e.ts)) + ', ' + tFmt.format(new Date(e.ts))));
+      row.appendChild(txt);
+      row.appendChild(el('strong', null, money(e.amount)));
+      card.appendChild(row);
+    });
+    var foot = el('div', 'modal-foot');
+    var skip = el('button', 'ghost', 'Not now'); skip.type = 'button';
+    var go = el('button', 'primary', 'Move to ' + tripName); go.type = 'button';
+    foot.appendChild(skip); foot.appendChild(go);
+    card.appendChild(foot);
+    back.appendChild(card);
+    document.body.appendChild(back);
+    function close() { back.remove(); }
+    skip.addEventListener('click', close);
+    back.addEventListener('click', function (ev) { if (ev.target === back) close(); });
+    go.addEventListener('click', function () {
+      var chosen = boxes.filter(function (b) { return b.cb.checked; }).map(function (b) { return b.e; });
+      if (!chosen.length) { close(); return; }
+      go.disabled = true;
+      go.textContent = 'Moving…';
+      Promise.all(chosen.map(function (e) {
+        return store.update(e.id, { amount: e.amount, desc: shiftScopeDesc(e.desc, 'trip', tripName), spent_at: new Date(e.ts).toISOString() });
+      })).then(function () {
+        toast('Moved ' + chosen.length + (chosen.length === 1 ? ' spend' : ' spends') + ' to ' + tripName);
+      }).catch(function (err) {
+        toast('Could not move: ' + ((err && err.message) || 'check your connection'));
+      }).then(function () { close(); refreshData(); });
+    });
+  }
+
+  // Name + UPI IDs: lets the phone treat payments to yourself as transfers, and puts your UPI ID
+  // on "Ask" settle-up messages. Shared with the phone through the settings row.
+  var yourDetailsBtn = $('your-details-btn');
+  if (yourDetailsBtn) {
+    yourDetailsBtn.addEventListener('click', function () {
+      var owner = window.prompt('Your full name and UPI IDs, comma separated (e.g. Sanjeev Yadav, sanjeev@okhdfcbank).\nPayments to these count as transfers between your own accounts, not spending.', kv.get('kharcha_owner_identity') || '');
+      if (owner !== null) kv.set('kharcha_owner_identity', owner.trim());
+      var upi = window.prompt('Your UPI ID for settle-up requests (friends and family pay you here):', kv.get('kharcha_my_upi') || '');
+      if (upi !== null) kv.set('kharcha_my_upi', upi.trim());
+      render();
+      toast('Saved your details');
+    });
+  }
+
   function promptTripToggle() {
     var viewTrip = getSelectedViewTripName();
     var curActive = getActiveTripName();
@@ -2306,7 +2589,7 @@
     if (viewTrip && viewTrip === curActive) {
       showConfirmModal({
         title: '✈️ Close Active Trip?',
-        message: 'Close "' + viewTrip + '"? New expenses will resume logging to Personal/Family normally. You can still view ' + viewTrip + ' anytime from the trip switcher.',
+        message: 'Close "' + viewTrip + '"? Payment notifications will stop offering it first. You can still view ' + viewTrip + ' anytime from the trip switcher.',
         confirmText: 'Close Trip',
         onConfirm: function () {
           setActiveTripName('');
@@ -2318,6 +2601,7 @@
       setActiveTripName(viewTrip);
       render();
       toast('Trip Mode active: ' + viewTrip);
+      offerTripBackfill(viewTrip);
     } else {
       var next = window.prompt('Enter trip / event name (e.g. Manali Trip, Goa, Dubai):', 'Manali Trip');
       if (next && next.trim()) {
@@ -2326,6 +2610,7 @@
         setSelectedViewTripName(next.trim());
         render();
         toast('Trip Mode active: ' + next.trim());
+        offerTripBackfill(next.trim());
       }
     }
   }
@@ -2451,11 +2736,11 @@
   })();
 
   var CAT_BUDGET_KEY = 'kharcha_category_budgets';
-  function categoryBudgets() { try { return JSON.parse(localStorage.getItem(CAT_BUDGET_KEY)) || {}; } catch (e) { return {}; } }
+  function categoryBudgets() { try { return JSON.parse(kv.get(CAT_BUDGET_KEY)) || {}; } catch (e) { return {}; } }
   function setCategoryBudget(name, val) {
     var b = categoryBudgets();
     if (val > 0) b[name] = val; else delete b[name];
-    try { localStorage.setItem(CAT_BUDGET_KEY, JSON.stringify(b)); } catch (e) {}
+    try { kv.set(CAT_BUDGET_KEY, JSON.stringify(b)); } catch (e) {}
   }
 
   function renderCategoryBreakdown(list, cmp, prevKey) {
@@ -2530,12 +2815,12 @@
 
   /* Merchant memory: when you change the description of a parsed SMS, the next SMS from that payee uses it. */
   var MERCHANT_KEY = 'kharcha_merchant_memory';
-  function merchantMemory() { try { return JSON.parse(localStorage.getItem(MERCHANT_KEY)) || {}; } catch (e) { return {}; } }
+  function merchantMemory() { try { return JSON.parse(kv.get(MERCHANT_KEY)) || {}; } catch (e) { return {}; } }
   function rememberMerchant(payee, desc) {
     if (!payee) return;
     var mem = merchantMemory();
     mem[payee.toLowerCase()] = desc;
-    try { localStorage.setItem(MERCHANT_KEY, JSON.stringify(mem)); } catch (e) {}
+    try { kv.set(MERCHANT_KEY, JSON.stringify(mem)); } catch (e) {}
   }
 
   function smsField(labelText, input) {
@@ -3163,6 +3448,8 @@
     try {
       var latest = await store.loadAll();
       state.entries = latest;
+      // Pick up trips/budgets changed on the phone -- unless a local change is still waiting to save.
+      if (!kv.timer) await kv.load();
       render();
     } catch (e) {
       console.warn('Kharcha: background refresh failed', e);
@@ -3260,6 +3547,7 @@
       state.entries = await store.loadAll();
       console.log('Kharcha: store.loadAll completed with ' + state.entries.length + ' entries');
       state.mode = 'db';
+      await kv.load();
     } catch (err) {
       console.error('Kharcha: store.loadAll failed:', err);
       state.mode = 'error';
@@ -3377,7 +3665,7 @@
     updateBtn.addEventListener('click', function () {
       showConfirmModal({
         title: '🔄 Force Clear Cache & Reload',
-        message: 'Clear cached app data and reload to the latest v36?',
+        message: 'Clear cached app data and reload to the latest v37?',
         confirmText: 'Clear & Reload',
         onConfirm: function () {
           if ('caches' in window) {

@@ -1597,3 +1597,53 @@ button.cat-row { width: 100%; text-align: left; background: none; border: 0; pad
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* ---------- Month-end forecast (inside the hero insights panel) ---------- */
+.forecast-card {
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin: 2px 0 10px;
+  color: var(--hero-ink);
+}
+.fc-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 0.85rem; }
+.fc-row strong { font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+.fc-sub { margin: 4px 0 0; font-size: 0.72rem; color: var(--hero-muted); }
+.fc-bills { list-style: none; margin: 8px 0 0; padding: 6px 0 0; border-top: 1px solid var(--hero-line); display: grid; gap: 3px; }
+.fc-bill { display: flex; justify-content: space-between; gap: 8px; font-size: 0.75rem; }
+.fc-bill span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fc-bill span:last-child { white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--hero-muted); }
+.fc-bill.paid { opacity: 0.6; }
+.your-details-btn { margin-top: 10px; width: 100%; }
+
+/* ---------- Settle-up links ---------- */
+.settle-ask-btn, .fbr-ask {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  font-weight: 600;
+  text-decoration: none;
+  background: #25D366;
+  color: #0B3D1E;
+}
+.settle-ask-btn { margin-top: 8px; padding: 10px 14px; font-size: 0.9rem; width: 100%; }
+.fbr-ask { padding: 4px 8px; font-size: 0.72rem; margin-left: 8px; white-space: nowrap; }
+.friend-bal-row { flex-wrap: wrap; gap: 4px; }
+
+/* ---------- Trip backfill picker ---------- */
+.backfill-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+.backfill-row input { width: 18px; height: 18px; accent-color: var(--accent); }
+.backfill-txt { min-width: 0; overflow-wrap: anywhere; }
+.backfill-txt small { color: var(--muted); font-size: 0.72rem; }
+.backfill-row strong { font-variant-numeric: tabular-nums; }
