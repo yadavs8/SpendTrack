@@ -7,17 +7,17 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="styles.css?v=43">
+<link rel="stylesheet" href="styles.css?v=44">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0B5D75">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Kharcha">
-<link rel="apple-touch-icon" href="apple-touch-icon.png?v=43">
-<link rel="icon" href="icon-192.png?v=43" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=44">
+<link rel="icon" href="icon-192.png?v=44" type="image/png">
 <script>
   (function() {
-    var V = '39';
+    var V = '44';
     if (localStorage.getItem('kharcha_app_v') !== V) {
       localStorage.setItem('kharcha_app_v', V);
       if ('caches' in window) {
@@ -37,7 +37,7 @@
 <body>
 <main class="app">
   <header class="top">
-    <h1><img class="logo" src="icon-192.png?v=43" width="36" height="36" alt="">Kharcha Book</h1>
+    <h1><img class="logo" src="icon-192.png?v=44" width="36" height="36" alt="">Kharcha Book</h1>
     <div class="top-r">
       <span class="sync" id="sync" data-state="pending">Loading…</span>
       <button type="button" class="installbtn" id="force-update-btn" title="Force clear cache & reload latest version">v43 🔄</button>
@@ -175,6 +175,15 @@
         <span class="scope-label">Category / Type:</span>
         <label class="scope-pill active"><input type="radio" name="scope" value="personal" checked> 👤 Personal</label>
         <label class="scope-pill"><input type="radio" name="scope" value="family"> 🏠 Family / Bill</label>
+        <label class="scope-pill"><input type="radio" name="scope" value="trip"> ✈️ Trip</label>
+      </div>
+      <div class="add-row" id="trip-pick-row" hidden>
+        <div class="field">
+          <label for="trip-pick">Which trip? (booking ahead is fine — this won't make it your active trip)</label>
+          <select class="input" id="trip-pick">
+            <option value="">+ New trip…</option>
+          </select>
+        </div>
       </div>
       <div class="add-row">
         <div class="field">
@@ -669,12 +678,12 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=43" onerror="void 0"></script>
-<script src="app.js?v=43"></script>
+<script src="config.js?v=44" onerror="void 0"></script>
+<script src="app.js?v=44"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('sw.js?v=43').then(function (reg) {
+      navigator.serviceWorker.register('sw.js?v=44').then(function (reg) {
         reg.update();
         reg.addEventListener('updatefound', function () {
           var newWorker = reg.installing;

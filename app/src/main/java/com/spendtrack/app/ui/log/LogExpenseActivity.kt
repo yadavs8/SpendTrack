@@ -140,7 +140,10 @@ private fun LogSheet(
     val cashAmount = amountText.replace(",", "").toDoubleOrNull()?.takeIf { it > 0 && it < 1e8 }
     var note by remember { mutableStateOf("") }
     var newTrip by remember { mutableStateOf("") }
-    var makeActive by remember { mutableStateOf(activeTrip == null) }
+    // Defaults off: a trip typed in here might be a booking for a trip that hasn't started yet
+    // (a hotel/flight paid for ahead of time). Auto-activating it would wrongly put every
+    // personal spend between now and departure into "on this trip" mode.
+    var makeActive by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val amountFocus = remember { FocusRequester() }

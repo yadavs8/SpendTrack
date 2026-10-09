@@ -1085,8 +1085,52 @@
     pill.addEventListener('click', function () {
       var input = pill.querySelector('input');
       if (input) setSelectedScope(input.value);
+      if (input && input.name === 'scope') updateTripPickRow();
     });
   });
+
+  // Populated with every trip that exists (not just the active one), so a hotel/flight booked
+  // ahead of a trip that hasn't started yet can be tagged to it without making it the active trip.
+  function updateTripPickRow() {
+    var row = $('trip-pick-row');
+    var select = $('trip-pick');
+    if (!row || !select) return;
+    row.hidden = getSelectedScope() !== 'trip';
+    if (row.hidden) return;
+    var current = select.value;
+    select.innerHTML = '';
+    var placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = '+ New trip…';
+    select.appendChild(placeholder);
+    var active = getActiveTripName();
+    getAllTrips().forEach(function (t) {
+      var opt = document.createElement('option');
+      opt.value = t;
+      opt.textContent = '✈️ ' + t + (t === active ? ' (active)' : '');
+      select.appendChild(opt);
+    });
+    if (current && getAllTrips().includes(current)) select.value = current;
+  }
+  var tripPickSelect = $('trip-pick');
+  if (tripPickSelect) {
+    tripPickSelect.addEventListener('change', function () {
+      if (tripPickSelect.value !== '') return;
+      showInputModal({
+        title: '✈️ New trip',
+        message: "Name it now and tag this expense to it -- it won't become your active trip until you switch to it later.",
+        fields: [{ label: 'Trip name', placeholder: 'e.g. Goa Dec' }],
+        confirmText: 'Create',
+        onConfirm: function (values) {
+          var name = (values[0] || '').trim();
+          if (!name) return;
+          saveTripToList(name);
+          updateTripPickRow();
+          tripPickSelect.value = name;
+        }
+      });
+    });
+  }
 
   /* ---------- Scope Filter Tabs on Hero Card ---------- */
   document.querySelectorAll('.scopetab').forEach(function (tab) {
@@ -3465,38 +3509,61 @@
     var shiftLabel = el('span', 'edit-shift-label', 'Move to:');
     shiftRow.appendChild(shiftLabel);
 
-    function createShiftBtn(targetScope, label, icon) {
+    function doShift(targetScope, label, tripName) {
+      var newDesc = shiftScopeDesc(state.draft.desc || e.desc, targetScope, tripName);
+      state.draft.desc = newDesc;
+      d.value = newDesc;
+      // Auto-save immediately on shift click for seamless 1-tap workflow
+      var amt = parseAmount(state.draft.amount);
+      if (amt == null) { msg.textContent = 'Enter an amount greater than zero.'; msg.hidden = false; return; }
+      save.disabled = true;
+      var newTs = state.draft.spent_at ? new Date(state.draft.spent_at).toISOString() : null;
+      rememberMerchantScope(e.desc, targetScope);
+      store.update(e.id, { amount: amt, desc: newDesc, spent_at: newTs }).then(function () {
+        state.editing = null;
+        render();
+        toast('Moved to ' + label);
+      }).catch(function (err) {
+        save.disabled = false;
+        msg.textContent = 'Could not move: ' + (err && err.message ? err.message : 'try again');
+        msg.hidden = false;
+      });
+    }
+
+    function createShiftBtn(targetScope, label, icon, tripName) {
       var btn = el('button', 'btn-shift' + (curScope === targetScope ? ' active' : ''), icon + ' ' + label);
       btn.type = 'button';
-      btn.addEventListener('click', function () {
-        var newDesc = shiftScopeDesc(state.draft.desc || e.desc, targetScope);
-        state.draft.desc = newDesc;
-        d.value = newDesc;
-        // Auto-save immediately on shift click for seamless 1-tap workflow
-        var amt = parseAmount(state.draft.amount);
-        if (amt == null) { msg.textContent = 'Enter an amount greater than zero.'; msg.hidden = false; return; }
-        save.disabled = true;
-        var newTs = state.draft.spent_at ? new Date(state.draft.spent_at).toISOString() : null;
-        rememberMerchantScope(e.desc, targetScope);
-        store.update(e.id, { amount: amt, desc: newDesc, spent_at: newTs }).then(function () {
-          state.editing = null;
-          render();
-          toast('Moved to ' + label);
-        }).catch(function (err) {
-          save.disabled = false;
-          msg.textContent = 'Could not move: ' + (err && err.message ? err.message : 'try again');
-          msg.hidden = false;
-        });
-      });
+      btn.addEventListener('click', function () { doShift(targetScope, label, tripName); });
       return btn;
     }
 
     if (curScope !== 'personal') shiftRow.appendChild(createShiftBtn('personal', 'Personal', '👤'));
     if (curScope !== 'family') shiftRow.appendChild(createShiftBtn('family', 'Family', '🏠'));
     if (curScope !== 'investment') shiftRow.appendChild(createShiftBtn('investment', 'Investment', '📈'));
-    var activeTrip = getActiveTripName();
     if (curScope !== 'trip') {
-      shiftRow.appendChild(createShiftBtn('trip', activeTrip ? activeTrip : 'Trip', '✈️'));
+      var activeTrip = getActiveTripName();
+      // One button per existing trip (not just the active one), so a hotel/flight booking for a
+      // trip that hasn't started yet can be filed under that trip without activating it.
+      getAllTrips().forEach(function (t) {
+        shiftRow.appendChild(createShiftBtn('trip', t + (t === activeTrip ? ' (active)' : ''), '✈️', t));
+      });
+      var newTripShiftBtn = el('button', 'btn-shift', '✈️ + New trip');
+      newTripShiftBtn.type = 'button';
+      newTripShiftBtn.addEventListener('click', function () {
+        showInputModal({
+          title: '✈️ New trip',
+          message: "Name it and move this expense into it -- it won't become your active trip until you switch to it later.",
+          fields: [{ label: 'Trip name', placeholder: 'e.g. Goa Dec' }],
+          confirmText: 'Create & move',
+          onConfirm: function (values) {
+            var name = (values[0] || '').trim();
+            if (!name) return;
+            saveTripToList(name);
+            doShift('trip', name, name);
+          }
+        });
+      });
+      shiftRow.appendChild(newTripShiftBtn);
     }
 
     var btns = el('div', 'edit-btns');
@@ -3664,7 +3731,14 @@
 
     var scope = getSelectedScope();
     var cleanDesc = rawDesc.replace(/^[🏠👤]\s*/, '');
-    var desc = (scope === 'family') ? ('🏠 ' + cleanDesc) : cleanDesc;
+    var desc;
+    if (scope === 'trip') {
+      var tripName = ($('trip-pick') && $('trip-pick').value || '').trim();
+      if (!tripName) { showErr('Choose a trip, or add a new one first.'); return; }
+      desc = shiftScopeDesc(cleanDesc, 'trip', tripName);
+    } else {
+      desc = (scope === 'family') ? ('🏠 ' + cleanDesc) : cleanDesc;
+    }
 
     var spentVal = $('spent-date').value;
     var spentAt = spentVal ? new Date(spentVal).toISOString() : null;
