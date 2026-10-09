@@ -96,6 +96,21 @@ fun SettingsScreen(
         "com.naviapp" to "Navi UPI"
     )
 
+    // Turning the switch on only ever does something once Android has actually granted the SMS
+    // permission; the preference alone (viewModel.toggleSms) does not trigger the OS prompt.
+    val smsPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { granted ->
+        val allGranted = granted[android.Manifest.permission.READ_SMS] == true &&
+            granted[android.Manifest.permission.RECEIVE_SMS] == true
+        viewModel.toggleSms(allGranted)
+        if (!allGranted) {
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar("SMS permission was not granted, so this stays off")
+            }
+        }
+    }
+
     // File launcher for CSV import
     val importFileLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -197,7 +212,15 @@ fun SettingsScreen(
                             }
                             Switch(
                                 checked = uiState.isSmsEnabled,
-                                onCheckedChange = { viewModel.toggleSms(it) }
+                                onCheckedChange = { turnOn ->
+                                    if (turnOn) {
+                                        smsPermissionLauncher.launch(
+                                            arrayOf(android.Manifest.permission.READ_SMS, android.Manifest.permission.RECEIVE_SMS)
+                                        )
+                                    } else {
+                                        viewModel.toggleSms(false)
+                                    }
+                                }
                             )
                         }
 
