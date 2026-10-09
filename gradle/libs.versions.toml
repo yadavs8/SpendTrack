@@ -14,6 +14,11 @@ kotlin = "2.3.20"
 nav3Core = "1.0.1"
 lifecycleViewmodelNav3 = "2.10.0"
 biometric = "1.2.0-alpha05"
+# Pulled transitively by androidx.biometric at a very old version (1.2.5, from 2020). That old
+# FragmentActivity still enforces a 16-bit requestCode limit that the current androidx.activity's
+# Compose permission launcher doesn't respect, crashing any requestPermissions() call with
+# "Can only use lower 16 bits for requestCode". Pin it forward explicitly to fix that.
+fragment = "1.8.6"
 
 ksp = "2.3.12"
 room = "2.8.5"
@@ -23,6 +28,7 @@ okhttp = "4.12.0"
 
 [libraries]
 androidx-biometric = { module = "androidx.biometric:biometric", version.ref = "biometric" }
+androidx-fragment = { module = "androidx.fragment:fragment", version.ref = "fragment" }
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidxCore" }
 androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidxActivity" }
 androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "androidxComposeBom" }

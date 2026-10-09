@@ -86,6 +86,9 @@ dependencies {
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.activity.compose)
   implementation(libs.androidx.biometric)
+  // Force a modern fragment (androidx.biometric otherwise drags in a 2020-era 1.2.5 that crashes
+  // any requestPermissions() call -- see the comment on the `fragment` version in libs.versions.toml).
+  implementation(libs.androidx.fragment)
 
   // Arch Components
   implementation(libs.androidx.lifecycle.runtime.compose)
