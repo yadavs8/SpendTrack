@@ -14,6 +14,9 @@ class SpendTrackApp : Application() {
         ServiceLocator.init(this)
         // Morning/evening automations (bills, settle-up, cash, weekly summary, budgets).
         runCatching { com.spendtrack.app.core.automation.AutomationWorker.schedule(this) }
+        // Watchdog: re-binds the notification listener and runs a safety-net SMS backfill every
+        // ~30 min, independent of the app being open, so an OS-killed listener self-heals.
+        runCatching { com.spendtrack.app.core.automation.ListenerWatchdogWorker.schedule(this) }
 
         // Pre-heat database to initialize default categories
         CoroutineScope(Dispatchers.IO).launch {

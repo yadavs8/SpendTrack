@@ -61,11 +61,19 @@ class DeduplicationEngine(
             // Comprehensive merge conditions:
             // 1. Exact UPI reference / UTR match
             // 2. Same amount within 5 min for same merchant with no conflicting ref or account (catches repeated notification updates, PhonePe/GPay updates, and SMS)
+            // Without any ref on either side, "same merchant" falling back to "merchant is blank"
+            // is not real evidence -- two genuinely separate ₹50 autos with no UTR yet must NOT
+            // merge into one. Require either a ref on at least one side, or an actual (non-blank)
+            // merchant match, before the no-ref heuristic is allowed to merge.
+            val hasAnyRefEvidence = !parsed.upiReference.isNullOrBlank() || !candidate.upiReference.isNullOrBlank()
+            val hasRealMerchantMatch = isExactMerchant || isFuzzyMerchant
+            val heuristicMergeAllowed = hasAnyRefEvidence || hasRealMerchantMatch
             // Money in and money out are never the same event unless the bank ref says so (the
             // two legs of a self-transfer share one ref -- merging those is exactly right).
             val sameDirection = isIncoming(candidate.transactionType) == isIncoming(parsed.transactionType)
             val shouldMerge = isExactRefMatch || (
-                sameDirection && isSameAmount && isWithinWindow && isMerchantMatch && !hasConflictingRef && !hasConflictingAccount
+                sameDirection && isSameAmount && isWithinWindow && isMerchantMatch && !hasConflictingRef &&
+                    !hasConflictingAccount && heuristicMergeAllowed
             )
 
             // A refund can quote the original payment's ref; it is matched to that expense later, not merged.

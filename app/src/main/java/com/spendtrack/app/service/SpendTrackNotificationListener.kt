@@ -29,7 +29,7 @@ class SpendTrackNotificationListener : NotificationListenerService() {
 
     companion object {
         private val processedNotificationCache = java.util.concurrent.ConcurrentHashMap<String, Long>()
-        private const val DEBOUNCE_WINDOW_MS = 60_000L
+        private const val DEBOUNCE_WINDOW_MS = 15_000L // coalesce reposts of the same notification, not distinct payments
     }
 
     override fun onCreate() {

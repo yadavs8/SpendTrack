@@ -119,7 +119,10 @@ object TransactionParser {
     /** True for ads, offers and OTPs that mention an amount but are not transactions. */
     fun isNonTransaction(text: String): Boolean = NON_TRANSACTION_REGEX.containsMatchIn(text)
 
-    // Supported UPI package names
+    // Supported UPI package names.
+    // Bank apps whose package name contains "bank" are already covered by the listener's
+    // fallback check (packageName.contains("bank", ignoreCase = true)); these are the UPI/payment
+    // apps that need listing explicitly because their package id doesn't say "bank".
     val MONITORED_UPI_PACKAGES = setOf(
         "com.google.android.apps.nbu.paisa.user", // Google Pay
         "com.phonepe.app",                       // PhonePe
@@ -127,7 +130,16 @@ object TransactionParser {
         "in.org.npci.upiapp",                    // BHIM
         "com.dreamplug.androidapp",               // CRED
         "com.naviapp",                           // Navi
-        "in.amazon.mShop.android.shopping"       // Amazon Pay
+        "in.amazon.mShop.android.shopping",       // Amazon Pay
+        "com.whatsapp",                           // WhatsApp Pay
+        "com.whatsapp.w4b",                       // WhatsApp Business Pay
+        "com.axis.mobile",                        // Axis Mobile (UPI)
+        "com.msf.kbank.mobile",                   // Kotak 811
+        "com.snapwork.hdfc",                      // HDFC PayZapp
+        "com.freecharge.android",                 // Freecharge
+        "com.mobikwik_new",                       // MobiKwik
+        "com.fss.nbw",                             // Jio Payments Bank (JioMoney UPI)
+        "com.sbi.upi"                              // SBI UPI (standalone)
     )
 
     fun parse(
