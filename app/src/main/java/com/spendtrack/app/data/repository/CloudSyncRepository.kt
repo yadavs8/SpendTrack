@@ -69,8 +69,11 @@ class CloudSyncRepository(
 
             val pending = transactionDao.getUnsyncedExpenses()
             if (pending.isEmpty()) {
-                // Nothing left to send, so any earlier error is no longer current.
+                // Nothing left to send is itself a successful sync (e.g. right after a fresh
+                // install, before this phone has anything new to push) -- record it as one, so
+                // the settings screen doesn't keep showing "Not synced yet" forever.
                 settingsManager.setCloudSyncError(null)
+                settingsManager.setCloudSyncLastSuccessAt(System.currentTimeMillis())
                 return
             }
 
