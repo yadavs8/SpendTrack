@@ -7,14 +7,14 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="styles.css?v=44">
+<link rel="stylesheet" href="styles.css?v=45">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0B5D75">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Kharcha">
-<link rel="apple-touch-icon" href="apple-touch-icon.png?v=44">
-<link rel="icon" href="icon-192.png?v=44" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=45">
+<link rel="icon" href="icon-192.png?v=45" type="image/png">
 <script>
   (function() {
     var V = '44';
@@ -37,7 +37,7 @@
 <body>
 <main class="app">
   <header class="top">
-    <h1><img class="logo" src="icon-192.png?v=44" width="36" height="36" alt="">Kharcha Book</h1>
+    <h1><img class="logo" src="icon-192.png?v=45" width="36" height="36" alt="">Kharcha Book</h1>
     <div class="top-r">
       <span class="sync" id="sync" data-state="pending">Loading…</span>
       <button type="button" class="installbtn" id="force-update-btn" title="Force clear cache & reload latest version">v43 🔄</button>
@@ -154,6 +154,7 @@
     <button type="button" class="streambtn" id="stream-settlement-btn" data-stream="settlement">👵 Settle</button>
     <button type="button" class="streambtn" id="stream-investments-btn" data-stream="investments">📈 Invest (<span id="investments-count">0</span>)</button>
     <button type="button" class="streambtn" id="stream-trips-btn" data-stream="trips">✈️ Trips (<span id="trips-count">0</span>)</button>
+    <button type="button" class="streambtn" id="stream-udhaar-btn" data-stream="udhaar">🤝 Udhaar</button>
     <button type="button" class="streambtn" id="stream-projects-btn" data-stream="projects">🔨 Projects (<span id="projects-count">0</span>)</button>
   </div>
 
@@ -490,6 +491,10 @@
   </section>
 
   <!-- Trips / Events Tracking View -->
+  <section class="udhaar-sec" id="udhaar-sec" hidden>
+    <div id="udhaar-root"></div>
+  </section>
+
   <section class="trips-sec" id="trips-sec" hidden>
     <div class="trip-hero-card">
       <div class="trip-card-top">
@@ -564,6 +569,7 @@
         <div class="trip-balances-list" id="trip-balances-list">
           <!-- Per friend balance rows rendered here -->
         </div>
+        <div class="trip-settle" id="trip-settle"></div>
       </div>
     </div>
 
@@ -678,12 +684,13 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=44" onerror="void 0"></script>
-<script src="app.js?v=44"></script>
+<script src="config.js?v=45" onerror="void 0"></script>
+<script src="ledger-logic.js?v=45"></script>
+<script src="app.js?v=45"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('sw.js?v=44').then(function (reg) {
+      navigator.serviceWorker.register('sw.js?v=45').then(function (reg) {
         reg.update();
         reg.addEventListener('updatefound', function () {
           var newWorker = reg.installing;
