@@ -2600,10 +2600,11 @@
     var box = el('div', 'wal-form');
     var depRefs = (a.deposits || []).map(function (d) { return d.ref; });
     var heldEntries = state.entries.filter(function (e) { return isIncome(e) && !e.synthetic && held.indexOf(e.id) >= 0 && depRefs.indexOf(e.id) < 0; });
-    var cands = state.entries.filter(function (e) { return isBankIn(e) && !e.synthetic && e.ts > snapTs && held.indexOf(e.id) < 0; })
+    var cands = state.entries.filter(function (e) { return isBankIn(e) && !e.synthetic && e.ts > Date.now() - 60 * 86400000 && held.indexOf(e.id) < 0; })
       .sort(function (x, y) { return y.ts - x.ts; }).slice(0, 6);
     var total = heldEntries.reduce(function (n, e) { return n + paise(e.amount); }, 0) / 100;
-    if (heldEntries.length) box.appendChild(el('p', 'wal-sub', '💵 Cash at home, not in the bank yet: ' + money(total)));
+    box.appendChild(el('h4', 'wal-h', '💵 Cash at home'));
+    box.appendChild(el('p', 'wal-sub', heldEntries.length ? 'Not in the bank yet: ' + money(total) : 'Got paid in cash and keeping it at home? Mark that income below so it is not added to your bank balance.'));
     function row(e, label, cls, fn) {
       var r = el('div', 'wal-item');
       r.appendChild(el('span', null, dFmt.format(new Date(e.ts)) + ' · ' + String(e.desc || '').replace(/^[^\wऀ-ॿ]+/, '').slice(0, 28) + ' · ' + money(e.amount)));
@@ -2624,7 +2625,8 @@
         save(function (x) { return { id: x.id, name: x.name, snapshots: x.snapshots, deposits: x.deposits, held: (x.held || []).concat([e.id]) }; });
       });
     });
-    if (heldEntries.length || cands.length) box.appendChild(el('p', 'wal-hint', 'Received cash instead of a bank credit? Tap "Kept as cash" so it is not added to the balance. When you deposit it, tap "Deposited ✓". Do not log the deposit as income again.'));
+    if (!heldEntries.length && !cands.length) box.appendChild(el('p', 'wal-hint', 'No income logged in the last 60 days.'));
+    else box.appendChild(el('p', 'wal-hint', 'Tap "Kept as cash" on an income you did not put in the bank. When you deposit it, tap "Deposited ✓". Never log the deposit as income again.'));
     return box;
   }
 
