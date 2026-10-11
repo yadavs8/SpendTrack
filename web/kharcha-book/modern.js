@@ -58,11 +58,15 @@
     more: svg('<rect x="4" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6"/>')
   };
   var NAV_OF = { spends: 'home', incomings: 'income', trips: 'trips' };   // everything else lives under More
-  var MORE_TILES = [
-    ['monthly', '📊', 'Monthly'], ['bank', '🏦', 'Bank'], ['settlement', '👵', 'Settle'], ['investments', '📈', 'Invest'], ['projects', '🔨', 'Projects'],
-    ['udhaar', '🤝', 'Udhaar'], ['wallet', '👛', 'Wallet'], ['__signout', '🚪', 'Sign out']
+  var MORE_GROUPS = [
+    ['My money', [['monthly', '📊', 'Monthly', 'Spend and savings'], ['bank', '🏦', 'Bank', 'Balance, cash at home'], ['wallet', '👛', 'Wallet', 'Amazon Pay balance']]],
+    ['People', [['udhaar', '🤝', 'Udhaar', 'Who owes you'], ['settlement', '👵', 'Settle', "Mother's money"]]],
+    ['Plans', [['investments', '📈', 'Invest', 'SIPs and savings'], ['projects', '🔨', 'Projects', 'Home work costs']]],
+    ['Account', [['__signout', '🚪', 'Sign out', '']]]
   ];
-  var bnav, sheet;
+  var TITLES = {};
+  MORE_GROUPS.forEach(function (g) { g[1].forEach(function (t) { TITLES[t[0]] = t[1] + ' ' + t[2]; }); });
+  var bnav, sheet, backbar;
 
   function goStream(stream) {
     var old = document.querySelector('.streambtn[data-stream="' + stream + '"]');
@@ -96,17 +100,27 @@
     sheet = el('div', 'msheet'); sheet.hidden = true;
     var card = el('div', 'msheet-card'); card.setAttribute('role', 'dialog'); card.setAttribute('aria-label', 'More');
     card.appendChild(el('div', 'msheet-grip'));
-    var grid = el('div', 'msheet-grid');
-    MORE_TILES.forEach(function (t) {
-      var b = el('button', 'mtile'); b.type = 'button';
-      b.appendChild(el('span', 'e', t[1])); b.appendChild(el('span', null, t[2]));
-      b.addEventListener('click', function () {
-        if (t[0] === '__signout') { closeSheet(); var so = $('signout'); if (so) so.click(); return; }
-        goStream(t[0]);
+    MORE_GROUPS.forEach(function (g) {
+      card.appendChild(el('div', 'msheet-h', g[0]));
+      var grid = el('div', 'msheet-grid');
+      g[1].forEach(function (t) {
+        var b = el('button', 'mtile'); b.type = 'button';
+        b.appendChild(el('span', 'e', t[1]));
+        var tx = el('span', 'mt'); tx.appendChild(el('b', null, t[2])); if (t[3]) tx.appendChild(el('small', null, t[3]));
+        b.appendChild(tx);
+        b.addEventListener('click', function () {
+          if (t[0] === '__signout') { closeSheet(); var so = $('signout'); if (so) so.click(); return; }
+          goStream(t[0]);
+        });
+        grid.appendChild(b);
       });
-      grid.appendChild(b);
+      card.appendChild(grid);
     });
-    card.appendChild(grid); sheet.appendChild(card);
+    sheet.appendChild(card);
+    backbar = el('div', 'backbar'); backbar.hidden = true;
+    var bb = el('button', 'backbtn', '‹ Home'); bb.type = 'button'; bb.addEventListener('click', function () { goStream('spends'); });
+    backbar.appendChild(bb); backbar.appendChild(el('span', 'backttl', ''));
+    var mainEl = $('main'); if (mainEl && mainEl.parentNode) mainEl.parentNode.insertBefore(backbar, mainEl);
     sheet.addEventListener('click', function (ev) { if (ev.target === sheet) closeSheet(); });
     document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') closeSheet(); });
     document.body.appendChild(sheet);
@@ -119,6 +133,11 @@
     var act = document.querySelector('.streambtn.active');
     var stream = act ? act.dataset.stream : 'spends';
     var key = NAV_OF[stream] || 'more';
+    if (backbar) {
+      var other = key === 'more' && TITLES[stream];
+      backbar.hidden = !other || bnav.hidden;
+      if (other) backbar.querySelector('.backttl').textContent = TITLES[stream];
+    }
     bnav.querySelectorAll('.bnav-btn[data-nav]').forEach(function (b) { b.classList.toggle('active', b.dataset.nav === key); });
   }
 
