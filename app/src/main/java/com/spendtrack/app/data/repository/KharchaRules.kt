@@ -34,7 +34,8 @@ object KharchaRules {
         kind == "cash_withdrawal" || (desc?.trim()?.startsWith("💵 Cash withdrawn") == true)
 
     fun isExpense(desc: String?, kind: String? = null): Boolean =
-        !isIncome(desc, kind) && !isInvestment(desc) && !isCashWithdrawal(desc, kind) && kind != "transfer"
+        !isIncome(desc, kind) && !isInvestment(desc) && !isCashWithdrawal(desc, kind) && kind != "transfer" &&
+            desc?.trim()?.startsWith("🔁") != true
 
     fun isSalary(desc: String?, kind: String? = null): Boolean {
         if (!isIncome(desc, kind)) return false

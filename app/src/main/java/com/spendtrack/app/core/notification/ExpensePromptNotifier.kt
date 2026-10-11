@@ -20,9 +20,9 @@ import java.util.Locale
  * "Where does this go?" prompt for an auto-detected expense. Exactly one notification per payment:
  * reminders re-post the same id, and answering turns that same notification into "✅ Logged…".
  *
- * Android shows at most 3 action buttons, so: the two likeliest answers plus "More…", which opens
- * [LogExpenseActivity] with every destination (Family, Investment, Project, any trip, a new trip,
- * a note). Tapping the notification body opens the same picker.
+ * Android shows at most 3 action buttons, so: the two likeliest answers plus "↔ Own transfer" (money
+ * moved between your own accounts). Tapping the notification body opens [LogExpenseActivity] with every
+ * destination (Family, Investment, Project, any trip, a new trip, a note, own transfer).
  */
 object ExpensePromptNotifier {
 
@@ -41,6 +41,7 @@ object ExpensePromptNotifier {
     const val SCOPE_INVESTMENT = "investment"
     const val SCOPE_TRIP = "trip"
     const val SCOPE_PROJECT = "project"
+    const val SCOPE_TRANSFER = "transfer"
 
     fun notificationIdFor(transactionId: String): Int = transactionId.hashCode()
 
@@ -57,6 +58,7 @@ object ExpensePromptNotifier {
             d.startsWith("📈") -> scopeLabel(SCOPE_INVESTMENT, null)
             d.startsWith("🏠") -> scopeLabel(SCOPE_FAMILY, null)
             d.startsWith("🔨") -> scopeLabel(SCOPE_PROJECT, null)
+            d.startsWith("🔁") -> scopeLabel(SCOPE_TRANSFER, null)
             d.startsWith("✈") -> scopeLabel(SCOPE_TRIP, d.removePrefix("✈️").removePrefix("✈").substringBefore(':').trim())
             else -> scopeLabel(SCOPE_PERSONAL, null)
         }
@@ -66,6 +68,7 @@ object ExpensePromptNotifier {
         SCOPE_FAMILY -> "🏠 Family"
         SCOPE_INVESTMENT -> "📈 Investment"
         SCOPE_PROJECT -> "🔨 Project"
+        SCOPE_TRANSFER -> "🔁 Own transfer"
         SCOPE_TRIP -> "✈️ ${tripName?.takeIf { it.isNotBlank() } ?: "Trip"}"
         else -> "👤 Personal"
     }
@@ -104,7 +107,7 @@ object ExpensePromptNotifier {
             builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_PERSONAL, "👤 Personal"))
             builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_FAMILY, "🏠 Family"))
         }
-        builder.addAction(NotificationCompat.Action.Builder(0, "More…", pickerIntent(context, transaction.id, notificationId)).build())
+        builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_TRANSFER, "↔ Own transfer"))
 
         NotificationManagerCompat.from(context).notify(notificationId, builder.build())
     }

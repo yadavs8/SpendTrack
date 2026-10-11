@@ -11,10 +11,13 @@ object ExpenseScope {
     const val INVESTMENT = "investment"
     const val TRIP = "trip"
     const val PROJECT = "project"
+    /** Money moved between the user's own accounts: filed with a "🔁 " prefix; Kharcha Book turns it into a balance move. */
+    const val TRANSFER = "transfer"
     private const val FAMILY_PREFIX = "🏠 "
     private const val INVESTMENT_PREFIX = "📈 "
     private const val TRIP_PREFIX = "✈️ "
     private const val PROJECT_PREFIX = "🔨 "
+    private const val TRANSFER_PREFIX = "🔁 "
 
     /**
      * Base text is the user's own note if they typed one (isEdited), else the merchant name --
@@ -29,6 +32,7 @@ object ExpenseScope {
             scope.equals(FAMILY, ignoreCase = true) -> FAMILY_PREFIX + clean
             scope.equals(INVESTMENT, ignoreCase = true) -> INVESTMENT_PREFIX + clean
             scope.equals(PROJECT, ignoreCase = true) -> PROJECT_PREFIX + clean
+            scope.equals(TRANSFER, ignoreCase = true) -> TRANSFER_PREFIX + clean
             scope.equals(TRIP, ignoreCase = true) -> {
                 val label = tripName?.trim()?.takeIf { it.isNotBlank() } ?: "Trip"
                 "$TRIP_PREFIX$label: $clean"
@@ -46,7 +50,7 @@ object ExpenseScope {
             if (colon in 1..40) t = t.substring(colon + 1)
         }
         return t.trim()
-            .removePrefix("🏠").removePrefix("👤").removePrefix("📈").removePrefix("🔨")
+            .removePrefix("🏠").removePrefix("👤").removePrefix("📈").removePrefix("🔨").removePrefix("🔁")
             .replace(Regex("^[\\[\\(]?[Tt]rip:?[^\\]\\)]*[\\]\\)]?\\s*"), "")
             .trim()
     }

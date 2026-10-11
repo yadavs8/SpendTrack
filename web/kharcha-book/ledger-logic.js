@@ -290,8 +290,17 @@
     var arr;
     try { arr = JSON.parse(json || '[]'); } catch (e) { return []; }
     if (!Array.isArray(arr)) return [];
-    return arr.filter(function (t) { return t && typeof t.id === 'string' && isFinite(t.ts) && isFinite(t.amount) && t.amount > 0 && typeof t.from === 'string' && typeof t.to === 'string' && t.from !== t.to; })
+    var clean = arr.filter(function (t) { return t && typeof t.id === 'string' && isFinite(t.ts) && isFinite(t.amount) && t.amount > 0 && typeof t.from === 'string' && typeof t.to === 'string' && t.from !== t.to; })
       .map(function (t) { return { id: t.id, ts: Number(t.ts), amount: Number(t.amount), from: t.from, to: t.to, label: String(t.label || '').slice(0, 60), ref: t.ref ? String(t.ref) : '' }; });
+    // The same move must count once: same entry, or same amount between the same two accounts within 10 minutes.
+    var kept = [];
+    clean.forEach(function (t) {
+      var dup = kept.some(function (k) {
+        return (t.ref && k.ref === t.ref) || (k.from === t.from && k.to === t.to && toPaise(k.amount) === toPaise(t.amount) && Math.abs(k.ts - t.ts) <= 600000);
+      });
+      if (!dup) kept.push(t);
+    });
+    return kept;
   }
   function bankEstimate(entries, acct, isIn, isOut, transfers) {
     var snap = acct.snapshots[acct.snapshots.length - 1], inP = 0, outP = 0, items = [], heldP = 0;
@@ -432,18 +441,41 @@
   }
   /* Strong signals only, safe to convert automatically: the payee is your own name, or your own account / UPI id.
      The destination must be certain (named, or the only other account). */
-  function autoOwnTransfers(entries, accts, own, nowMs, pred) {
+  function autoOwnTransfers(entries, accts, own, nowMs, pred, doneRefs) {
     if (accts.length < 2 || !own) return [];
     var since = nowMs - 30 * 86400000, out = [];
     (entries || []).forEach(function (e) {
-      if (!e || e.synthetic || e.ts < since || pred.isTransfer(e) || !pred.isExpense(e) || pred.isCard(e)) return;
+      if (!e || e.synthetic || e.ts < since || pred.isTransfer(e) || !pred.isExpense(e) || pred.isCard(e) || (doneRefs && doneRefs[e.id])) return;
       var namedTo = ownAccountFor(e.desc, own, accts);
       if (!namedTo && !isOwnName(e.desc, own)) return;
       var from = sourceAccountFromRaw(e.raw, own, accts) || pred.route(e);
       var to = namedTo;
       if (!to) { var others = accts.filter(function (a) { return a.id !== from; }); if (others.length === 1) to = others[0].id; }
       if (!from || !to || from === to) return;
+      // A second copy of the same payment (SMS and notification, different refs) hides with the first and adds no second transfer.
+      var twin = out.filter(function (o) { return o.from === from && o.to === to && toPaise(o.amount) === toPaise(e.amount) && Math.abs(o.ts - e.ts) <= 600000; })[0];
+      if (twin) { twin.ids.push(e.id); return; }
       out.push({ id: e.id, amount: e.amount, ts: e.ts, from: from, to: to, ids: [e.id], reason: 'Sent to yourself' });
+    });
+    return out;
+  }
+
+  /* Entries already marked as own transfers (🔁, e.g. from the phone's notification button) that have no transfer record yet:
+     the record is what moves the balances. Source from the SMS or the routed bank; destination only if it is certain. */
+  function orphanTransfers(entries, transfers, accts, own, nowMs, pred) {
+    if (accts.length < 2) return [];
+    var since = nowMs - 30 * 86400000, refs = {}, out = [];
+    (transfers || []).forEach(function (t) { if (t.ref) refs[t.ref] = 1; });
+    (entries || []).forEach(function (e) {
+      if (!e || e.synthetic || e.ts < since || !pred.isTransfer(e) || refs[e.id]) return;
+      var from = sourceAccountFromRaw(e.raw, own, accts) || pred.route(e);
+      var to = ownAccountFor(e.desc, own, accts);
+      if (!to) { var others = accts.filter(function (a) { return a.id !== from; }); if (others.length === 1) to = others[0].id; }
+      if (!from || !to || from === to) return;
+      var twin = out.filter(function (o) { return o.from === from && o.to === to && toPaise(o.amount) === toPaise(e.amount) && Math.abs(o.ts - e.ts) <= 600000; })[0] ||
+        (transfers || []).filter(function (t) { return t.from === from && t.to === to && toPaise(t.amount) === toPaise(e.amount) && Math.abs(t.ts - e.ts) <= 600000; })[0];
+      if (twin) return;
+      out.push({ id: e.id, amount: e.amount, ts: e.ts, from: from, to: to, ids: [e.id] });
     });
     return out;
   }
@@ -499,7 +531,7 @@
   }
 
   return {
-    parseOwn: parseOwn, defaultOwn: defaultOwn, cardFor: cardFor, ownAccountFor: ownAccountFor, transferCandidates: transferCandidates, autoOwnTransfers: autoOwnTransfers, isOwnName: isOwnName, sourceAccountFromRaw: sourceAccountFromRaw,
+    parseOwn: parseOwn, defaultOwn: defaultOwn, cardFor: cardFor, ownAccountFor: ownAccountFor, transferCandidates: transferCandidates, autoOwnTransfers: autoOwnTransfers, orphanTransfers: orphanTransfers, isOwnName: isOwnName, sourceAccountFromRaw: sourceAccountFromRaw,
     parseRules: parseRules, defaultRules: defaultRules, matchRule: matchRule, dueRules: dueRules, routeAccount: routeAccount,
     splitPaise: splitPaise, tripItemLabel: tripItemLabel, tripSettlement: tripSettlement,
     cleanName: cleanName, nameKey: nameKey, parseLoans: parseLoans, repaid: repaid, outstanding: outstanding,

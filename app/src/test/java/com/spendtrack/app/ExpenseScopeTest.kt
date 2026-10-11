@@ -15,6 +15,14 @@ class ExpenseScopeTest {
     }
 
     @Test
+    fun ownTransfer_usesMerchantWithTransferPrefix_andNeverStacks() {
+        val desc = ExpenseScope.describe("Sanjeev Yadav", rawSms, isEdited = false, scope = ExpenseScope.TRANSFER)
+        assertEquals("🔁 Sanjeev Yadav", desc)
+        assertEquals("Sanjeev Yadav", ExpenseScope.stripScope(desc))
+        assertEquals("🏠 Sanjeev Yadav", ExpenseScope.describe(null, desc, isEdited = true, scope = ExpenseScope.FAMILY))
+    }
+
+    @Test
     fun personal_usesMerchantWithoutPrefix() {
         val desc = ExpenseScope.describe("Swiggy", rawSms, isEdited = false, scope = ExpenseScope.PERSONAL)
         assertEquals("Swiggy", desc)

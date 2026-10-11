@@ -85,3 +85,6 @@ More > Auto rules > My accounts and cards: last 4 digits of each bank account, y
 
 ### Automatic own transfers
 Payments to yourself are filed as own transfers without a tap. The signals: the payee is one of your own names (More > Auto rules > My accounts and cards), or it names your own account number or UPI id. The source bank comes from the SMS ("Acct XX602 debited" is ICICI); banks that print only the last 3 digits still match. An Undo toast follows each one. A credit from your own name that mirrors a transfer you already have is filed as the other half, not income.
+
+### Own transfer from the phone notification, and no double counting
+The phone's payment notification now has **↔ Own transfer** next to Personal and Family (tap the notification itself for every other destination). It files the payment with a 🔁 mark; Kharcha Book then creates the balance move by itself (source bank from the SMS, destination the other tracked account). Corrections: a transfer is counted once (same entry, or the same amount between the same two accounts within 10 minutes, and twin SMS/notification copies of one payment hide together); a payment that already has a transfer record but lost its 🔁 mark when the phone re-synced it plain is marked again; a 🔁 entry with no record gets one.

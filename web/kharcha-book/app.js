@@ -2703,23 +2703,40 @@
     if (!KL || ownXferBusy || accts.length < 2) return;
     ownXferBusy = true;
     try {
-      var pred = transferPred(accts), own = loadOwn(), found = KL.autoOwnTransfers(state.entries, accts, own, Date.now(), pred);
-      // Your own-name credit that mirrors a transfer you already have is the other half of it, not income.
-      var existing = loadTransfers();
+      var pred = transferPred(accts), own = loadOwn(), existing = loadTransfers();
+      var refs = {}; existing.forEach(function (t) { if (t.ref) refs[t.ref] = 1; });
+      var nm = function (id) { var a = accts.filter(function (x) { return x.id === id; })[0]; return a ? a.name : '?'; };
+      var changed = false;
+      // 1) A payment that already has a transfer record but lost its 🔁 mark (the phone re-synced the plain name): mark it again,
+      //    otherwise it counts as spending AND as a transfer.
+      var heal = state.entries.filter(function (e) { return e && refs[e.id] && !isTransferEntry(e); });
+      for (var h = 0; h < heal.length; h++) {
+        await store.update(heal[h].id, { amount: heal[h].amount, desc: shiftScopeDesc(heal[h].desc, 'transfer'), spent_at: new Date(heal[h].ts).toISOString() });
+        changed = true;
+      }
+      // 2) New payments to yourself.
+      var found = KL.autoOwnTransfers(state.entries, accts, own, Date.now(), pred, refs);
+      // 3) Entries marked 🔁 (by hand or by the phone's notification button) that have no record yet.
+      var orphans = KL.orphanTransfers(state.entries, existing.concat(found.map(function (c) { return { ref: c.id, from: c.from, to: c.to, amount: c.amount, ts: c.ts }; })), accts, own, Date.now(), pred);
+      // 4) Your own-name credit that mirrors a transfer is the other half of it, not income.
+      var all = existing.concat(found.map(function (c) { return { amount: c.amount, ts: c.ts }; }), orphans.map(function (c) { return { amount: c.amount, ts: c.ts }; }));
       var mirrors = state.entries.filter(function (e) {
         return e && !e.synthetic && isIncome(e) && !isTransferEntry(e) && KL.isOwnName(e.desc, own) &&
-          existing.some(function (t) { return Math.abs(t.amount - e.amount) < 0.005 && Math.abs(t.ts - e.ts) <= 36 * 3600000; });
+          all.some(function (t) { return Math.abs(t.amount - e.amount) < 0.005 && Math.abs(t.ts - e.ts) <= 36 * 3600000; });
       });
-      if (!found.length && !mirrors.length) return;
-      var nm = function (id) { var a = accts.filter(function (x) { return x.id === id; })[0]; return a ? a.name : '?'; };
+      if (!found.length && !mirrors.length && !orphans.length && !changed) return;
       var beforeT = loadTransfers(), olds = [], added = [];
       for (var i = 0; i < found.length; i++) {
-        var c = found[i], e = state.entries.filter(function (x) { return x.id === c.id; })[0];
-        if (!e) continue;
-        await store.update(e.id, { amount: e.amount, desc: shiftScopeDesc(e.desc, 'transfer'), spent_at: new Date(e.ts).toISOString() });
-        olds.push(e);
+        var c = found[i];
+        for (var k = 0; k < c.ids.length; k++) {
+          var e = state.entries.filter(function (x) { return x.id === c.ids[k]; })[0];
+          if (!e) continue;
+          await store.update(e.id, { amount: e.amount, desc: shiftScopeDesc(e.desc, 'transfer'), spent_at: new Date(e.ts).toISOString() });
+          olds.push(e);
+        }
         added.push({ id: newLoanId(), ts: c.ts, amount: c.amount, from: c.from, to: c.to, ref: c.id, label: 'Transfer ' + nm(c.from) + ' → ' + nm(c.to) });
       }
+      orphans.forEach(function (c) { added.push({ id: newLoanId(), ts: c.ts, amount: c.amount, from: c.from, to: c.to, ref: c.id, label: 'Transfer ' + nm(c.from) + ' → ' + nm(c.to) }); });
       for (var j = 0; j < mirrors.length; j++) {
         await store.update(mirrors[j].id, { amount: mirrors[j].amount, desc: shiftScopeDesc(mirrors[j].desc, 'transfer'), spent_at: new Date(mirrors[j].ts).toISOString() });
         olds.push(mirrors[j]);
@@ -2727,10 +2744,12 @@
       if (added.length) saveTransfers(beforeT.concat(added));
       render();
       var first = added[0];
-      toast(first ? 'Own transfer ' + money(first.amount) + ': ' + nm(first.from) + ' → ' + nm(first.to) : 'Own transfer credit filed', function () {
-        saveTransfers(beforeT);
-        Promise.all(olds.map(function (e) { return store.update(e.id, { amount: e.amount, desc: e.desc, spent_at: new Date(e.ts).toISOString() }); })).then(function () { render(); toast('Restored'); });
-      });
+      if (found.length || orphans.length) {
+        toast('Own transfer ' + money(first.amount) + ': ' + nm(first.from) + ' → ' + nm(first.to), found.length ? function () {
+          saveTransfers(beforeT);
+          Promise.all(olds.map(function (e) { return store.update(e.id, { amount: e.amount, desc: e.desc, spent_at: new Date(e.ts).toISOString() }); })).then(function () { render(); toast('Restored'); });
+        } : undefined);
+      }
     } catch (err) { console.warn('Kharcha: own transfer pass failed', err); }
     finally { ownXferBusy = false; }
   }
