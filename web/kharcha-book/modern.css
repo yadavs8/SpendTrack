@@ -219,3 +219,5 @@ button.row .method-badge { display: inline-block; margin-left: 6px; font-weight:
 body { padding-bottom: calc(110px + env(safe-area-inset-bottom, 0px)); }
 form, .edit-btns, .add-foot { scroll-margin-bottom: 120px; }
 [hidden] { display: none !important; }
+
+.due-card .due-acts { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
