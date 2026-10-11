@@ -310,4 +310,26 @@ t('twin copies of one payment and already-marked transfers', () => {
   assert.strictEqual(L.orphanTransfers(marked, [{ ref: 'm', from: 'i', to: 'h', amount: 300, ts: NOW }], accts2, own, NOW, pred).length, 0);
 });
 
+t('bank balance is read from SMS text', () => {
+  assert.strictEqual(L.parseAvlBalance('Rs 500 debited. Avl Bal Rs 12,345.67. Not you? Call'), 12345.67);
+  assert.strictEqual(L.parseAvlBalance('Available balance: INR 3181.66'), 3181.66);
+  assert.strictEqual(L.parseAvlBalance('A/c XX749 debited. Avl bal:Rs.99'), 99);
+  assert.strictEqual(L.parseAvlBalance('Bal: Rs 250.00 on 11-Oct'), 250);
+  assert.strictEqual(L.parseAvlBalance('INR 1,261.50 spent on ICICI Bank Card XX1014. Avl Limit: INR 57,133.55'), null);
+  assert.strictEqual(L.parseAvlBalance('ICICI Bank Acct XX602 debited for Rs 5000.00; SANJEEV YADAV credited.'), null);
+});
+t('newest SMS balance after the last balance wins; older ones and cards are ignored', () => {
+  const ac = { id: 'h', name: 'HDFC', snapshots: [{ ts: D(2026, 10, 1), balance: 100 }] };
+  const rows = [
+    { id: '1', ts: D(2026, 10, 5), raw: 'debited Avl Bal Rs 900', amount: 5 },
+    { id: '2', ts: D(2026, 10, 9), raw: 'debited Avl Bal Rs 800.50', amount: 5 },
+    { id: '3', ts: D(2026, 9, 20), raw: 'old Avl Bal Rs 7', amount: 5 },
+    { id: '4', ts: D(2026, 10, 10), raw: 'card Avl Bal Rs 1', amount: 5, card: true },
+    { id: '5', ts: D(2026, 10, 11), raw: 'other bank Avl Bal Rs 2', amount: 5, other: true }];
+  const f = L.balanceFromSms(rows, ac, e => e.other ? 'x' : 'h', e => !!e.card);
+  assert.deepStrictEqual(f, { ts: D(2026, 10, 9), balance: 800.5 });
+  assert.strictEqual(L.balanceFromSms([rows[2]], ac, () => 'h', () => false), null);
+  assert.strictEqual(L.parseBank(JSON.stringify([{ id: 'a', name: 'X', snapshots: [{ ts: 1, balance: 2, src: 'sms' }] }]))[0].snapshots[0].src, 'sms');
+});
+
 console.log(n + ' tests passed');

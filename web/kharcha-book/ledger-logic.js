@@ -266,6 +266,17 @@
     return { date: d, days: Math.round((d.getTime() - today.getTime()) / 86400000) };
   }
 
+  /* The balance a bank SMS reports: "Avl Bal Rs 12,345.67", "Available balance: INR 500", "Bal Rs.99". Card limits ("Avl Limit") are not balances. */
+  var AVL_BAL = /\b(?:avl|avail(?:able)?|clear|clr|ledger|total)\.?\s*bal(?:ance)?\.?\s*(?:is|of|:|-|=)?\s*(?:rs\.?|inr|₹)?\s*(-?[\d,]+(?:\.\d{1,2})?)|\bbal(?:ance)?\s*(?:is|:|-|=)\s*(?:rs\.?|inr|₹)\s*(-?[\d,]+(?:\.\d{1,2})?)/i;
+  function parseAvlBalance(raw) {
+    var t = String(raw || '');
+    if (!t || /\b(?:avl|avail(?:able)?)\.?\s*(?:limit|lmt|credit)/i.test(t) && !/bal/i.test(t)) return null;
+    var m = AVL_BAL.exec(t);
+    if (!m) return null;
+    var v = Number(String(m[1] || m[2]).replace(/,/g, ''));
+    return isFinite(v) && v >= 0 && v < 1e10 ? v : null;
+  }
+
   /* ---------- bank balance ----------
      account: { id, name, snapshots: [{ ts, balance }] }. The estimate starts from the newest snapshot (a balance you
      typed in) and adds the money in and takes off the money out that was logged after it. */
@@ -281,7 +292,7 @@
           deposits: Array.isArray(a.deposits) ? a.deposits.filter(function (d) { return d && isFinite(d.ts) && isFinite(d.amount) && d.amount > 0; })
             .map(function (d) { return { ts: Number(d.ts), amount: Number(d.amount), label: String(d.label || ''), ref: d.ref ? String(d.ref) : '' }; }) : [],
           snapshots: a.snapshots.filter(function (s) { return s && isFinite(s.ts) && isFinite(s.balance); })
-            .map(function (s) { return { ts: Number(s.ts), balance: Number(s.balance) }; }).sort(function (x, y) { return x.ts - y.ts; })
+            .map(function (s) { return s.src ? { ts: Number(s.ts), balance: Number(s.balance), src: String(s.src) } : { ts: Number(s.ts), balance: Number(s.balance) }; }).sort(function (x, y) { return x.ts - y.ts; })
         };
       }).filter(function (a) { return a.snapshots.length; });
   }
@@ -301,6 +312,16 @@
       if (!dup) kept.push(t);
     });
     return kept;
+  }
+  // Newest balance printed in an SMS for this account that is newer than the account's latest balance; null if none.
+  function balanceFromSms(entries, acct, routedTo, isCard) {
+    var snap = acct.snapshots[acct.snapshots.length - 1], best = null;
+    (entries || []).forEach(function (e) {
+      if (!e || e.synthetic || !(e.ts > snap.ts) || !e.raw || isCard(e) || routedTo(e) !== acct.id) return;
+      var v = parseAvlBalance(e.raw);
+      if (v != null && (!best || e.ts > best.ts)) best = { ts: e.ts, balance: v };
+    });
+    return best;
   }
   function bankEstimate(entries, acct, isIn, isOut, transfers) {
     var snap = acct.snapshots[acct.snapshots.length - 1], inP = 0, outP = 0, items = [], heldP = 0;
@@ -538,6 +559,6 @@
     addPayment: addPayment, editLoan: editLoan, editPayment: editPayment, summarize: summarize,
     walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, parseWalletDesc: parseWalletDesc,
     parseWallets: parseWallets, walletState: walletState, walletReconcile: walletReconcile,
-    payCycles: payCycles, lastWorkingDay: lastWorkingDay, nextPayday: nextPayday, parseBank: parseBank, bankEstimate: bankEstimate, parseTransfers: parseTransfers
+    payCycles: payCycles, lastWorkingDay: lastWorkingDay, nextPayday: nextPayday, parseBank: parseBank, parseAvlBalance: parseAvlBalance, balanceFromSms: balanceFromSms, bankEstimate: bankEstimate, parseTransfers: parseTransfers
   };
 });
