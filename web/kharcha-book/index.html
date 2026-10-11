@@ -8,15 +8,15 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <script>try{var __t=localStorage.getItem("kharcha_theme");if(__t==="dark"||__t==="light")document.documentElement.setAttribute("data-theme",__t);}catch(e){}</script>
-<link rel="stylesheet" href="styles.css?v=62">
-<link rel="stylesheet" href="modern.css?v=62">
+<link rel="stylesheet" href="styles.css?v=63">
+<link rel="stylesheet" href="modern.css?v=63">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0B5D75">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Kharcha">
-<link rel="apple-touch-icon" href="apple-touch-icon.png?v=62">
-<link rel="icon" href="icon-192.png?v=62" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=63">
+<link rel="icon" href="icon-192.png?v=63" type="image/png">
 <script>
   (function() {
     var V = '44';
@@ -39,7 +39,7 @@
 <body>
 <main class="app">
   <header class="top">
-    <h1><img class="logo" src="icon-192.png?v=62" width="36" height="36" alt="">Kharcha Book</h1>
+    <h1><img class="logo" src="icon-192.png?v=63" width="36" height="36" alt="">Kharcha Book</h1>
     <div class="top-r">
       <span class="sync" id="sync" data-state="pending">Loading…</span>
       <button type="button" class="installbtn" id="force-update-btn" title="Force clear cache & reload latest version">v43 🔄</button>
@@ -704,14 +704,14 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=62" onerror="void 0"></script>
-<script src="ledger-logic.js?v=62"></script>
-<script src="app.js?v=62"></script>
-<script src="modern.js?v=62"></script>
+<script src="config.js?v=63" onerror="void 0"></script>
+<script src="ledger-logic.js?v=63"></script>
+<script src="app.js?v=63"></script>
+<script src="modern.js?v=63"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('sw.js?v=62').then(function (reg) {
+      navigator.serviceWorker.register('sw.js?v=63').then(function (reg) {
         reg.update();
         reg.addEventListener('updatefound', function () {
           var newWorker = reg.installing;

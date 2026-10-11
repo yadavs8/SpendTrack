@@ -2697,6 +2697,25 @@
     };
   }
   // Payments to yourself (your own name, or your own account / UPI id) are filed as own transfers by themselves. Undo is offered.
+  // A bank SMS that prints "Avl Bal" sets that account's balance by itself (no typing).
+  function applyBalanceFromSms() {
+    var KL = window.KharchaLedger, accts = loadBank();
+    if (!KL || !accts.length) return;
+    var map = loadJsonObj(ACCTMAP_KEY), rules = loadRules(), pid = primaryAcctId(accts), own = loadOwn(), updates = {}, names = [];
+    accts.forEach(function (a) {
+      var found = KL.balanceFromSms(state.entries, a, function (e) { return KL.routeAccount(e, accts, map, rules, pid, own); }, isCardEntry);
+      if (found) { updates[a.id] = found; names.push(a.name + ' ' + money(found.balance)); }
+    });
+    if (!names.length) return;
+    saveBank(loadBank().map(function (a) {
+      var f = updates[a.id];
+      return f ? Object.assign({}, a, { snapshots: a.snapshots.concat([{ ts: f.ts, balance: f.balance, src: 'sms' }]) }) : a;
+    }));
+    render();
+    if (state.activeStream === 'bank') renderBank();
+    toast('Balance from your bank SMS: ' + names.join(', '));
+  }
+
   var ownXferBusy = false;
   async function applyOwnTransfers() {
     var KL = window.KharchaLedger, accts = loadBank();
@@ -3027,6 +3046,8 @@
     head.appendChild(rm); card.appendChild(head);
     card.appendChild(el('div', 'wal-bal' + (est.balance < 0 ? ' neg' : ''), money(est.balance)));
     card.appendChild(el('div', 'wal-sub', 'Estimate. Started at ' + money(est.startBalance) + ' on ' + dFmt.format(new Date(est.since)) + ', + ' + money(est.income) + ' in, − ' + money(est.spent) + ' out.' + (est.cashHeld ? ' ' + money(est.cashHeld) + ' still cash at home.' : '')));
+    var lastSnap = a.snapshots[a.snapshots.length - 1];
+    if (lastSnap && lastSnap.src === 'sms') card.appendChild(el('div', 'wal-hint', '✉️ Balance taken from your bank SMS on ' + dFmt.format(new Date(lastSnap.ts)) + '.'));
     var acts = el('div', 'wal-acts');
     [['check', 'Update balance'], ['moves', 'What moved']].forEach(function (m) {
       var b = el('button', 'scope-pill' + (bankUi.mode[a.id] === m[0] ? ' active' : ''), m[1]); b.type = 'button';
@@ -5256,7 +5277,7 @@
       // Pick up trips/budgets changed on the phone -- unless a local change is still waiting to save.
       if (!kv.timer) await kv.load();
       render();
-      applyOwnTransfers();
+      applyOwnTransfers().then(applyBalanceFromSms, applyBalanceFromSms);
     } catch (e) {
       console.warn('Kharcha: background refresh failed', e);
     }
@@ -5365,7 +5386,7 @@
     isLoadingApp = false;
     render();
     applyRulesToEntries().then(function () { render(); }).catch(function () {});
-    applyOwnTransfers();
+    applyOwnTransfers().then(applyBalanceFromSms, applyBalanceFromSms);
     console.log('Kharcha: render completed successfully, total entries=' + state.entries.length);
   }
 
