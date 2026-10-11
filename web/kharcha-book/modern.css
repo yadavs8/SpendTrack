@@ -1,0 +1,94 @@
+/* Kharcha Book v47: modern layer. Loaded after styles.css, so it only overrides and adds.
+   Bottom navigation, night-mode button, roomier top card, bigger rows with icons, smart suggestions. */
+:root { --nav-h: 76px; --r-card: 22px; }
+body { padding-block-end: calc(var(--nav-h) + 24px + env(safe-area-inset-bottom, 0px)); }
+.app { gap: 18px; }
+
+/* ---------- header ---------- */
+.top { flex-wrap: nowrap; gap: 10px; align-items: center; }
+.top h1 { font-size: 1.18rem; white-space: nowrap; gap: 9px; min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; }
+.top .logo { width: 36px; height: 36px; border-radius: 11px; box-shadow: var(--shadow-sm); }
+.top-r { gap: 8px; flex-wrap: nowrap; margin-left: auto; }
+.sync { font-size: 0; gap: 0; }               /* the label hides, the status dot stays (hover or long-press shows it) */
+.sync::before { width: 10px; height: 10px; box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 12%, transparent); }
+.top .installbtn { min-width: 40px; height: 40px; padding: 0 10px; border-radius: 12px; font-size: 0.78rem; display: inline-grid; place-items: center; white-space: nowrap; flex: none; }
+.top .signout { display: none; }                /* Sign out now lives in the More sheet */
+.theme-btn { width: 40px; padding: 0 !important; }
+.theme-btn svg { width: 20px; height: 20px; display: block; }
+
+/* ---------- top card ---------- */
+.hero { border-radius: 28px; padding: 18px 18px 20px; box-shadow: var(--shadow-lg); position: relative; overflow: hidden; }
+.hero::after { content: ""; position: absolute; right: -70px; top: -70px; width: 220px; height: 220px; border-radius: 50%; background: radial-gradient(circle, rgba(255, 255, 255, 0.2), transparent 68%); pointer-events: none; }
+.hero > * { position: relative; z-index: 1; }
+.hero-amount-block { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.hero .total { flex: 1 1 100%; margin: 6px 0 0; white-space: nowrap; font-size: clamp(2.1rem, 11.5vw, 3.2rem); line-height: 1.05; letter-spacing: -0.02em; }
+.hero-insights-toggle { margin: 0; }
+.hx { display: grid; gap: 12px; margin: 14px 0 6px; }
+.hx-chips { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.hx-chip { display: grid; gap: 1px; background: rgba(255, 255, 255, 0.14); border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 14px; padding: 8px 10px; min-width: 0; }
+.hx-chip span { font-size: 0.64rem; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.8; }
+.hx-chip b { font-size: 0.92rem; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hx-bars { display: grid; grid-template-columns: repeat(7, 1fr); gap: 7px; align-items: end; height: 62px; }
+.hx-col { display: grid; grid-template-rows: 1fr auto; gap: 4px; height: 100%; justify-items: stretch; align-items: end; }
+.hx-bar { background: rgba(255, 255, 255, 0.3); border-radius: 7px 7px 3px 3px; min-height: 4px; transition: height 0.5s ease; }
+.hx-col.today .hx-bar { background: #fff; }
+.hx-col i { font-style: normal; font-size: 0.62rem; text-align: center; opacity: 0.75; }
+
+/* ---------- cards and forms ---------- */
+.add, .wal-card, .udh-person, .trip-split-card { border-radius: var(--r-card); box-shadow: var(--shadow-sm); }
+.input { height: 50px; border-radius: 14px; font-size: 1rem; }
+.primary { min-height: 50px; border-radius: 14px; font-weight: 700; }
+.chip, .scope-pill { min-height: 40px; }
+.field { position: relative; }
+main > *, .app > * { animation: kb-in 0.35s ease both; }
+@keyframes kb-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { main > *, .app > * { animation: none; } .hx-bar { transition: none; } }
+
+/* ---------- rows ---------- */
+button.row { display: grid !important; grid-template-columns: 46px minmax(0, 1fr) auto; grid-template-areas: "av d a" "av t a"; column-gap: 12px; row-gap: 1px; align-items: center; min-height: 66px; padding: 10px 8px !important; }
+button.row .av { grid-area: av; width: 46px; height: 46px; border-radius: 15px; display: grid; place-items: center; font-size: 1.4rem; font-weight: 700; background: var(--accent-soft); color: var(--accent); }
+button.row .d { grid-area: d; font-weight: 600; font-size: 0.98rem; line-height: 1.25; overflow-wrap: anywhere; }
+button.row .t { grid-area: t; font-size: 0.76rem; color: var(--muted); white-space: nowrap; }
+button.row .a { grid-area: a; font-size: 1.02rem; font-weight: 700; white-space: nowrap; }
+button.row .method-badge { display: inline-block; margin-left: 6px; font-weight: 500; }
+.day-head { padding-block: 10px 8px; }
+
+/* ---------- smart suggestions ---------- */
+.sugg { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 30; margin: 0; padding: 5px; list-style: none; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow-md); }
+.sugg[hidden] { display: none; }
+.sugg li { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 11px 12px; border-radius: 11px; min-height: 44px; cursor: pointer; }
+.sugg li[aria-selected="true"], .sugg li:hover { background: var(--accent-soft); }
+.sugg .s-t { min-width: 0; overflow-wrap: anywhere; }
+.sugg mark { background: none; color: var(--accent); font-weight: 700; }
+.sugg .s-a { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 0.85rem; }
+
+/* ---------- bottom navigation ---------- */
+#stream-switcher { display: none !important; }   /* replaced by the bottom bar; its buttons are still used under the hood */
+.bnav { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; display: flex; justify-content: center; padding: 0 12px calc(10px + env(safe-area-inset-bottom, 0px)); pointer-events: none; }
+.bnav[hidden] { display: none; }
+.bnav-bar { pointer-events: auto; width: 100%; max-width: 34rem; display: grid; grid-template-columns: repeat(5, 1fr); align-items: end; background: var(--surface-glass, var(--surface)); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); border: 1px solid var(--line); border-radius: 28px; box-shadow: var(--shadow-md); padding: 8px 6px 7px; }
+.bnav-btn { background: none; border: 0; display: grid; justify-items: center; gap: 3px; padding: 4px 0; color: var(--muted); font-size: 0.7rem; font-weight: 600; min-height: 54px; align-content: center; }
+.bnav-btn .ic { width: 54px; height: 30px; border-radius: 15px; display: grid; place-items: center; transition: background 0.2s, color 0.2s; }
+.bnav-btn svg { width: 24px; height: 24px; }
+.bnav-btn.active { color: var(--accent); }
+.bnav-btn.active .ic { background: var(--accent-soft); }
+.bnav-add { margin-top: -30px; color: var(--ink); }
+.bnav-add .fab { width: 60px; height: 60px; border-radius: 50%; display: grid; place-items: center; background: var(--hero-grad, var(--accent)); color: #fff; box-shadow: var(--shadow-lg); border: 4px solid var(--bg); }
+.bnav-add .fab svg { width: 28px; height: 28px; }
+
+.msheet { position: fixed; inset: 0; z-index: 60; display: grid; align-items: end; background: rgba(2, 6, 23, 0.5); }
+.msheet[hidden] { display: none; }
+.msheet-card { width: 100%; max-width: 34rem; margin: 0 auto; background: var(--surface); border-radius: 28px 28px 0 0; padding: 12px 16px calc(24px + env(safe-area-inset-bottom, 0px)); animation: kb-up 0.25s ease; }
+@keyframes kb-up { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+.msheet-grip { width: 42px; height: 5px; border-radius: 3px; background: var(--line); margin: 0 auto 14px; }
+.msheet-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.mtile { display: grid; justify-items: center; align-content: center; gap: 6px; min-height: 96px; padding: 12px 6px; border-radius: 20px; background: var(--bg); border: 1px solid var(--line); font-weight: 600; font-size: 0.85rem; color: var(--ink); }
+.mtile .e { font-size: 1.9rem; line-height: 1; }
+.mtile:active { transform: scale(0.97); }
+
+/* add form: tidy category pills, tucked extras */
+.scope-picker { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.scope-picker .scope-label { grid-column: 1 / -1; }
+.scope-picker .scope-pill { justify-content: center; text-align: center; padding-inline: 6px; white-space: nowrap; font-size: 0.86rem; }
+.extras-toggle { justify-self: start; padding: 4px 2px; font-size: 0.86rem; }
+.extras-toggle[hidden], .add-row-extra[hidden] { display: none; }
