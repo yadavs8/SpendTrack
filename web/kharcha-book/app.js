@@ -106,8 +106,9 @@
     return !!p && p.kind === 'topup';
   }
 
+  function isTransferEntry(e) { return !!e && /^\s*\u{1F501}/u.test(e.desc || ''); }
   function isExpense(e) {
-    return !isIncome(e) && !isInvestment(e) && !isCashWithdrawal(e) && !isWalletTopup(e) && !(e && e.kind === 'transfer');
+    return !isIncome(e) && !isTransferEntry(e) && !isInvestment(e) && !isCashWithdrawal(e) && !isWalletTopup(e) && !(e && e.kind === 'transfer');
   }
 
   /* ---------- Cash wallet ---------- */
@@ -192,7 +193,7 @@
     // Strip leading trip prefix (✈️ TripName: or ✈️ )
     s = s.replace(/^[✈\u{2708}\u{FE0F}\u{1F6EB}\u{1F6EC}]+\s*(?:[^:]+:\s*)?/u, '').trim();
     // Strip other leading scope tags (🏠, 👤, 📈, 🔨)
-    s = s.replace(/^[\u{1F3E0}\u{1F464}\u{1F4C8}\u{1F528}\u{1F4B0}]\s*/u, '').trim();
+    s = s.replace(/^[\u{1F3E0}\u{1F464}\u{1F4C8}\u{1F528}\u{1F4B0}\u{1F501}]\s*/u, '').trim();
     return s;
   }
 
@@ -203,6 +204,7 @@
     if (targetScope === 'investment') return '📈 ' + clean;
     if (targetScope === 'personal') return '👤 ' + clean;
     if (targetScope === 'income') return '💰 ' + clean;
+    if (targetScope === 'transfer') return '🔁 ' + clean;
     if (targetScope === 'trip') return '✈️ ' + (tripName || getActiveTripName() || 'Trip') + ': ' + clean;
     return clean;
   }
@@ -578,7 +580,9 @@
   var BANK_KEY = 'kharcha_bank';
   function loadBank() { return window.KharchaLedger ? window.KharchaLedger.parseBank(kv.get(BANK_KEY)) : []; }
   function saveBank(list) { kv.set(BANK_KEY, JSON.stringify(list)); }
-  var RULES_KEY = 'kharcha_rules', ACCTMAP_KEY = 'kharcha_acctmap', PRIMARY_KEY = 'kharcha_primary_acct', SKIPS_KEY = 'kharcha_rule_skips';
+  var TRANSFERS_KEY = 'kharcha_transfers', RULES_KEY = 'kharcha_rules', ACCTMAP_KEY = 'kharcha_acctmap', PRIMARY_KEY = 'kharcha_primary_acct', SKIPS_KEY = 'kharcha_rule_skips';
+  function loadTransfers() { return window.KharchaLedger ? window.KharchaLedger.parseTransfers(kv.get(TRANSFERS_KEY)) : []; }
+  function saveTransfers(list) { kv.set(TRANSFERS_KEY, JSON.stringify(list)); }
   function loadRules() {
     var KL = window.KharchaLedger;
     if (!KL) return [];
@@ -628,7 +632,7 @@
   function getBankTotals() {
     var KL = window.KharchaLedger, accts = loadBank(), p = 0;
     if (!KL) return { has: false, total: 0, count: 0 };
-    accts.forEach(function (a) { var pr = bankPreds(a, accts); p += paise(KL.bankEstimate(state.entries, a, pr.isIn, pr.isOut).balance); });
+    accts.forEach(function (a) { var pr = bankPreds(a, accts); p += paise(KL.bankEstimate(state.entries, a, pr.isIn, pr.isOut, loadTransfers()).balance); });
     return { has: accts.length > 0, total: p / 100, count: accts.length };
   }
 
@@ -1074,7 +1078,7 @@
      localStorage stays as the offline cache, and is all there is until the v4 SQL has been run. */
   var SHARED_KEYS = ['kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
     'kharcha_active_trip_name', 'kharcha_all_trips_list', 'kharcha_category_budgets', 'kharcha_merchant_memory',
-    'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers', 'kharcha_loans', 'kharcha_wallets', 'kharcha_bank', 'kharcha_cycle', 'kharcha_rules', 'kharcha_acctmap', 'kharcha_primary_acct', 'kharcha_rule_skips'];
+    'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers', 'kharcha_loans', 'kharcha_wallets', 'kharcha_bank', 'kharcha_cycle', 'kharcha_rules', 'kharcha_acctmap', 'kharcha_primary_acct', 'kharcha_rule_skips', 'kharcha_transfers'];
   var SHARED_PREFIXES = ['kharcha_trip_friends_', 'kharcha_trip_budget_'];
   function isSharedKey(k) {
     return SHARED_KEYS.indexOf(k) >= 0 || SHARED_PREFIXES.some(function (p) { return k.indexOf(p) === 0; });
@@ -2742,7 +2746,7 @@
   }
 
   /* ---------- Bank tab ---------- */
-  var bankUi = { add: false, mode: {}, actual: {} };
+  var bankUi = { xfer: false, add: false, mode: {}, actual: {} };
   function renderBank() {
     var root = $('bank-root');
     if (!root) return;
@@ -2756,12 +2760,63 @@
       root.appendChild(intro);
     }
     accts.forEach(function (a) { root.appendChild(bankCard(a)); });
+    if (accts.length > 1) root.appendChild(bankTransfers(accts));
     if (bankUi.add || !accts.length) root.appendChild(bankSetupForm());
     else {
       var add = el('button', 'ghost', '+ Track another account'); add.type = 'button';
       add.addEventListener('click', function () { bankUi.add = true; renderBank(); });
       root.appendChild(add);
     }
+  }
+
+  // Money moved between your own accounts (ICICI to HDFC): lowers one balance, raises the other, never counted as spending or income.
+  function bankTransfers(accts) {
+    var KL = window.KharchaLedger, box = el('div', 'wal-card');
+    box.appendChild(el('div', 'wal-head')).appendChild(el('span', 'wal-name', '↔ Between your accounts'));
+    var nameOf = function (id) { var a = accts.filter(function (x) { return x.id === id; })[0]; return a ? a.name : '?'; };
+    if (!bankUi.xfer) {
+      var open = el('button', 'primary small', 'Move money between accounts'); open.type = 'button';
+      open.addEventListener('click', function () { bankUi.xfer = true; renderBank(); });
+      box.appendChild(open);
+    } else {
+      var f = el('form', 'udh-editform'); f.noValidate = true;
+      var pid = primaryAcctId(accts), other = accts.filter(function (a) { return a.id !== pid; })[0];
+      var from = el('select', 'input'), to = el('select', 'input');
+      accts.forEach(function (a) { [from, to].forEach(function (sel) { var o = el('option', null, '🏦 ' + a.name); o.value = a.id; sel.appendChild(o); }); });
+      from.value = pid; to.value = other.id;
+      var amt = el('input', 'input'); amt.inputMode = 'decimal'; amt.placeholder = 'Amount, e.g. 10000';
+      var date = el('input', 'input'); date.type = 'date'; date.value = dayKey(Date.now()); date.max = dayKey(Date.now());
+      function fld(l, i) { var w = el('div', 'field'); w.appendChild(el('label', null, l)); w.appendChild(i); return w; }
+      var r1 = el('div', 'add-row'); r1.appendChild(fld('From', from)); r1.appendChild(fld('To', to)); f.appendChild(r1);
+      var r2 = el('div', 'add-row'); r2.appendChild(fld('Amount (₹)', amt)); r2.appendChild(fld('Date', date)); f.appendChild(r2);
+      var err = el('p', 'err'); err.hidden = true; err.setAttribute('role', 'alert'); f.appendChild(err);
+      var btns = el('div', 'edit-btns'), ok = el('button', 'primary small', 'Move'); ok.type = 'submit';
+      var cx = el('button', 'ghost', 'Cancel'); cx.type = 'button'; btns.appendChild(ok); btns.appendChild(cx); f.appendChild(btns);
+      cx.addEventListener('click', function () { bankUi.xfer = false; renderBank(); });
+      f.addEventListener('submit', function (ev) {
+        ev.preventDefault();
+        var n = parseAmount(amt.value);
+        if (from.value === to.value) { err.textContent = 'Pick two different accounts.'; err.hidden = false; return; }
+        if (n == null) { err.textContent = 'Enter an amount greater than zero, like 10000.'; err.hidden = false; return; }
+        var before = loadTransfers();
+        saveTransfers(before.concat([{ id: newLoanId(), ts: dateInputToTs(date.value), amount: n, from: from.value, to: to.value, label: 'Transfer ' + nameOf(from.value) + ' → ' + nameOf(to.value) }]));
+        bankUi.xfer = false; renderBank(); render();
+        toast(money(n) + ' moved: ' + nameOf(from.value) + ' → ' + nameOf(to.value), function () { saveTransfers(before); renderBank(); render(); toast('Transfer removed'); });
+      });
+      box.appendChild(f);
+    }
+    var recent = loadTransfers().sort(function (a, b) { return b.ts - a.ts; }).slice(0, 5);
+    recent.forEach(function (t) {
+      var r = el('div', 'wal-item');
+      r.appendChild(el('span', null, dFmt.format(new Date(t.ts)) + ' · ' + nameOf(t.from) + ' → ' + nameOf(t.to) + ' · ' + money(t.amount)));
+      var x = el('button', 'udh-x', '×'); x.type = 'button'; x.setAttribute('aria-label', 'Remove this transfer');
+      x.addEventListener('click', function () {
+        var before = loadTransfers(); saveTransfers(before.filter(function (y) { return y.id !== t.id; })); renderBank(); render();
+        toast('Transfer removed', function () { saveTransfers(before); renderBank(); render(); });
+      });
+      r.appendChild(x); box.appendChild(r);
+    });
+    return box;
   }
 
   function bankSetupForm() {
@@ -2790,7 +2845,7 @@
   function bankCard(a) {
     var KL = window.KharchaLedger;
     var allAccts = loadBank(), pr = bankPreds(a, allAccts);
-    var est = KL.bankEstimate(state.entries, a, pr.isIn, pr.isOut);
+    var est = KL.bankEstimate(state.entries, a, pr.isIn, pr.isOut, loadTransfers());
     var card = el('div', 'wal-card');
     var head = el('div', 'wal-head');
     head.appendChild(el('span', 'wal-name', '🏦 ' + a.name));
@@ -4674,6 +4729,7 @@
       d.value = newDesc;
       pendingScope = targetScope;
       if (acctField) acctField.hidden = !(targetScope === 'income');
+      if (xferBox) xferBox.hidden = !(targetScope === 'transfer');
       shiftRow.querySelectorAll('.btn-shift').forEach(function (x) { x.classList.toggle('active', x.dataset.scope === targetScope && x.dataset.label === label); });
       msg.textContent = 'Will move to ' + label + '. Tap Save to confirm.'; msg.hidden = false; msg.classList.add('note');
     }
@@ -4686,6 +4742,7 @@
     }
 
     if (!isIncome(e)) shiftRow.appendChild(createShiftBtn('income', 'Income', '💰'));
+    if (!isIncome(e) && loadBank().length > 1) shiftRow.appendChild(createShiftBtn('transfer', 'Own transfer', '↔'));
     if (curScope !== 'personal') shiftRow.appendChild(createShiftBtn('personal', 'Personal', '👤'));
     if (curScope !== 'family') shiftRow.appendChild(createShiftBtn('family', 'Family', '🏠'));
     if (curScope !== 'investment') shiftRow.appendChild(createShiftBtn('investment', 'Investment', '📈'));
@@ -4715,7 +4772,17 @@
       shiftRow.appendChild(newTripShiftBtn);
     }
 
-    var bankAccts = loadBank(), acctField = null, acctSel = null;
+    var bankAccts = loadBank(), acctField = null, acctSel = null, xferBox = null, xFrom = null, xTo = null;
+    if (bankAccts.length > 1) {
+      xferBox = el('div', 'add-row'); xferBox.hidden = true;
+      var pidX = primaryAcctId(bankAccts), other = bankAccts.filter(function (a) { return a.id !== pidX; });
+      xFrom = el('select', 'input'); xTo = el('select', 'input');
+      bankAccts.forEach(function (a) { [xFrom, xTo].forEach(function (sel) { var o = el('option', null, a.name); o.value = a.id; sel.appendChild(o); }); });
+      xFrom.value = pidX; xTo.value = other[0].id;
+      var ff = el('div', 'field'); ff.appendChild(el('label', null, 'From')); ff.appendChild(xFrom);
+      var tf = el('div', 'field'); tf.appendChild(el('label', null, 'To')); tf.appendChild(xTo);
+      xferBox.appendChild(ff); xferBox.appendChild(tf);
+    }
     if (bankAccts.length) {
       acctField = el('div', 'field'); acctField.appendChild(el('label', null, 'Credited to'));
       acctSel = acctChoiceSelect(bankAccts, currentAcctChoice(e, bankAccts));
@@ -4726,7 +4793,7 @@
     var cancel = el('button', 'ghost', 'Cancel'); cancel.type = 'button';
     var del = el('button', 'danger', 'Delete'); del.type = 'button';
     btns.appendChild(save); btns.appendChild(cancel); btns.appendChild(del);
-    f.appendChild(row1); f.appendChild(row2); f.appendChild(shiftRow); if (acctField) f.appendChild(acctField); f.appendChild(msg); f.appendChild(btns);
+    f.appendChild(row1); f.appendChild(row2); f.appendChild(shiftRow); if (acctField) f.appendChild(acctField); if (xferBox) f.appendChild(xferBox); f.appendChild(msg); f.appendChild(btns);
 
     cancel.addEventListener('click', function () { state.editing = null; render(); });
     f.addEventListener('submit', function (ev) {
@@ -4740,7 +4807,12 @@
       var patch = { amount: amt, desc: desc, spent_at: newTs };
       if (hasV5Cols && (state.draft.method || '') !== (e.method || '')) patch.method = state.draft.method || null;
       if (pendingScope) rememberMerchantScope(e.desc, pendingScope);
+      if (pendingScope === 'transfer' && xFrom && xFrom.value === xTo.value) { msg.textContent = 'Pick two different accounts.'; msg.hidden = false; save.disabled = false; return; }
       store.update(e.id, patch).then(function () {
+        if (pendingScope === 'transfer' && xFrom) {
+          var nm = function (id) { var a = bankAccts.filter(function (x) { return x.id === id; })[0]; return a ? a.name : ''; };
+          saveTransfers(loadTransfers().filter(function (t) { return t.ref !== e.id; }).concat([{ id: newLoanId(), ts: e.ts, amount: amt, from: xFrom.value, to: xTo.value, ref: e.id, label: 'Transfer ' + nm(xFrom.value) + ' → ' + nm(xTo.value) }]));
+        }
         if (acctSel && (isIncome(e) || pendingScope === 'income') && pendingScope !== 'personal' && pendingScope !== 'family' && pendingScope !== 'investment' && pendingScope !== 'trip') setEntryAcct(e.id, acctSel.value);
         state.editing = null; render(); toast('Changes saved', function () { restoreEntry(e); });
       }).catch(function () {
