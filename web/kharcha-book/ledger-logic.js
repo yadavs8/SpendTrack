@@ -371,14 +371,84 @@
     });
     return out;
   }
+  /* ---------- own accounts, cards and UPI ids ----------
+     own: { banks: [{ key (part of the account name, e.g. 'icici'), last4, upi: [..] }], cards: [{ kind: 'credit'|'debit', last4, bank (key) }] } */
+  function parseOwn(json) {
+    var o;
+    try { o = JSON.parse(json); } catch (e) { return null; }
+    if (!o || typeof o !== 'object') return null;
+    var d4 = function (x) { var v = String(x || '').replace(/\D/g, ''); return v.length >= 3 && v.length <= 6 ? v.slice(-4) : ''; };
+    return {
+      banks: (Array.isArray(o.banks) ? o.banks : []).filter(function (b) { return b && cleanName(b.key); }).map(function (b) {
+        return { key: nameKey(b.key), last4: d4(b.last4), upi: (Array.isArray(b.upi) ? b.upi : []).map(function (u) { return String(u).toLowerCase().trim(); }).filter(function (u) { return u.indexOf('@') > 0; }).slice(0, 6) };
+      }),
+      cards: (Array.isArray(o.cards) ? o.cards : []).filter(function (c) { return c && (c.kind === 'credit' || c.kind === 'debit') && d4(c.last4); })
+        .map(function (c) { return { kind: c.kind, last4: d4(c.last4), bank: nameKey(c.bank || '') }; })
+    };
+  }
+  function defaultOwn() {
+    return { banks: [{ key: 'icici', last4: '3602', upi: [] }, { key: 'hdfc', last4: '8749', upi: [] }],
+      cards: [{ kind: 'credit', last4: '1014', bank: 'icici' }, { kind: 'debit', last4: '0778', bank: 'icici' }] };
+  }
+  function hasDigits(text, d4) { return !!d4 && new RegExp('(^|[^0-9])' + d4 + '([^0-9]|$)').test(text); }
+  function acctByKey(accts, key) { return key ? (accts.filter(function (a) { return nameKey(a.name).indexOf(key) >= 0; })[0] || null) : null; }
+  function cardFor(desc, own) {
+    var d = String(desc || '').toLowerCase();
+    return ((own && own.cards) || []).filter(function (c) { return hasDigits(d, c.last4); })[0] || null;
+  }
+  // The tracked account a description points at, by its last 4 digits or one of its UPI ids.
+  function ownAccountFor(desc, own, accts) {
+    var d = String(desc || '').toLowerCase();
+    if (!own) return null;
+    for (var i = 0; i < own.banks.length; i++) {
+      var b = own.banks[i];
+      if (hasDigits(d, b.last4) || b.upi.some(function (u) { return d.indexOf(u) >= 0; })) {
+        var a = acctByKey(accts, b.key); if (a) return a.id;
+      }
+    }
+    return null;
+  }
+  /* Entries that look like money moved between your own accounts. Suggestions only; the app asks before converting.
+     a) the text names one of your own accounts / UPI ids (that account is the destination);
+     b) an expense and an income of the same amount within 36 hours, neither tied to a rule. */
+  function transferCandidates(entries, accts, own, nowMs, dismissed, pred) {
+    if (accts.length < 2) return [];
+    var since = nowMs - 14 * 86400000, out = [], used = {};
+    var list = (entries || []).filter(function (e) { return e && !e.synthetic && e.ts >= since && !(dismissed || {})[e.id] && !pred.isTransfer(e); });
+    var outs = list.filter(pred.isExpense), ins = list.filter(function (e) { return pred.isIncome(e) && !/salary|pension|mother|withdrawn/i.test(e.desc || ''); });
+    outs.forEach(function (e) {
+      var to = ownAccountFor(e.desc, own, accts);
+      if (!to || pred.isCard(e) || pred.isRule(e)) return;
+      var from = pred.route(e, to);
+      if (!from || from === to) from = (accts.filter(function (a) { return a.id !== to; })[0] || {}).id;
+      if (!from) return;
+      used[e.id] = 1; out.push({ id: e.id, amount: e.amount, ts: e.ts, from: from, to: to, ids: [e.id], reason: 'Names your own account' });
+    });
+    outs.forEach(function (e) {
+      if (used[e.id] || pred.isCard(e) || pred.isRule(e)) return;
+      var b = ins.filter(function (x) { return !used[x.id] && toPaise(x.amount) === toPaise(e.amount) && Math.abs(x.ts - e.ts) <= 36 * 3600000; })[0];
+      if (!b) return;
+      var from = pred.route(e, null), to = (accts.filter(function (a) { return a.id !== from; })[0] || {}).id;
+      if (!from || !to) return;
+      used[e.id] = 1; used[b.id] = 1;
+      out.push({ id: e.id, amount: e.amount, ts: e.ts, from: from, to: to, ids: [e.id, b.id], reason: 'Same amount went out and came in' });
+    });
+    return out.sort(function (a, b) { return b.ts - a.ts; });
+  }
+
   /* Which tracked account an entry belongs to: an explicit choice (map) wins, then a rule's bank, then the main account.
      Returns null when it is not a bank movement of any tracked account (wallet, or a bank you do not track). */
-  function routeAccount(entry, accts, map, rules, primaryId) {
+  function routeAccount(entry, accts, map, rules, primaryId, own) {
     var ids = accts.map(function (a) { return a.id; });
     var pick = map && map[entry.id];
     if (pick === 'none') return null;
     if (pick === 'cash') return ids.indexOf(primaryId) >= 0 ? primaryId : null;
     if (pick && ids.indexOf(pick) >= 0) return pick;
+    if (own) {
+      var card = cardFor(entry.desc, own);
+      if (card && card.kind === 'debit') { var ca = acctByKey(accts, card.bank); if (ca) return ca.id; }
+      if (!card) { var oa = ownAccountFor(entry.desc, own, accts); if (oa) return oa; }
+    }
     var r = matchRule(entry.desc, rules);
     if (r && r.acct) {
       var key = nameKey(r.acct), hit = accts.filter(function (a) { return nameKey(a.name).indexOf(key) >= 0; })[0];
@@ -388,6 +458,7 @@
   }
 
   return {
+    parseOwn: parseOwn, defaultOwn: defaultOwn, cardFor: cardFor, ownAccountFor: ownAccountFor, transferCandidates: transferCandidates,
     parseRules: parseRules, defaultRules: defaultRules, matchRule: matchRule, dueRules: dueRules, routeAccount: routeAccount,
     splitPaise: splitPaise, tripItemLabel: tripItemLabel, tripSettlement: tripSettlement,
     cleanName: cleanName, nameKey: nameKey, parseLoans: parseLoans, repaid: repaid, outstanding: outstanding,

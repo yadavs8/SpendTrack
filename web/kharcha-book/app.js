@@ -564,7 +564,12 @@
   /* ---------- Bank balance ---------- */
   // An estimate: the balance you typed in, plus income logged since, minus the spending that really left the bank.
   // Not bank debits: credit-card spends (the card bill is), cash spends, wallet spends, what a friend paid, what Mother paid.
-  function isCardEntry(e) { return !!e && (e.method === 'credit_card' || /credit\s*card|\bcard\s*[x*·.\-]*\s*\d{3,4}\b/i.test(e.desc || '')); }
+  function isCardEntry(e) {
+    if (!e) return false;
+    var own = loadOwn(), c = own ? window.KharchaLedger.cardFor(e.desc, own) : null;
+    if (c) return c.kind === 'credit';           // your debit card spends are bank money; credit card spends are not
+    return e.method === 'credit_card' || /credit\s*card|\bcard\s*[x*·.\-]*\s*\d{3,4}\b/i.test(e.desc || '');
+  }
   function isCardBillEntry(e) { return !!e && /card\s*bill|credit\s*card\s*(?:bill|payment)|\bcc\s*bill/i.test(e.desc || ''); }
   function isBankIn(e) { return !!e && isIncome(e) && e.method !== 'cash'; }
   function isBankOut(e) {
@@ -583,6 +588,17 @@
   var TRANSFERS_KEY = 'kharcha_transfers', RULES_KEY = 'kharcha_rules', ACCTMAP_KEY = 'kharcha_acctmap', PRIMARY_KEY = 'kharcha_primary_acct', SKIPS_KEY = 'kharcha_rule_skips';
   function loadTransfers() { return window.KharchaLedger ? window.KharchaLedger.parseTransfers(kv.get(TRANSFERS_KEY)) : []; }
   function saveTransfers(list) { kv.set(TRANSFERS_KEY, JSON.stringify(list)); }
+  var OWN_KEY = 'kharcha_own', ownMemo = { raw: undefined, val: null };
+  function loadOwn() {
+    var KL = window.KharchaLedger;
+    if (!KL) return null;
+    var raw = kv.get(OWN_KEY);
+    if (ownMemo.raw !== raw || !ownMemo.val) {
+      ownMemo.raw = raw;
+      ownMemo.val = KL.parseOwn(raw) || KL.parseOwn(JSON.stringify(KL.defaultOwn()));
+    }
+    return ownMemo.val;
+  }
   function loadRules() {
     var KL = window.KharchaLedger;
     if (!KL) return [];
@@ -598,8 +614,8 @@
   }
   // Each money-in or money-out belongs to ONE account: your explicit choice, else the rule's bank (HDFC for the EMI), else the main account.
   function bankPreds(acct, accts) {
-    var KL = window.KharchaLedger, map = loadJsonObj(ACCTMAP_KEY), rules = loadRules(), pid = primaryAcctId(accts);
-    function mine(e) { return KL.routeAccount(e, accts, map, rules, pid) === acct.id; }
+    var KL = window.KharchaLedger, map = loadJsonObj(ACCTMAP_KEY), rules = loadRules(), pid = primaryAcctId(accts), own = loadOwn();
+    function mine(e) { return KL.routeAccount(e, accts, map, rules, pid, own) === acct.id; }
     return { isIn: function (e) { return isBankIn(e) && mine(e); }, isOut: function (e) { return isBankOut(e) && mine(e); } };
   }
   function setEntryAcct(entryId, choice) {
@@ -619,7 +635,7 @@
     var KL = window.KharchaLedger, map = loadJsonObj(ACCTMAP_KEY);
     if (map[e.id]) return map[e.id];
     var pid = primaryAcctId(accts);
-    return e.id ? (KL.routeAccount(e, accts, map, loadRules(), pid) || 'none') : pid;
+    return e.id ? (KL.routeAccount(e, accts, map, loadRules(), pid, loadOwn()) || 'none') : pid;
   }
   function acctChoiceSelect(accts, value) {
     var sel = el('select', 'input');
@@ -1078,7 +1094,7 @@
      localStorage stays as the offline cache, and is all there is until the v4 SQL has been run. */
   var SHARED_KEYS = ['kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
     'kharcha_active_trip_name', 'kharcha_all_trips_list', 'kharcha_category_budgets', 'kharcha_merchant_memory',
-    'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers', 'kharcha_loans', 'kharcha_wallets', 'kharcha_bank', 'kharcha_cycle', 'kharcha_rules', 'kharcha_acctmap', 'kharcha_primary_acct', 'kharcha_rule_skips', 'kharcha_transfers'];
+    'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers', 'kharcha_loans', 'kharcha_wallets', 'kharcha_bank', 'kharcha_cycle', 'kharcha_rules', 'kharcha_acctmap', 'kharcha_primary_acct', 'kharcha_rule_skips', 'kharcha_transfers', 'kharcha_own', 'kharcha_xfer_dismissed'];
   var SHARED_PREFIXES = ['kharcha_trip_friends_', 'kharcha_trip_budget_'];
   function isSharedKey(k) {
     return SHARED_KEYS.indexOf(k) >= 0 || SHARED_PREFIXES.some(function (p) { return k.indexOf(p) === 0; });
@@ -2639,8 +2655,18 @@
     if (!box || !KL) return;
     box.textContent = '';
     var due = KL.dueRules(loadRules(), state.entries, Date.now(), loadJsonObj(SKIPS_KEY));
-    if (!due.length || (state.activeStream || 'spends') !== 'spends') { box.hidden = true; return; }
+    var accts = loadBank(), sugg = [];
+    if (accts.length > 1) {
+      var map = loadJsonObj(ACCTMAP_KEY), rules0 = loadRules(), pid = primaryAcctId(accts), own = loadOwn();
+      sugg = KL.transferCandidates(state.entries, accts, own, Date.now(), loadJsonObj('kharcha_xfer_dismissed'), {
+        isTransfer: isTransferEntry, isExpense: isExpense, isIncome: isIncome, isCard: isCardEntry,
+        isRule: function (e) { return !!KL.matchRule(e.desc, rules0); },
+        route: function (e) { return KL.routeAccount(e, accts, map, rules0, pid, own); }
+      }).slice(0, 3);
+    }
+    if ((!due.length && !sugg.length) || (state.activeStream || 'spends') !== 'spends') { box.hidden = true; return; }
     box.hidden = false;
+    sugg.forEach(function (c) { box.appendChild(transferSuggestion(c, accts)); });
     due.slice(0, 3).forEach(function (d) {
       var r = d.rule, row = el('div', 'due-card');
       var txt = el('div', 'due-txt');
@@ -2669,6 +2695,88 @@
     });
   }
 
+  var xferSwap = {};
+  function transferSuggestion(c, accts) {
+    var nameOf = function (id) { var a = accts.filter(function (x) { return x.id === id; })[0]; return a ? a.name : '?'; };
+    var from = xferSwap[c.id] ? c.to : c.from, to = xferSwap[c.id] ? c.from : c.to;
+    var row = el('div', 'due-card'), txt = el('div', 'due-txt');
+    txt.appendChild(el('b', null, '↔ ' + money(c.amount) + ' looks like your own transfer'));
+    txt.appendChild(el('span', null, nameOf(from) + ' → ' + nameOf(to) + ' · ' + c.reason));
+    row.appendChild(txt);
+    var yes = el('button', 'primary small', 'Yes, own transfer'); yes.type = 'button';
+    yes.addEventListener('click', async function () {
+      yes.disabled = true;
+      var olds = c.ids.map(function (id) { return state.entries.filter(function (x) { return x.id === id; })[0]; }).filter(Boolean);
+      var beforeT = loadTransfers();
+      try {
+        for (var i = 0; i < olds.length; i++) {
+          var e = olds[i];
+          await store.update(e.id, { amount: e.amount, desc: shiftScopeDesc(e.desc, 'transfer'), spent_at: new Date(e.ts).toISOString() });
+        }
+      } catch (err) { toast('Could not convert. Try again.'); render(); return; }
+      saveTransfers(beforeT.concat([{ id: newLoanId(), ts: c.ts, amount: c.amount, from: from, to: to, ref: c.ids[0], label: 'Transfer ' + nameOf(from) + ' → ' + nameOf(to) }]));
+      render();
+      toast('Own transfer recorded', function () {
+        saveTransfers(beforeT);
+        Promise.all(olds.map(function (e) { return store.update(e.id, { amount: e.amount, desc: e.desc, spent_at: new Date(e.ts).toISOString() }); })).then(function () { render(); toast('Restored'); });
+      });
+    });
+    var sw = el('button', 'ghost', '⇄ Swap'); sw.type = 'button';
+    sw.addEventListener('click', function () { xferSwap[c.id] = !xferSwap[c.id]; renderDue(); });
+    var no = el('button', 'ghost', 'No'); no.type = 'button';
+    no.addEventListener('click', function () {
+      var before = loadJsonObj('kharcha_xfer_dismissed'), next = Object.assign({}, before); c.ids.forEach(function (id) { next[id] = 1; });
+      kv.set('kharcha_xfer_dismissed', JSON.stringify(next)); renderDue();
+      toast('Okay, left as it is', function () { kv.set('kharcha_xfer_dismissed', JSON.stringify(before)); renderDue(); });
+    });
+    var acts = el('div', 'due-acts'); acts.appendChild(yes); acts.appendChild(sw); acts.appendChild(no);
+    row.appendChild(acts);
+    return row;
+  }
+
+  var ownUi = { extra: 0 };
+  function ownForm() {
+    var KL = window.KharchaLedger, own = loadOwn(), card = el('div', 'wal-card');
+    card.appendChild(el('div', 'wal-head')).appendChild(el('span', 'wal-name', '🪪 My accounts and cards'));
+    card.appendChild(el('p', 'wal-sub', 'Last 4 digits let the app tell which bank a payment used, and spot money you move between your own accounts. Add your own UPI addresses too.'));
+    var f = el('form', 'udh-editform'); f.noValidate = true;
+    function fld(l, i) { var w = el('div', 'field'); w.appendChild(el('label', null, l)); w.appendChild(i); return w; }
+    var rows = own.banks.map(function (b) { return { key: b.key, last4: b.last4, upi: b.upi.join(', ') }; });
+    for (var k = 0; k < ownUi.extra; k++) rows.push({ key: '', last4: '', upi: '' });
+    var ins = rows.map(function (b) {
+      var key = el('input', 'input'); key.value = b.key; key.placeholder = 'Bank, e.g. icici'; key.maxLength = 20;
+      var l4 = el('input', 'input'); l4.value = b.last4; l4.inputMode = 'numeric'; l4.maxLength = 4; l4.placeholder = 'Last 4';
+      var upi = el('input', 'input'); upi.value = b.upi; upi.placeholder = 'UPI ids, comma separated';
+      var r = el('div', 'add-row'); r.appendChild(fld('Bank', key)); r.appendChild(fld('Account last 4', l4)); f.appendChild(r); f.appendChild(fld('Your UPI ids for this bank', upi));
+      return { key: key, l4: l4, upi: upi };
+    });
+    var credit = own.cards.filter(function (c) { return c.kind === 'credit'; })[0], debit = own.cards.filter(function (c) { return c.kind === 'debit'; })[0];
+    var cc = el('input', 'input'); cc.value = credit ? credit.last4 : ''; cc.inputMode = 'numeric'; cc.maxLength = 4; cc.placeholder = 'Last 4';
+    var dc = el('input', 'input'); dc.value = debit ? debit.last4 : ''; dc.inputMode = 'numeric'; dc.maxLength = 4; dc.placeholder = 'Last 4';
+    var dcBank = el('input', 'input'); dcBank.value = debit ? debit.bank : ''; dcBank.placeholder = 'Its bank, e.g. icici'; dcBank.maxLength = 20;
+    var ccBank = el('input', 'input'); ccBank.value = credit ? credit.bank : ''; ccBank.placeholder = 'Card bank, e.g. icici'; ccBank.maxLength = 20;
+    var r2 = el('div', 'add-row'); r2.appendChild(fld('Credit card last 4', cc)); r2.appendChild(fld('Card bank', ccBank)); f.appendChild(r2);
+    var r3 = el('div', 'add-row'); r3.appendChild(fld('Debit card last 4', dc)); r3.appendChild(fld('Debit card is on bank', dcBank)); f.appendChild(r3);
+    var more = el('button', 'ghost', '+ Add another bank'); more.type = 'button';
+    more.addEventListener('click', function () { ownUi.extra++; renderRules(); });
+    f.appendChild(more);
+    var err = el('p', 'err'); err.hidden = true; f.appendChild(err);
+    var save = el('button', 'primary small', 'Save'); save.type = 'submit'; f.appendChild(save);
+    f.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var before = kv.get(OWN_KEY);
+      var next = {
+        banks: ins.filter(function (x) { return x.key.value.trim(); }).map(function (x) { return { key: x.key.value.trim(), last4: x.l4.value, upi: x.upi.value.split(',') }; }),
+        cards: [].concat(cc.value.trim() ? [{ kind: 'credit', last4: cc.value, bank: ccBank.value }] : [], dc.value.trim() ? [{ kind: 'debit', last4: dc.value, bank: dcBank.value }] : [])
+      };
+      var clean = KL.parseOwn(JSON.stringify(next));
+      kv.set(OWN_KEY, JSON.stringify(clean)); ownUi.extra = 0; renderRules(); render();
+      toast('Saved', function () { if (before == null) kv.remove(OWN_KEY); else kv.set(OWN_KEY, before); renderRules(); render(); });
+    });
+    card.appendChild(f);
+    return card;
+  }
+
   var rulesUi = { editing: null };
   function renderRules() {
     var root = $('rules-root'), KL = window.KharchaLedger;
@@ -2676,6 +2784,7 @@
     root.textContent = '';
     if (!KL) { root.appendChild(el('p', 'err', 'Rules could not load. Refresh the page.')); return; }
     var rules = loadRules(), accts = loadBank();
+    root.appendChild(ownForm());
     root.appendChild(el('p', 'wal-sub', 'Tell the app who you pay and when. It files those payments for you, reminds you on the due day, and takes them off the right bank account.'));
     rules.forEach(function (r) {
       var card = el('div', 'wal-card');

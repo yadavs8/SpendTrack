@@ -258,4 +258,24 @@ t('a transfer lowers one account and raises the other', () => {
   assert.strictEqual(L.bankEstimate([], hd, isIn, isOut, old).balance, 50000);
 });
 
+const own = L.parseOwn(JSON.stringify(L.defaultOwn()));
+const accts2 = [{ id: 'i', name: 'ICICI Salary' }, { id: 'h', name: 'HDFC Savings' }];
+t('own cards and account numbers drive routing', () => {
+  assert.strictEqual(L.cardFor('ICICI Card XX1014 Airtel', own).kind, 'credit');
+  assert.strictEqual(L.cardFor('debit card 0778 POS', own).kind, 'debit');
+  assert.strictEqual(L.routeAccount({ id: '1', desc: 'EMI debited A/c XX8749' }, accts2, {}, [], 'i', own), 'h');
+  assert.strictEqual(L.routeAccount({ id: '2', desc: 'POS XX0778 shop' }, accts2, {}, [], 'h', own), 'i');
+  assert.strictEqual(L.routeAccount({ id: '3', desc: 'plain' }, accts2, {}, [], 'i', own), 'i');
+});
+t('transfer suggestions: named own account, and same amount out and in', () => {
+  const NOW = D(2026, 10, 11);
+  const pred = { isTransfer: () => false, isExpense: e => e.kind === 'spend', isIncome: e => e.kind === 'income', isCard: () => false, isRule: () => false, route: () => 'i' };
+  const a = L.transferCandidates([{ id: 'x', kind: 'spend', amount: 10000, desc: 'IMPS to A/c XX8749', ts: NOW - 1000 }], accts2, own, NOW, {}, pred);
+  assert.strictEqual(a.length, 1); assert.strictEqual(a[0].from, 'i'); assert.strictEqual(a[0].to, 'h');
+  const b = L.transferCandidates([{ id: 'o', kind: 'spend', amount: 7000, desc: 'UPI Rahul', ts: NOW - 5000 }, { id: 'n', kind: 'income', amount: 7000, desc: 'UPI Rahul', ts: NOW - 4000 }], accts2, own, NOW, {}, pred);
+  assert.strictEqual(b.length, 1); assert.deepStrictEqual(b[0].ids, ['o', 'n']); assert.strictEqual(b[0].to, 'h');
+  assert.strictEqual(L.transferCandidates([{ id: 'x', kind: 'spend', amount: 5, desc: 'IMPS to A/c XX8749', ts: NOW }], accts2, own, NOW, { x: 1 }, pred).length, 0);
+  assert.strictEqual(L.transferCandidates([{ id: 'x', kind: 'spend', amount: 5, desc: 'IMPS to A/c XX8749', ts: NOW }], [accts2[0]], own, NOW, {}, pred).length, 0);
+});
+
 console.log(n + ' tests passed');
