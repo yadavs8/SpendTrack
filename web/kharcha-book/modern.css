@@ -214,3 +214,8 @@ button.row .method-badge { display: inline-block; margin-left: 6px; font-weight:
 .due-card .due-txt { grid-column: 1 / -1; display: grid; gap: 2px; }
 .due-card .due-txt span { font-size: 0.82rem; color: var(--muted); }
 .due-card .ghost { justify-self: end; }
+
+/* v58: keep the last buttons clear of the bottom bar */
+body { padding-bottom: calc(110px + env(safe-area-inset-bottom, 0px)); }
+form, .edit-btns, .add-foot { scroll-margin-bottom: 120px; }
+[hidden] { display: none !important; }

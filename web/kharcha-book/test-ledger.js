@@ -247,4 +247,15 @@ t('due rules appear from the due day until logged or skipped', () => {
   assert.strictEqual(prev.filter(x => x.rule.id === 'r-milk')[0].amount, 2400);
 });
 
+t('a transfer lowers one account and raises the other', () => {
+  const ic = { id: 'ic', name: 'ICICI', snapshots: [{ ts: D(2026, 10, 1), balance: 100000 }] };
+  const hd = { id: 'hd', name: 'HDFC', snapshots: [{ ts: D(2026, 10, 1), balance: 50000 }] };
+  const tr = L.parseTransfers(JSON.stringify([{ id: 't', ts: D(2026, 10, 11), amount: 10000, from: 'ic', to: 'hd', label: 'Transfer ICICI → HDFC' }, { id: 'bad', ts: 1, amount: 5, from: 'ic', to: 'ic' }]));
+  assert.strictEqual(tr.length, 1);
+  assert.strictEqual(L.bankEstimate([], ic, isIn, isOut, tr).balance, 90000);
+  assert.strictEqual(L.bankEstimate([], hd, isIn, isOut, tr).balance, 60000);
+  const old = L.parseTransfers(JSON.stringify([{ id: 'o', ts: D(2026, 9, 1), amount: 999, from: 'ic', to: 'hd' }]));
+  assert.strictEqual(L.bankEstimate([], hd, isIn, isOut, old).balance, 50000);
+});
+
 console.log(n + ' tests passed');

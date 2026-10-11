@@ -285,7 +285,15 @@
         };
       }).filter(function (a) { return a.snapshots.length; });
   }
-  function bankEstimate(entries, acct, isIn, isOut) {
+  // Money moved between your own accounts: { id, ts, amount, from, to, label }. Not income, not spending.
+  function parseTransfers(json) {
+    var arr;
+    try { arr = JSON.parse(json || '[]'); } catch (e) { return []; }
+    if (!Array.isArray(arr)) return [];
+    return arr.filter(function (t) { return t && typeof t.id === 'string' && isFinite(t.ts) && isFinite(t.amount) && t.amount > 0 && typeof t.from === 'string' && typeof t.to === 'string' && t.from !== t.to; })
+      .map(function (t) { return { id: t.id, ts: Number(t.ts), amount: Number(t.amount), from: t.from, to: t.to, label: String(t.label || '').slice(0, 60), ref: t.ref ? String(t.ref) : '' }; });
+  }
+  function bankEstimate(entries, acct, isIn, isOut, transfers) {
     var snap = acct.snapshots[acct.snapshots.length - 1], inP = 0, outP = 0, items = [], heldP = 0;
     var held = acct.held || [];
     (entries || []).forEach(function (e) {
@@ -297,6 +305,12 @@
       }
       else if (isIn(e)) { inP += a; items.push({ id: e.id, ts: e.ts, amount: a / 100, kind: 'in', label: e.desc }); }
       else if (isOut(e)) { outP += a; items.push({ id: e.id, ts: e.ts, amount: a / 100, kind: 'out', label: e.desc }); }
+    });
+    (transfers || []).forEach(function (t) {
+      if (!(t.ts > snap.ts)) return;
+      var a = toPaise(t.amount);
+      if (t.to === acct.id) { inP += a; items.push({ id: t.id, ts: t.ts, amount: a / 100, kind: 'in', label: t.label || 'Transfer in' }); }
+      else if (t.from === acct.id) { outP += a; items.push({ id: t.id, ts: t.ts, amount: a / 100, kind: 'out', label: t.label || 'Transfer out' }); }
     });
     (acct.deposits || []).forEach(function (d) {
       if (!(d.ts > snap.ts)) return;
@@ -380,6 +394,6 @@
     addPayment: addPayment, editLoan: editLoan, editPayment: editPayment, summarize: summarize,
     walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, parseWalletDesc: parseWalletDesc,
     parseWallets: parseWallets, walletState: walletState, walletReconcile: walletReconcile,
-    payCycles: payCycles, lastWorkingDay: lastWorkingDay, nextPayday: nextPayday, parseBank: parseBank, bankEstimate: bankEstimate
+    payCycles: payCycles, lastWorkingDay: lastWorkingDay, nextPayday: nextPayday, parseBank: parseBank, bankEstimate: bankEstimate, parseTransfers: parseTransfers
   };
 });
