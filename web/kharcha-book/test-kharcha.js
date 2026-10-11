@@ -513,5 +513,38 @@ assert(whatsappLink('a b').startsWith('https://wa.me/?text=a%20b'), 'whatsappLin
   assert(K.methodLabel({ desc: 'x' }) === '', 'methodLabel is empty when unknown');
 }
 
+// ---- Monthly report: salaries, personal savings, family fund from Mother ----
+{
+  const K = windowMock.__kharcha;
+  const d = (m, day) => new Date(2026, m - 1, day, 12).getTime();   // local noon
+  const rows = [
+    { id: 's1', amount: 50000, desc: '💼 Salary 1', ts: d(10, 1) },
+    { id: 's2', amount: 30000, desc: '💼 Salary 2', ts: d(10, 3) },
+    { id: 'm1', amount: 25000, desc: "👵 Mother's Pension", ts: d(10, 2) },
+    { id: 'p1', amount: 12000, desc: 'Personal shopping', ts: d(10, 5) },
+    { id: 'p2', amount: 3000, desc: 'Dinner out', ts: d(10, 6) },
+    { id: 'f1', amount: 21000, desc: '🏠 Groceries and milk', ts: d(10, 7) },
+    { id: 'f2', amount: 3000, desc: '🏠 Electricity bill', ts: d(10, 9) },
+    { id: 'i1', amount: 10000, desc: '📈 SIP Mutual Fund', ts: d(10, 8) },
+    // September: family spends more than Mother sent
+    { id: 's3', amount: 50000, desc: '💼 Salary 1', ts: d(9, 1) },
+    { id: 'm2', amount: 25000, desc: "👵 Mother's Pension", ts: d(9, 2) },
+    { id: 'f3', amount: 27000, desc: '🏠 Family expenses', ts: d(9, 8) },
+    { id: 'p3', amount: 20000, desc: 'Personal rent', ts: d(9, 9) }
+  ];
+  const oct = K.getMonthlySummary(rows, '2026-10');
+  assert(oct.salaries === 80000 && oct.salaryEntries.length === 2, 'monthly: Salary 1 + Salary 2 are added');
+  assert(oct.personalSpent === 15000, 'monthly: personal spending excludes family and investments');
+  assert(oct.savings === 65000 && oct.savingsRate === 81, 'monthly: savings = salaries - personal spending');
+  assert(oct.invested === 10000, 'monthly: investments are reported separately');
+  assert(oct.motherReceived === 25000 && oct.familySpent === 24000 && oct.familyLeft === 1000 && oct.overflow === 0, "monthly: family spending is deducted from Mother's money");
+  const sep = K.getMonthlySummary(rows, '2026-09');
+  assert(sep.familyLeft === -2000 && sep.overflow === 2000, 'monthly: spending past the fund shows as overflow');
+  assert(sep.savings === 30000 && sep.savingsAfterOverflow === 28000, 'monthly: savings after covering the overflow');
+  const hist = K.getMonthlyHistory(rows);
+  assert(hist.length === 2 && hist[0].key === '2026-10' && hist[1].key === '2026-09', 'monthly history is newest first');
+  assert(K.getMonthlySummary(rows, '2026-08').hasData === false, 'monthly: a month with no entries has no data');
+}
+
 console.log(`\nResults: ${passed} passed, ${failed} failed.`);
 if (failed > 0) process.exit(1);

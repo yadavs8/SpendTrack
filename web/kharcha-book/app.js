@@ -489,6 +489,48 @@
     };
   }
 
+
+  /* ---------- Monthly report: personal savings + family fund ---------- */
+  // Personal savings = salaries (Salary 1, Salary 2, ...) - personal spending; investments count as saved.
+  // Family fund = what Mother sends for the month (Mother's Pension and Mother Withdrawal entries) minus the
+  // family expenses. If family spending goes past the fund, the overflow is shown separately and is NOT
+  // taken from personal savings unless you look at "after covering it".
+  function getMonthlySummary(entries, key) {
+    var list = (entries || []).filter(function (e) { return !e.synthetic && monthKey(e.ts) === key; });
+    var cf = getPersonalCashFlow(list);
+    var fam = getFamilySettlement(list);
+    var motherList = list.filter(function (e) { return isIncome(e) && (isMotherPension(e) || isMotherSettlement(e)); });
+    var motherP = motherList.reduce(function (s, e) { return s + paise(e.amount); }, 0);
+    var famP = paise(fam.familySpent);
+    var otherIncome = list.filter(function (e) { return isIncome(e) && !isSalary(e) && !isMotherPension(e) && !isMotherSettlement(e); })
+      .reduce(function (s, e) { return s + paise(e.amount); }, 0) / 100;
+    var leftP = motherP - famP;
+    var overflow = Math.max(0, -leftP) / 100;
+    return {
+      key: key,
+      salaryEntries: list.filter(isSalary).sort(function (a, b) { return a.ts - b.ts; }),
+      salaries: cf.salaries,
+      personalSpent: cf.personalSpent,
+      invested: cf.totalInvested,
+      savings: cf.personalSavings,
+      savingsRate: cf.savingsRate,
+      otherIncome: otherIncome,
+      motherEntries: motherList,
+      motherReceived: motherP / 100,
+      familySpent: fam.familySpent,
+      familyLeft: leftP / 100,
+      overflow: overflow,
+      savingsAfterOverflow: (paise(cf.personalSavings) - paise(overflow)) / 100,
+      hasData: list.length > 0
+    };
+  }
+  // Newest month first, for every month that has any entry.
+  function getMonthlyHistory(entries) {
+    var seen = {};
+    (entries || []).forEach(function (e) { if (!e.synthetic) seen[monthKey(e.ts)] = true; });
+    return Object.keys(seen).sort().reverse().map(function (k) { return getMonthlySummary(entries, k); });
+  }
+
   function groupByDay(list) {
     var map = new Map();
     list.slice().sort(byTimeDesc).forEach(function (e) {
@@ -858,6 +900,7 @@
     enterApp: enterApp,
     getSb: function () { return sb; },
     getEntries: function () { return state.entries; },
+    getMonthlySummary: getMonthlySummary, getMonthlyHistory: getMonthlyHistory,
     parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, parseSMSDate: parseSMSDate, findDuplicate: findDuplicate, categoryBreakdown: categoryBreakdown, monthCompare: monthCompare,
     isIncome: isIncome, isMotherSettlement: isMotherSettlement, isMotherPension: isMotherPension, isSalary: isSalary, isExpense: isExpense, isInvestment: isInvestment, getFamilySettlement: getFamilySettlement, getPersonalCashFlow: getPersonalCashFlow,
     isProjectEntry: isProjectEntry, isProjectMotherPaid: isProjectMotherPaid, getProjectSummary: getProjectSummary,
@@ -2262,6 +2305,96 @@
     return box;
   }
 
+
+  /* ---------- Monthly tab ---------- */
+  function signedMoney(v) { return (v < 0 ? '−' : '') + money(Math.abs(v)); }
+  function renderMonthly() {
+    var root = $('monthly-root');
+    if (!root) return;
+    root.textContent = '';
+    var cur = getMonthlySummary(state.entries, state.sel);
+
+    // month switcher: uses the same month as the rest of the app
+    var nav = el('div', 'mo-nav');
+    var prev = el('button', 'mo-arrow', '‹'); prev.type = 'button'; prev.setAttribute('aria-label', 'Earlier month');
+    var next = el('button', 'mo-arrow', '›'); next.type = 'button'; next.setAttribute('aria-label', 'Later month');
+    prev.addEventListener('click', function () { var b = $('prev'); if (b && !b.disabled) b.click(); });
+    next.addEventListener('click', function () { var b = $('next'); if (b && !b.disabled) b.click(); });
+    nav.appendChild(prev); nav.appendChild(el('span', 'mo-month', monthLabel(state.sel))); nav.appendChild(next);
+    root.appendChild(nav);
+
+    if (!cur.salaries && !cur.motherReceived && !cur.personalSpent && !cur.familySpent) {
+      var em = el('div', 'empty');
+      em.appendChild(el('p', null, 'Nothing for ' + monthLabel(state.sel) + ' yet. Add your salaries in Income (💼 Salary 1 and Salary 2) and your mother’s monthly money (👵 Mother’s Pension) and this page works out your savings and the family fund.'));
+      var go = el('button', 'primary small', 'Open Income'); go.type = 'button';
+      go.addEventListener('click', function () { var b = document.querySelector('.streambtn[data-stream="incomings"]'); if (b) b.click(); });
+      em.appendChild(go); root.appendChild(em);
+    } else {
+      // 1) savings
+      var hero = el('div', 'mo-hero' + (cur.savings < 0 ? ' neg' : ''));
+      hero.appendChild(el('span', 'mo-hero-l', 'Saved this month'));
+      hero.appendChild(el('span', 'mo-hero-v', signedMoney(cur.savings)));
+      hero.appendChild(el('span', 'mo-hero-s', cur.salaries > 0
+        ? cur.savingsRate + '% of salary' + (cur.invested > 0 ? ' · ' + money(cur.invested) + ' invested' : '')
+        : 'Add your salary to see the rate'));
+      var track = el('div', 'mo-track'), fill = el('i');
+      fill.style.width = Math.max(0, Math.min(100, cur.salaries > 0 ? (cur.personalSpent / cur.salaries) * 100 : 0)) + '%';
+      track.appendChild(fill); hero.appendChild(track);
+      hero.appendChild(el('span', 'mo-hero-n', 'Spent ' + money(cur.personalSpent) + ' of ' + money(cur.salaries)));
+      root.appendChild(hero);
+
+      // 2) income
+      var inc = el('div', 'mo-card');
+      inc.appendChild(el('h3', 'mo-h', 'Income'));
+      var ul = el('ul', 'mo-list');
+      cur.salaryEntries.forEach(function (e) {
+        var li = el('li'); li.appendChild(el('span', null, e.desc.replace(/^[^\wऀ-ॿ]+/, '') + ' · ' + dFmt.format(new Date(e.ts))));
+        li.appendChild(el('b', null, money(e.amount))); ul.appendChild(li);
+      });
+      if (!cur.salaryEntries.length) { var li0 = el('li'); li0.appendChild(el('span', 'mo-dim', 'No salary added for this month')); ul.appendChild(li0); }
+      if (cur.otherIncome > 0) { var li1 = el('li'); li1.appendChild(el('span', null, 'Other income (not in savings)')); li1.appendChild(el('b', null, money(cur.otherIncome))); ul.appendChild(li1); }
+      inc.appendChild(ul); root.appendChild(inc);
+
+      // 3) family fund
+      var fam = el('div', 'mo-card');
+      fam.appendChild(el('h3', 'mo-h', '🏠 Family fund (from Mother)'));
+      var over = cur.familyLeft < 0;
+      var big = el('div', 'mo-fund' + (over ? ' neg' : ''));
+      big.appendChild(el('span', 'mo-fund-v', over ? 'Over by ' + money(cur.overflow) : money(cur.familyLeft) + ' left'));
+      fam.appendChild(big);
+      var ftrack = el('div', 'mo-track'), ffill = el('i', over ? 'danger' : (cur.motherReceived > 0 && cur.familySpent / cur.motherReceived >= 0.8 ? 'warning' : ''));
+      ffill.style.width = Math.max(0, Math.min(100, cur.motherReceived > 0 ? (cur.familySpent / cur.motherReceived) * 100 : (cur.familySpent > 0 ? 100 : 0))) + '%';
+      ftrack.appendChild(ffill); fam.appendChild(ftrack);
+      var fl = el('ul', 'mo-list');
+      [['Received from Mother', cur.motherReceived], ['Family spending', cur.familySpent]].forEach(function (r) {
+        var li = el('li'); li.appendChild(el('span', null, r[0])); li.appendChild(el('b', null, money(r[1]))); fl.appendChild(li);
+      });
+      fam.appendChild(fl);
+      if (!cur.motherReceived) fam.appendChild(el('p', 'mo-note', 'Add this month’s money from Mother in Income (👵 Mother’s Pension) and family spending is deducted from it.'));
+      else if (over) fam.appendChild(el('p', 'mo-note', 'You covered ' + money(cur.overflow) + ' of family spending beyond Mother’s money. Savings after covering it: ' + signedMoney(cur.savingsAfterOverflow) + '.'));
+      root.appendChild(fam);
+    }
+
+    // 4) every month
+    var hist = getMonthlyHistory(state.entries).slice(0, 12);
+    if (hist.length) {
+      root.appendChild(el('h3', 'sec-title mo-title', 'Every month'));
+      var hl = el('ul', 'mo-hist');
+      hist.forEach(function (m) {
+        var li = el('li'), b = el('button', 'mo-row' + (m.key === state.sel ? ' on' : '')); b.type = 'button';
+        var left = el('span', 'mo-row-l'); left.appendChild(el('b', null, monthLabel(m.key)));
+        var parts = ['Salary ' + money(m.salaries), 'Personal ' + money(m.personalSpent)];
+        if (m.motherReceived || m.familySpent) parts.push(m.familyLeft < 0 ? 'Family over ' + money(m.overflow) : 'Family +' + money(m.familyLeft));
+        left.appendChild(el('small', null, parts.join(' · ')));
+        b.appendChild(left);
+        b.appendChild(el('span', 'mo-row-v' + (m.savings < 0 ? ' neg' : ''), signedMoney(m.savings)));
+        b.addEventListener('click', function () { state.sel = m.key; state.editing = null; render(); window.scrollTo({ top: 0 }); });
+        li.appendChild(b); hl.appendChild(li);
+      });
+      root.appendChild(hl);
+    }
+  }
+
   /* ---------- Stream Switcher Tabs ---------- */
   function renderStreamSwitcher(spendsCount, incomingsCount, projCount, invCount, tripsCount) {
     var spCountEl = $('spends-count');
@@ -2283,6 +2416,7 @@
     var tripsSec = $('trips-sec');
     var udhaarSec = $('udhaar-sec');
     var walletSec = $('wallet-sec');
+    var monthlySec = $('monthly-sec');
 
     var stream = state.activeStream || 'spends';
     if (spendsView) spendsView.hidden = (stream !== 'spends');
@@ -2294,7 +2428,9 @@
     if (udhaarSec) udhaarSec.hidden = (stream !== 'udhaar');
     if (walletSec) walletSec.hidden = (stream !== 'wallet');
     if (stream === 'udhaar') renderUdhaar();
+    if (monthlySec) monthlySec.hidden = (stream !== 'monthly');
     if (stream === 'wallet') renderWallet();
+    if (stream === 'monthly') renderMonthly();
 
     document.querySelectorAll('.streambtn').forEach(function (btn) {
       btn.classList.toggle('active', btn.dataset.stream === stream);

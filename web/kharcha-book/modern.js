@@ -59,7 +59,7 @@
   };
   var NAV_OF = { spends: 'home', incomings: 'income', trips: 'trips' };   // everything else lives under More
   var MORE_TILES = [
-    ['settlement', '👵', 'Settle'], ['investments', '📈', 'Invest'], ['projects', '🔨', 'Projects'],
+    ['monthly', '📊', 'Monthly'], ['settlement', '👵', 'Settle'], ['investments', '📈', 'Invest'], ['projects', '🔨', 'Projects'],
     ['udhaar', '🤝', 'Udhaar'], ['wallet', '👛', 'Wallet'], ['__signout', '🚪', 'Sign out']
   ];
   var bnav, sheet;
