@@ -98,8 +98,16 @@
   }
   function isCashSpend(e) { return !!e && e.method === 'cash' && isExpense(e); }
 
+  // Money moved into a prepaid wallet (Amazon Pay, ...): a transfer, not spending. The purchases made
+  // from the wallet are the spending (see ledger-logic.js).
+  function isWalletTopup(e) {
+    var KL = window.KharchaLedger;
+    var p = e && e.desc && KL ? KL.parseWalletDesc(e.desc) : null;
+    return !!p && p.kind === 'topup';
+  }
+
   function isExpense(e) {
-    return !isIncome(e) && !isInvestment(e) && !isCashWithdrawal(e) && !(e && e.kind === 'transfer');
+    return !isIncome(e) && !isInvestment(e) && !isCashWithdrawal(e) && !isWalletTopup(e) && !(e && e.kind === 'transfer');
   }
 
   /* ---------- Cash wallet ---------- */
@@ -908,7 +916,7 @@
      localStorage stays as the offline cache, and is all there is until the v4 SQL has been run. */
   var SHARED_KEYS = ['kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
     'kharcha_active_trip_name', 'kharcha_all_trips_list', 'kharcha_category_budgets', 'kharcha_merchant_memory',
-    'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers', 'kharcha_loans'];
+    'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers', 'kharcha_loans', 'kharcha_wallets'];
   var SHARED_PREFIXES = ['kharcha_trip_friends_', 'kharcha_trip_budget_'];
   function isSharedKey(k) {
     return SHARED_KEYS.indexOf(k) >= 0 || SHARED_PREFIXES.some(function (p) { return k.indexOf(p) === 0; });
@@ -2039,6 +2047,219 @@
     return li;
   }
 
+
+  /* ---------- Wallets: Amazon Pay and other prepaid balances ---------- */
+  var walletUi = { setup: false, mode: {}, actual: {} };
+  function loadWallets() { return window.KharchaLedger ? window.KharchaLedger.parseWallets(kv.get('kharcha_wallets')) : []; }
+  function saveWallets(list) { kv.set('kharcha_wallets', JSON.stringify(list)); }
+  function walletField(label, id, input) { var w = el('div', 'field'); var l = el('label', null, label); l.htmlFor = id; w.appendChild(l); w.appendChild(input); return w; }
+  function walletInput(id, ph, mode) { var i = el('input', 'input'); i.id = id; i.placeholder = ph || ''; i.autocomplete = 'off'; if (mode) i.inputMode = mode; return i; }
+  function walletDate(id) { var d = el('input', 'input'); d.id = id; d.type = 'date'; d.value = dayKey(Date.now()); d.max = dayKey(Date.now()); return d; }
+
+  function renderWallet() {
+    var root = $('wallet-root');
+    if (!root) return;
+    var KL = window.KharchaLedger;
+    root.textContent = '';
+    if (!KL) { root.appendChild(el('p', 'err', 'Wallets could not load. Refresh the page.')); return; }
+    var wallets = loadWallets();
+
+    if (!wallets.length) {
+      var intro = el('div', 'empty');
+      intro.appendChild(el('p', null, 'Track a prepaid wallet like Amazon Pay. Top-ups from your card are not counted as spending; the purchases you make from the wallet are, and the balance stays up to date.'));
+      root.appendChild(intro);
+    }
+    wallets.forEach(function (w) { root.appendChild(walletCard(w)); });
+
+    if (walletUi.setup || !wallets.length) {
+      root.appendChild(walletSetupForm());
+    } else {
+      var add = el('button', 'ghost', '+ Track another wallet');
+      add.type = 'button';
+      add.addEventListener('click', function () { walletUi.setup = true; renderWallet(); });
+      root.appendChild(add);
+    }
+  }
+
+  function walletSetupForm() {
+    var KL = window.KharchaLedger;
+    var f = el('form', 'add udh-form'); f.noValidate = true;
+    f.appendChild(el('h3', 'wal-h', 'Start tracking a wallet'));
+    var name = walletInput('wal-new-name', 'Amazon Pay'); name.maxLength = 40; name.setAttribute('list', 'wal-names'); name.value = '';
+    var dl = document.createElement('datalist'); dl.id = 'wal-names';
+    ['Amazon Pay', 'Paytm', 'PhonePe', 'Mobikwik', 'Freecharge'].forEach(function (n) { var o = document.createElement('option'); o.value = n; dl.appendChild(o); });
+    var bal = walletInput('wal-new-bal', '0', 'decimal');
+    f.appendChild(walletField('Wallet', 'wal-new-name', name)); f.appendChild(dl);
+    f.appendChild(walletField('Balance in it right now (₹)', 'wal-new-bal', bal));
+    var err = el('p', 'err'); err.hidden = true; err.setAttribute('role', 'alert'); f.appendChild(err);
+    var save = el('button', 'primary', 'Start tracking'); save.type = 'submit'; f.appendChild(save);
+    f.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var nm = KL.cleanName(name.value);
+      var raw = bal.value.trim();
+      var b = raw === '' ? 0 : parseAmount(raw);
+      if (!nm) { err.textContent = 'Enter the wallet name, like Amazon Pay.'; err.hidden = false; return; }
+      if (b == null) { err.textContent = 'Enter the balance as a number, or leave it empty for zero.'; err.hidden = false; return; }
+      var list = loadWallets();
+      if (list.some(function (w) { return KL.nameKey(w.name) === KL.nameKey(nm); })) { err.textContent = 'You already track ' + nm + '.'; err.hidden = false; return; }
+      list.push({ id: newLoanId(), name: nm, opening: b, since: Date.now() });
+      saveWallets(list); walletUi.setup = false;
+      renderWallet(); toast('Tracking ' + nm + ' from ' + money(b));
+    });
+    return f;
+  }
+
+  async function walletAdd(desc, amount, dateVal, okMsg) {
+    var ts = dateInputToTs(dateVal);
+    try {
+      await store.add({ amount: amount, desc: desc, spent_at: new Date(ts).toISOString() });
+      render(); toast(okMsg);
+      return true;
+    } catch (err) {
+      toast(err && err.message ? err.message : 'Could not save. Check your connection and try again.');
+      return false;
+    }
+  }
+
+  function walletCard(w) {
+    var KL = window.KharchaLedger;
+    var ws = KL.walletState(state.entries, w);
+    var card = el('div', 'wal-card');
+    var head = el('div', 'wal-head');
+    head.appendChild(el('span', 'wal-name', '👛 ' + w.name));
+    var rm = el('button', 'udh-x', '×'); rm.type = 'button'; rm.setAttribute('aria-label', 'Stop tracking ' + w.name);
+    rm.addEventListener('click', function () {
+      showConfirmModal({ title: 'Stop tracking ' + w.name + '?', message: 'Your top-up and purchase entries stay in Kharcha Book; only the balance card is removed.', onConfirm: function () {
+        saveWallets(loadWallets().filter(function (x) { return x.id !== w.id; })); renderWallet();
+      } });
+    });
+    head.appendChild(rm); card.appendChild(head);
+    card.appendChild(el('div', 'wal-bal' + (ws.balance < 0 ? ' neg' : ''), money(ws.balance)));
+    card.appendChild(el('div', 'wal-sub', ws.balance < 0
+      ? 'Below zero: a top-up is missing. Add it, or check the real balance.'
+      : 'Started with ' + money(ws.opening) + ' · top-ups ' + money(ws.topups) + ' · spent ' + money(ws.spent)));
+
+    var acts = el('div', 'wal-acts');
+    [['topup', '+ Top-up'], ['spend', 'Spent from wallet'], ['check', 'Check balance'], ['convert', 'From an entry']].forEach(function (m) {
+      var b = el('button', 'scope-pill' + (walletUi.mode[w.id] === m[0] ? ' active' : ''), m[1]);
+      b.type = 'button';
+      b.addEventListener('click', function () { walletUi.mode[w.id] = walletUi.mode[w.id] === m[0] ? null : m[0]; renderWallet(); });
+      acts.appendChild(b);
+    });
+    card.appendChild(acts);
+
+    var mode = walletUi.mode[w.id];
+    if (mode === 'topup' || mode === 'spend') card.appendChild(walletEntryForm(w, mode));
+    if (mode === 'check') card.appendChild(walletCheck(w, ws));
+    if (mode === 'convert') card.appendChild(walletConvert(w));
+
+    if (ws.items.length) {
+      var ul = el('ul', 'wal-items');
+      ws.items.slice(0, 12).forEach(function (it) {
+        var li = el('li', 'wal-item' + (it.kind === 'topup' ? ' up' : ''));
+        li.appendChild(el('span', null, dFmt.format(new Date(it.ts)) + ' · ' + (it.note || (it.kind === 'topup' ? 'Top-up' : 'Purchase'))));
+        li.appendChild(el('span', 'wal-amt', (it.kind === 'topup' ? '+ ' : '− ') + money(it.amount)));
+        ul.appendChild(li);
+      });
+      card.appendChild(ul);
+    }
+    return card;
+  }
+
+  function walletEntryForm(w, mode) {
+    var KL = window.KharchaLedger;
+    var f = el('form', 'wal-form'); f.noValidate = true;
+    var pre = 'wal-' + w.id + '-' + mode;
+    var amt = walletInput(pre + '-amt', '0', 'decimal');
+    var note = walletInput(pre + '-note', mode === 'topup' ? 'From, e.g. ICICI card XX1014' : 'What for, e.g. Blinkit groceries');
+    note.maxLength = 30;
+    var date = walletDate(pre + '-date');
+    var row = el('div', 'add-row');
+    row.appendChild(walletField('Amount (₹)', pre + '-amt', amt)); row.appendChild(walletField('Date', pre + '-date', date));
+    f.appendChild(row);
+    f.appendChild(walletField(mode === 'topup' ? 'From (optional)' : 'What for', pre + '-note', note));
+    if (mode === 'topup') f.appendChild(el('p', 'wal-hint', 'Top-ups move money into the wallet. They are not counted as spending.'));
+    else f.appendChild(el('p', 'wal-hint', 'Log the full price of the purchase. If part was paid by card, also add that part as a top-up.'));
+    var err = el('p', 'err'); err.hidden = true; err.setAttribute('role', 'alert'); f.appendChild(err);
+    var save = el('button', 'primary small', 'Save'); save.type = 'submit'; f.appendChild(save);
+    f.addEventListener('submit', async function (ev) {
+      ev.preventDefault();
+      var n = parseAmount(amt.value);
+      if (n == null) { err.textContent = 'Enter an amount greater than zero, like 442.'; err.hidden = false; return; }
+      if (mode === 'spend' && !note.value.trim()) { err.textContent = 'Add what it was for, like Blinkit groceries.'; err.hidden = false; return; }
+      save.disabled = true;
+      var desc = mode === 'topup' ? KL.walletTopupDesc(w.name, note.value) : KL.walletSpendDesc(w.name, note.value);
+      var ok = await walletAdd(desc, n, date.value, (mode === 'topup' ? 'Top-up of ' : 'Wallet spend of ') + money(n) + ' saved');
+      if (!ok) save.disabled = false;
+    });
+    return f;
+  }
+
+  function walletCheck(w, ws) {
+    var KL = window.KharchaLedger;
+    var box = el('div', 'wal-form');
+    var f = el('form', 'wal-check'); f.noValidate = true;
+    var inp = walletInput('wal-' + w.id + '-actual', 'Balance shown in the app (₹)', 'decimal');
+    inp.setAttribute('aria-label', 'Balance shown in the wallet app');
+    if (walletUi.actual[w.id] != null) inp.value = String(walletUi.actual[w.id]);
+    var go = el('button', 'ghost', 'Compare'); go.type = 'submit';
+    f.appendChild(inp); f.appendChild(go); box.appendChild(f);
+    var err = el('p', 'err'); err.hidden = true; err.setAttribute('role', 'alert'); box.appendChild(err);
+    f.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var raw = inp.value.trim();
+      var n = raw === '0' ? 0 : parseAmount(raw);
+      if (n == null) { err.textContent = 'Enter the balance as a number, like 1250.'; err.hidden = false; return; }
+      walletUi.actual[w.id] = n; renderWallet();
+    });
+    if (walletUi.actual[w.id] != null) {
+      var r = KL.walletReconcile(ws.balance, walletUi.actual[w.id]);
+      if (r.kind === 'match') box.appendChild(el('p', 'wal-ok', 'Matches. Your tracked balance is right. ✓'));
+      else {
+        var msg = r.kind === 'spent'
+          ? money(r.amount) + ' is missing from the wallet: spent or charged without an entry.'
+          : money(r.amount) + ' more than tracked: cashback, a refund, or a top-up you did not log.';
+        box.appendChild(el('p', 'wal-diff', msg));
+        var fix = el('button', 'primary small', r.kind === 'spent' ? 'Log ' + money(r.amount) + ' as wallet spend' : 'Add ' + money(r.amount) + ' as top-up (not spending)');
+        fix.type = 'button';
+        fix.addEventListener('click', async function () {
+          fix.disabled = true;
+          var ok = await walletAdd(r.kind === 'spent' ? KL.walletSpendDesc(w.name, 'Unaccounted') : KL.walletTopupDesc(w.name, 'Cashback / adjustment'), r.amount, dayKey(Date.now()), 'Balance matched');
+          if (ok) { walletUi.actual[w.id] = null; renderWallet(); } else fix.disabled = false;
+        });
+        box.appendChild(fix);
+      }
+    }
+    return box;
+  }
+
+  // The card SMS for "₹442 towards Amazon Pay" arrives as an ordinary expense. This turns it into a top-up.
+  function walletConvert(w) {
+    var KL = window.KharchaLedger;
+    var box = el('div', 'wal-form');
+    box.appendChild(el('p', 'wal-hint', 'Tap an entry that was really money added to ' + w.name + ' (like the card charge). It stops counting as spending and becomes a top-up. Entries from before you started tracking do not change the balance, because the balance you typed in already includes them.'));
+    var cutoff = Date.now() - 30 * 86400000;
+    var list = state.entries.filter(function (e) { return e.ts >= cutoff && !e.synthetic && isExpense(e) && !KL.parseWalletDesc(e.desc); })
+      .sort(function (a, b) { return b.ts - a.ts; }).slice(0, 15);
+    if (!list.length) { box.appendChild(el('p', 'wal-hint', 'No recent entries to convert.')); return box; }
+    var ul = el('ul', 'wal-items');
+    list.forEach(function (e) {
+      var li = el('li', 'wal-item');
+      li.appendChild(el('span', null, dFmt.format(new Date(e.ts)) + ' · ' + e.desc + (e.ts < w.since ? ' (before tracking)' : '')));
+      var b = el('button', 'ghost wal-conv', money(e.amount) + ' → top-up'); b.type = 'button';
+      b.addEventListener('click', async function () {
+        b.disabled = true;
+        try {
+          await store.update(e.id, { amount: e.amount, desc: KL.walletTopupDesc(w.name, e.desc.replace(/^[^\w₹]+/, '').slice(0, 30)) });
+          render(); toast(money(e.amount) + ' is now a top-up, not spending' + (e.ts < w.since ? ' (balance unchanged: it was before tracking)' : ''));
+        } catch (err) { b.disabled = false; toast(err && err.message ? err.message : 'Could not change that entry.'); }
+      });
+      li.appendChild(b); ul.appendChild(li);
+    });
+    box.appendChild(ul);
+    return box;
+  }
+
   /* ---------- Stream Switcher Tabs ---------- */
   function renderStreamSwitcher(spendsCount, incomingsCount, projCount, invCount, tripsCount) {
     var spCountEl = $('spends-count');
@@ -2059,6 +2280,7 @@
     var investmentsSec = $('investments-sec');
     var tripsSec = $('trips-sec');
     var udhaarSec = $('udhaar-sec');
+    var walletSec = $('wallet-sec');
 
     var stream = state.activeStream || 'spends';
     if (spendsView) spendsView.hidden = (stream !== 'spends');
@@ -2068,7 +2290,9 @@
     if (investmentsSec) investmentsSec.hidden = (stream !== 'investments');
     if (tripsSec) tripsSec.hidden = (stream !== 'trips');
     if (udhaarSec) udhaarSec.hidden = (stream !== 'udhaar');
+    if (walletSec) walletSec.hidden = (stream !== 'wallet');
     if (stream === 'udhaar') renderUdhaar();
+    if (stream === 'wallet') renderWallet();
 
     document.querySelectorAll('.streambtn').forEach(function (btn) {
       btn.classList.toggle('active', btn.dataset.stream === stream);

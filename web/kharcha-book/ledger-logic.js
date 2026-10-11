@@ -161,9 +161,64 @@
     return { people: people, totalOwedToMe: totalOwed, totalIOwe: totalIOwe, net: (toPaise(totalOwed) - toPaise(totalIOwe)) / 100 };
   }
 
+
+  /* ---------- prepaid wallets (Amazon Pay, Paytm, ...) ----------
+     Entries are ordinary rows whose text starts with a marker, so this works on the live table as it is:
+       "👛➕ Amazon Pay · ICICI card XX1014"   money moved INTO the wallet (not spending)
+       "👛 Amazon Pay · Blinkit groceries"     a purchase paid from the wallet (counts as spending)
+     balance = opening balance + top-ups - wallet purchases, counted from the day tracking started. */
+  var W_UP = '👛➕', W_SP = '👛';
+
+  function walletTopupDesc(name, note) { return W_UP + ' ' + cleanName(name) + (note ? ' · ' + String(note).trim() : ''); }
+  function walletSpendDesc(name, what) { return W_SP + ' ' + cleanName(name) + (what ? ' · ' + String(what).trim() : ''); }
+
+  function parseWalletDesc(desc) {
+    var d = String(desc || '').trim(), kind, rest;
+    if (d.indexOf(W_UP) === 0) { kind = 'topup'; rest = d.slice(W_UP.length); }
+    else if (d.indexOf(W_SP) === 0) { kind = 'spend'; rest = d.slice(W_SP.length); }
+    else return null;
+    var dot = rest.indexOf('·');
+    var name = cleanName(dot >= 0 ? rest.slice(0, dot) : rest);
+    if (!name) return null;
+    return { kind: kind, wallet: name, note: dot >= 0 ? rest.slice(dot + 1).trim() : '' };
+  }
+
+  function parseWallets(json) {
+    var arr;
+    try { arr = JSON.parse(json || '[]'); } catch (e) { return []; }
+    if (!Array.isArray(arr)) return [];
+    return arr.filter(function (w) { return w && typeof w.id === 'string' && cleanName(w.name) && isFinite(w.opening) && isFinite(w.since); })
+      .map(function (w) { return { id: w.id, name: cleanName(w.name), opening: Number(w.opening), since: Number(w.since) }; });
+  }
+
+  // entries: [{ id, amount, desc, ts }]. Only rows on/after wallet.since count.
+  function walletState(entries, wallet) {
+    var key = nameKey(wallet.name), up = 0, sp = 0, items = [];
+    (entries || []).forEach(function (e) {
+      if (!e || !(e.ts >= wallet.since)) return;
+      var p = parseWalletDesc(e.desc);
+      if (!p || nameKey(p.wallet) !== key) return;
+      var a = toPaise(e.amount);
+      if (p.kind === 'topup') up += a; else sp += a;
+      items.push({ id: e.id, ts: e.ts, amount: a / 100, kind: p.kind, note: p.note });
+    });
+    items.sort(function (a, b) { return b.ts - a.ts; });
+    var open = toPaise(wallet.opening);
+    return { opening: open / 100, topups: up / 100, spent: sp / 100, balance: (open + up - sp) / 100, items: items };
+  }
+
+  // Compares the tracked balance with what the wallet app really shows.
+  function walletReconcile(tracked, actual) {
+    var diff = toPaise(tracked) - toPaise(actual);
+    if (diff === 0) return { kind: 'match', amount: 0 };
+    return diff > 0 ? { kind: 'spent', amount: diff / 100 } : { kind: 'extra', amount: -diff / 100 };
+  }
+
   return {
     splitPaise: splitPaise, tripItemLabel: tripItemLabel, tripSettlement: tripSettlement,
     cleanName: cleanName, nameKey: nameKey, parseLoans: parseLoans, repaid: repaid, outstanding: outstanding,
-    addPayment: addPayment, summarize: summarize
+    addPayment: addPayment, summarize: summarize,
+    walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, parseWalletDesc: parseWalletDesc,
+    parseWallets: parseWallets, walletState: walletState, walletReconcile: walletReconcile
   };
 });

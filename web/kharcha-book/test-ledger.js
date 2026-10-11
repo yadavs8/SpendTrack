@@ -98,4 +98,49 @@ t('repayments reduce what is pending and cannot exceed it', () => {
   assert.strictEqual(L.outstanding(L.addPayment(l, 3000, 9, 'p5').loan), 0);
 });
 
+// ---- wallets ----
+const wallet = { id: 'w1', name: 'Amazon Pay', opening: 500, since: 1000 };
+t('wallet descriptions round-trip', () => {
+  assert.deepStrictEqual(L.parseWalletDesc(L.walletTopupDesc('Amazon Pay', 'ICICI card XX1014')), { kind: 'topup', wallet: 'Amazon Pay', note: 'ICICI card XX1014' });
+  assert.deepStrictEqual(L.parseWalletDesc(L.walletSpendDesc('Amazon Pay', 'Blinkit groceries')), { kind: 'spend', wallet: 'Amazon Pay', note: 'Blinkit groceries' });
+  assert.strictEqual(L.parseWalletDesc('🏠 Blinkit'), null);
+  assert.strictEqual(L.parseWalletDesc('👛'), null);
+  assert.strictEqual(L.parseWalletDesc('👛➕ Amazon Pay').kind, 'topup');
+});
+t('balance = opening + top-ups - wallet purchases, only from the start date', () => {
+  const entries = [
+    { id: '1', amount: 442, desc: '👛➕ Amazon Pay · ICICI card XX1014', ts: 2000 },
+    { id: '2', amount: 906, desc: '👛 Amazon Pay · Blinkit', ts: 2001 },
+    { id: '3', amount: 50, desc: '👛 Amazon Pay · before tracking', ts: 500 },
+    { id: '4', amount: 70, desc: '👛 amazon pay · case-insensitive name', ts: 3000 },
+    { id: '5', amount: 99, desc: '👛 Paytm · other wallet', ts: 3001 },
+    { id: '6', amount: 10, desc: 'Plain expense', ts: 3002 }
+  ];
+  const s = L.walletState(entries, wallet);
+  assert.strictEqual(s.topups, 442);
+  assert.strictEqual(s.spent, 976);
+  assert.strictEqual(s.balance, 500 + 442 - 976); // -34: tells the user a top-up is missing
+  assert.strictEqual(s.items.length, 3);
+  assert.strictEqual(s.items[0].id, '4');
+});
+t('split payment: card top-up plus wallet money counts the order once', () => {
+  // Blinkit order Rs 906 = Rs 442 from the card (top-up) + the rest from the wallet balance.
+  const s = L.walletState([
+    { id: 'a', amount: 442, desc: '👛➕ Amazon Pay · card', ts: 2000 },
+    { id: 'b', amount: 906, desc: '👛 Amazon Pay · Blinkit', ts: 2001 }
+  ], { id: 'w', name: 'Amazon Pay', opening: 464, since: 1000 });
+  assert.strictEqual(s.balance, 0); // opening 464 + 442 - 906
+  assert.strictEqual(s.spent, 906); // spending counted once; the 442 is only a transfer
+});
+t('reconcile tells unaccounted spend from extra money', () => {
+  assert.deepStrictEqual(L.walletReconcile(100, 100), { kind: 'match', amount: 0 });
+  assert.deepStrictEqual(L.walletReconcile(100, 80.5), { kind: 'spent', amount: 19.5 });
+  assert.deepStrictEqual(L.walletReconcile(100, 130), { kind: 'extra', amount: 30 });
+});
+t('parseWallets keeps valid wallets only', () => {
+  const out = L.parseWallets(JSON.stringify([wallet, { id: 'x', name: '', opening: 1, since: 1 }, { nope: 1 }]));
+  assert.strictEqual(out.length, 1);
+  assert.deepStrictEqual(L.parseWallets('bad'), []);
+});
+
 console.log(n + ' tests passed');

@@ -1714,3 +1714,25 @@ button.cat-row { width: 100%; text-align: left; background: none; border: 0; pad
 .udh-repay { display: flex; gap: 8px; flex-wrap: wrap; }
 .udh-repay .input { flex: 1 1 8rem; height: 40px; min-width: 0; }
 .udh-form .primary { justify-self: start; }
+
+/* Wallet */
+.wal-card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: grid; gap: 10px; }
+.wal-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.wal-name { font-weight: 600; font-size: 1.05rem; min-width: 0; overflow-wrap: anywhere; }
+.wal-bal { font: 700 2.2rem/1.1 var(--f-display); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.wal-bal.neg { color: var(--danger); }
+.wal-sub { font-size: 0.82rem; color: var(--muted); }
+.wal-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.wal-form { display: grid; gap: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+.wal-check { display: flex; gap: 8px; flex-wrap: wrap; }
+.wal-check .input { flex: 1 1 10rem; min-width: 0; height: 40px; }
+.wal-hint { margin: 0; font-size: 0.82rem; color: var(--muted); }
+.wal-ok { margin: 0; color: var(--accent); font-weight: 600; }
+.wal-diff { margin: 0; font-weight: 500; }
+.wal-h { margin: 0; font: 600 1rem/1.2 var(--f-display); }
+.wal-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.wal-item { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 0.85rem; color: var(--muted); }
+.wal-item span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.wal-item.up .wal-amt { color: var(--accent); }
+.wal-amt { white-space: nowrap; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--ink); }
+.wal-conv { height: 34px; padding: 0 10px; flex: none; font-size: 0.8rem; }

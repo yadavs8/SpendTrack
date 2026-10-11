@@ -44,3 +44,11 @@ After the first sign-in the app offers to turn on the fingerprint / PIN lock, so
 - Trips tab: under the split balances, **Who pays whom** shows the fewest payments that settle the trip, and a **For what** view that lists, per pair, which expenses each amount comes from (offsetting what the other person owes back).
 - **Udhaar** tab: notes money you lent to friends (or borrowed), with partial repayments, per-person totals and a WhatsApp reminder. It is stored in the shared settings row (`kharcha_loans`), so it syncs like trips do, with no SQL change.
 - Logic lives in `ledger-logic.js` (tests: `node web/kharcha-book/test-ledger.js`).
+
+## Wallet (Amazon Pay and other prepaid wallets)
+The **Wallet** tab keeps a balance for a prepaid wallet. Type the balance once, then:
+- **+ Top-up**: money moved into the wallet (for example from a card). It is a transfer, not spending.
+- **Spent from wallet**: a purchase paid from the wallet. It counts as spending and lowers the balance. Log the full price; if part was paid by card, add that part as a top-up.
+- **From an entry**: turns a card charge that was really a top-up (like "₹442 towards Amazon Pay") into a top-up so it is not counted twice.
+- **Check balance**: compare with the wallet app and log any difference as spending or as a top-up (cashback, refund).
+Entries are ordinary rows whose text starts with `👛` (purchase) or `👛➕` (top-up), so no database change is needed. Logic: `ledger-logic.js`.
