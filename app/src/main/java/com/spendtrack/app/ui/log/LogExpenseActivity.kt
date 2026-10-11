@@ -217,6 +217,7 @@ private fun LogSheet(
                     FilledTonalButton(onClick = { pick(ExpenseScope.FAMILY) }, enabled = canPick) { Text("🏠 Family") }
                     FilledTonalButton(onClick = { pick(ExpenseScope.INVESTMENT) }, enabled = canPick) { Text("📈 Investment") }
                     FilledTonalButton(onClick = { pick(ExpenseScope.PROJECT) }, enabled = canPick) { Text("🔨 Project") }
+                    if (!cashMode) FilledTonalButton(onClick = { pick(ExpenseScope.TRANSFER) }, enabled = canPick) { Text("🔁 Own transfer") }
                 }
 
                 if (trips.isNotEmpty()) {

@@ -343,7 +343,9 @@ class TransactionRepository(
         // Trips and projects are temporary, so they never train the per-merchant memory.
         if (!merchantKey.isNullOrBlank() &&
             !scope.equals(ExpenseScope.TRIP, ignoreCase = true) &&
-            !scope.equals(ExpenseScope.PROJECT, ignoreCase = true)) {
+            !scope.equals(ExpenseScope.PROJECT, ignoreCase = true) &&
+            // A payee is never auto-filed as an own transfer after a few answers: a friend would get caught.
+            !scope.equals(ExpenseScope.TRANSFER, ignoreCase = true)) {
             merchantRuleRepository.saveScopeRule(merchantKey, scope)
         }
 

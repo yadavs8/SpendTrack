@@ -290,4 +290,24 @@ t('payments to your own name are detected, with the source account from the SMS'
   assert.strictEqual(L.routeAccount({ id: '9', desc: 'EMI', raw: 'HDFC Bank A/c XX749 debited Rs 5' }, accts2, {}, [], 'i', own), 'h');
 });
 
+t('the same transfer is never counted twice', () => {
+  const dup = L.parseTransfers(JSON.stringify([
+    { id: 'a', ts: 1000, amount: 5000, from: 'i', to: 'h', ref: 'e1' },
+    { id: 'b', ts: 2000, amount: 5000, from: 'i', to: 'h', ref: 'e1' },
+    { id: 'c', ts: 90000, amount: 5000, from: 'i', to: 'h', ref: 'e2' },
+    { id: 'd', ts: 99999999, amount: 5000, from: 'i', to: 'h', ref: 'e3' }]));
+  assert.deepStrictEqual(dup.map(t => t.id), ['a', 'd']);
+});
+t('twin copies of one payment and already-marked transfers', () => {
+  const NOW = D(2026, 10, 11);
+  const pred = { isTransfer: e => /^🔁/.test(e.desc), isExpense: e => e.kind === 'spend' && !/^🔁/.test(e.desc), isIncome: () => false, isCard: () => false, isRule: () => false, route: () => 'i' };
+  const rows = [{ id: 'a', kind: 'spend', amount: 5000, desc: 'Sanjeev Yadav', ts: NOW - 60000 }, { id: 'b', kind: 'spend', amount: 5000, desc: 'Sanjeev Yadav', ts: NOW - 20000 }];
+  const r = L.autoOwnTransfers(rows, accts2, own, NOW, pred, {});
+  assert.strictEqual(r.length, 1); assert.deepStrictEqual(r[0].ids, ['a', 'b']);
+  assert.strictEqual(L.autoOwnTransfers(rows, accts2, own, NOW, pred, { a: 1, b: 1 }).length, 0);
+  const marked = [{ id: 'm', kind: 'spend', amount: 300, desc: '🔁 Rahul', ts: NOW - 1000 }];
+  assert.strictEqual(L.orphanTransfers(marked, [], accts2, own, NOW, pred).length, 1);
+  assert.strictEqual(L.orphanTransfers(marked, [{ ref: 'm', from: 'i', to: 'h', amount: 300, ts: NOW }], accts2, own, NOW, pred).length, 0);
+});
+
 console.log(n + ' tests passed');
