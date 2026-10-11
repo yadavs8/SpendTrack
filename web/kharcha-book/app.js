@@ -576,6 +576,19 @@
       .sort(function (a, b) { return a.key < b.key ? 1 : -1; });
   }
 
+  // Every month that has any entry at all (income, investments, transfers), not only months with spending:
+  // a month that holds just a salary must still be reachable from the month arrows and the month list.
+  function monthsWithAnyEntry(entries) {
+    var months = monthTotals(entries), have = {};
+    months.forEach(function (m) { have[m.key] = true; });
+    (entries || []).forEach(function (e) {
+      if (e.synthetic) return;
+      var k = monthKey(e.ts);
+      if (!have[k]) { have[k] = true; months.push({ key: k, total: 0, count: 0, top: '', topTotal: 0, noSpend: true }); }
+    });
+    return months.sort(function (a, b) { return a.key < b.key ? 1 : -1; });
+  }
+
   // Whole-word matches only, so "credited" is not read as Cred and "AMAZON" (a merchant) is not read as Amazon Pay.
   var KNOWN_BANKS = [
     { name: 'HDFC Bank', match: /\bHDFC(?:BK|BANK)?\b/i },
@@ -900,7 +913,7 @@
     enterApp: enterApp,
     getSb: function () { return sb; },
     getEntries: function () { return state.entries; },
-    getMonthlySummary: getMonthlySummary, getMonthlyHistory: getMonthlyHistory,
+    getMonthlySummary: getMonthlySummary, getMonthlyHistory: getMonthlyHistory, monthsWithAnyEntry: monthsWithAnyEntry,
     parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, parseSMSDate: parseSMSDate, findDuplicate: findDuplicate, categoryBreakdown: categoryBreakdown, monthCompare: monthCompare,
     isIncome: isIncome, isMotherSettlement: isMotherSettlement, isMotherPension: isMotherPension, isSalary: isSalary, isExpense: isExpense, isInvestment: isInvestment, getFamilySettlement: getFamilySettlement, getPersonalCashFlow: getPersonalCashFlow,
     isProjectEntry: isProjectEntry, isProjectMotherPaid: isProjectMotherPaid, getProjectSummary: getProjectSummary,
@@ -1724,7 +1737,7 @@
 
   function render() {
     var nowKey = monthKey(Date.now());
-    var months = monthTotals(state.entries);
+    var months = monthsWithAnyEntry(state.entries);
     if (!months.some(function (m) { return m.key === nowKey; })) months.unshift({ key: nowKey, total: 0, count: 0 });
     months.sort(function (a, b) { return a.key < b.key ? 1 : -1; });
     if (!state.sel || !months.some(function (m) { return m.key === state.sel; })) state.sel = nowKey;
@@ -4327,7 +4340,7 @@
   function renderMonths(months) {
     var sec = $('months-sec'), ul = $('months');
     ul.textContent = '';
-    var real = months.filter(function (m) { return m.count > 0; });
+    var real = months.filter(function (m) { return m.count > 0 || m.noSpend; });
     if (real.length < 1) { sec.hidden = true; return; }
     sec.hidden = false;
     real.forEach(function (m) {
@@ -4337,7 +4350,7 @@
       var nm = el('span', null, monthLabel(m.key));
       if (m.top) nm.appendChild(el('span', 'sub', 'Most on ' + m.top + ' · ' + money(m.topTotal)));
       b.appendChild(nm);
-      b.appendChild(el('span', 'c', m.count + (m.count === 1 ? ' entry' : ' entries')));
+      b.appendChild(el('span', 'c', m.noSpend ? 'No spending' : m.count + (m.count === 1 ? ' entry' : ' entries')));
       b.appendChild(el('span', 'm', money(m.total)));
       b.addEventListener('click', function () {
         state.sel = m.key; state.editing = null; render();
@@ -4367,7 +4380,7 @@
   $('next').addEventListener('click', function () { shiftMonth(-1); });
   function shiftMonth(step) {
     var nowKey = monthKey(Date.now());
-    var keys = monthTotals(state.entries).map(function (m) { return m.key; });
+    var keys = monthsWithAnyEntry(state.entries).map(function (m) { return m.key; });
     if (keys.indexOf(nowKey) < 0) keys.push(nowKey);
     keys.sort(function (a, b) { return a < b ? 1 : -1; });
     var i = keys.indexOf(state.sel) + step;
