@@ -59,7 +59,7 @@
   };
   var NAV_OF = { spends: 'home', incomings: 'income', trips: 'trips' };   // everything else lives under More
   var MORE_TILES = [
-    ['monthly', '📊', 'Monthly'], ['settlement', '👵', 'Settle'], ['investments', '📈', 'Invest'], ['projects', '🔨', 'Projects'],
+    ['monthly', '📊', 'Monthly'], ['bank', '🏦', 'Bank'], ['settlement', '👵', 'Settle'], ['investments', '📈', 'Invest'], ['projects', '🔨', 'Projects'],
     ['udhaar', '🤝', 'Udhaar'], ['wallet', '👛', 'Wallet'], ['__signout', '🚪', 'Sign out']
   ];
   var bnav, sheet;
@@ -153,6 +153,14 @@
       col.title = K.money(d.p / 100); col.appendChild(bar); col.appendChild(el('i', null, d.letter)); bars.appendChild(col);
     });
     box.appendChild(bars);
+    var bank = K.getBankTotals ? K.getBankTotals() : null;
+    if (bank && bank.has) {
+      var chip = el('button', 'hx-bank'); chip.type = 'button';
+      chip.appendChild(el('span', null, '\uD83C\uDFE6 Bank balance' + (bank.count > 1 ? ' (' + bank.count + ' accounts)' : '') + ' \u00b7 estimate'));
+      chip.appendChild(el('b', null, K.money(bank.total)));
+      chip.addEventListener('click', function () { goStream('bank'); });
+      box.appendChild(chip);
+    }
   }
 
   var lastTotal = null, animToken = 0;

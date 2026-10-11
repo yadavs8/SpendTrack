@@ -495,8 +495,8 @@
   // Family fund = what Mother sends for the month (Mother's Pension and Mother Withdrawal entries) minus the
   // family expenses. If family spending goes past the fund, the overflow is shown separately and is NOT
   // taken from personal savings unless you look at "after covering it".
-  function getMonthlySummary(entries, key) {
-    var list = (entries || []).filter(function (e) { return !e.synthetic && monthKey(e.ts) === key; });
+  function getPeriodSummary(entries, startTs, endTs, key) {
+    var list = (entries || []).filter(function (e) { return !e.synthetic && e.ts >= startTs && (endTs == null || e.ts < endTs); });
     var cf = getPersonalCashFlow(list);
     var fam = getFamilySettlement(list);
     var motherList = list.filter(function (e) { return isIncome(e) && (isMotherPension(e) || isMotherSettlement(e)); });
@@ -507,7 +507,7 @@
     var leftP = motherP - famP;
     var overflow = Math.max(0, -leftP) / 100;
     return {
-      key: key,
+      key: key, start: startTs, end: endTs,
       salaryEntries: list.filter(isSalary).sort(function (a, b) { return a.ts - b.ts; }),
       salaries: cf.salaries,
       personalSpent: cf.personalSpent,
@@ -524,11 +524,64 @@
       hasData: list.length > 0
     };
   }
+  function monthBounds(key) {
+    var p = key.split('-');
+    return [new Date(+p[0], +p[1] - 1, 1).getTime(), new Date(+p[0], +p[1], 1).getTime()];
+  }
+  function getMonthlySummary(entries, key) {
+    var b = monthBounds(key);
+    return getPeriodSummary(entries, b[0], b[1], key);
+  }
   // Newest month first, for every month that has any entry.
   function getMonthlyHistory(entries) {
     var seen = {};
     (entries || []).forEach(function (e) { if (!e.synthetic) seen[monthKey(e.ts)] = true; });
     return Object.keys(seen).sort().reverse().map(function (k) { return getMonthlySummary(entries, k); });
+  }
+
+
+  /* ---------- Pay cycles ---------- */
+  // Salary arrives on the last working day, so it pays for the next stretch of spending. In "salary" mode a period
+  // runs from one payday (an income entry that matches the anchor, normally "Salary 1") to the next.
+  var CYCLE_KEY = 'kharcha_cycle';
+  function cycleSettings() {
+    var s = {};
+    try { s = JSON.parse(kv.get(CYCLE_KEY) || '{}') || {}; } catch (e) {}
+    return { mode: s.mode === 'calendar' ? 'calendar' : 'salary', anchor: (typeof s.anchor === 'string' && s.anchor.trim()) ? s.anchor.trim() : 'Salary 1' };
+  }
+  function saveCycleSettings(s) { kv.set(CYCLE_KEY, JSON.stringify(s)); }
+  function getPayCycleSummaries(entries, anchorText) {
+    var KL = window.KharchaLedger;
+    if (!KL) return [];
+    var needle = String(anchorText || 'Salary 1').toLowerCase();
+    return KL.payCycles(entries, function (e) { return isSalary(e) && String(e.desc || '').toLowerCase().indexOf(needle) >= 0; })
+      .map(function (c) { var s = getPeriodSummary(entries, c.start, c.end, 'c' + c.start); s.open = c.end == null; return s; });
+  }
+
+  /* ---------- Bank balance ---------- */
+  // An estimate: the balance you typed in, plus income logged since, minus the spending that really left the bank.
+  // Not bank debits: credit-card spends (the card bill is), cash spends, wallet spends, what a friend paid, what Mother paid.
+  function isCardEntry(e) { return !!e && (e.method === 'credit_card' || /credit\s*card|\bcard\s*[x*·.\-]*\s*\d{3,4}\b/i.test(e.desc || '')); }
+  function isCardBillEntry(e) { return !!e && /card\s*bill|credit\s*card\s*(?:bill|payment)|\bcc\s*bill/i.test(e.desc || ''); }
+  function isBankIn(e) { return !!e && isIncome(e) && e.method !== 'cash'; }
+  function isBankOut(e) {
+    if (!e || e.synthetic || isIncome(e)) return false;
+    if (isCardBillEntry(e) || isInvestment(e) || isCashWithdrawal(e)) return true;
+    if (!isExpense(e)) return false;
+    if (isCardEntry(e) || e.method === 'cash' || e.method === 'wallet') return false;
+    if (/^\s*👛/.test(e.desc || '')) return false;                 // paid from a prepaid wallet
+    if (parseTripPayer(e.desc) !== 'Me') return false;                      // a friend paid
+    if (isProjectMotherPaid(e.desc)) return false;                          // Mother paid directly
+    return true;
+  }
+  var BANK_KEY = 'kharcha_bank';
+  function loadBank() { return window.KharchaLedger ? window.KharchaLedger.parseBank(kv.get(BANK_KEY)) : []; }
+  function saveBank(list) { kv.set(BANK_KEY, JSON.stringify(list)); }
+  function getBankTotals() {
+    var KL = window.KharchaLedger, accts = loadBank(), p = 0;
+    if (!KL) return { has: false, total: 0, count: 0 };
+    accts.forEach(function (a) { p += paise(KL.bankEstimate(state.entries, a, isBankIn, isBankOut).balance); });
+    return { has: accts.length > 0, total: p / 100, count: accts.length };
   }
 
   function groupByDay(list) {
@@ -913,7 +966,7 @@
     enterApp: enterApp,
     getSb: function () { return sb; },
     getEntries: function () { return state.entries; },
-    getMonthlySummary: getMonthlySummary, getMonthlyHistory: getMonthlyHistory, monthsWithAnyEntry: monthsWithAnyEntry,
+    getMonthlySummary: getMonthlySummary, getMonthlyHistory: getMonthlyHistory, monthsWithAnyEntry: monthsWithAnyEntry, getPeriodSummary: getPeriodSummary, isBankIn: isBankIn, isBankOut: isBankOut, getBankTotals: getBankTotals,
     parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, parseSMSDate: parseSMSDate, findDuplicate: findDuplicate, categoryBreakdown: categoryBreakdown, monthCompare: monthCompare,
     isIncome: isIncome, isMotherSettlement: isMotherSettlement, isMotherPension: isMotherPension, isSalary: isSalary, isExpense: isExpense, isInvestment: isInvestment, getFamilySettlement: getFamilySettlement, getPersonalCashFlow: getPersonalCashFlow,
     isProjectEntry: isProjectEntry, isProjectMotherPaid: isProjectMotherPaid, getProjectSummary: getProjectSummary,
@@ -973,7 +1026,7 @@
      localStorage stays as the offline cache, and is all there is until the v4 SQL has been run. */
   var SHARED_KEYS = ['kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
     'kharcha_active_trip_name', 'kharcha_all_trips_list', 'kharcha_category_budgets', 'kharcha_merchant_memory',
-    'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers', 'kharcha_loans', 'kharcha_wallets'];
+    'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers', 'kharcha_loans', 'kharcha_wallets', 'kharcha_bank', 'kharcha_cycle'];
   var SHARED_PREFIXES = ['kharcha_trip_friends_', 'kharcha_trip_budget_'];
   function isSharedKey(k) {
     return SHARED_KEYS.indexOf(k) >= 0 || SHARED_PREFIXES.some(function (p) { return k.indexOf(p) === 0; });
@@ -2321,31 +2374,75 @@
 
   /* ---------- Monthly tab ---------- */
   function signedMoney(v) { return (v < 0 ? '−' : '') + money(Math.abs(v)); }
+  var shortDay = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short' });
+  function rangeLabel(s) { return shortDay.format(new Date(s.start)) + ' → ' + (s.end ? shortDay.format(new Date(s.end - 1)) : 'today'); }
+  var moUi = { idx: 0 };
+
   function renderMonthly() {
     var root = $('monthly-root');
     if (!root) return;
     root.textContent = '';
-    var cur = getMonthlySummary(state.entries, state.sel);
+    var KL = window.KharchaLedger;
+    var cs = cycleSettings();
+    var cycles = cs.mode === 'salary' ? getPayCycleSummaries(state.entries, cs.anchor) : [];
+    var useCycle = cs.mode === 'salary' && cycles.length > 0;
+    if (moUi.idx >= cycles.length || moUi.idx < 0) moUi.idx = 0;
+    var cur = useCycle ? cycles[moUi.idx] : getMonthlySummary(state.entries, state.sel);
 
-    // month switcher: uses the same month as the rest of the app
+    // how to measure a "month"
+    var modes = el('div', 'mo-modes');
+    [['salary', 'Pay cycle'], ['calendar', 'Calendar month']].forEach(function (m) {
+      var b = el('button', 'mo-mode' + (cs.mode === m[0] ? ' on' : ''), m[1]); b.type = 'button';
+      b.addEventListener('click', function () { cs.mode = m[0]; saveCycleSettings(cs); moUi.idx = 0; renderMonthly(); });
+      modes.appendChild(b);
+    });
+    root.appendChild(modes);
+    if (cs.mode === 'salary') {
+      var note = el('p', 'mo-note', useCycle
+        ? 'Your salary arrives on the last working day, so each period runs from one ' + cs.anchor + ' payday to the next.'
+        : 'No "' + cs.anchor + '" entry found yet, so calendar months are shown. Add your salary in Income to start a pay cycle.');
+      root.appendChild(note);
+      var f = el('form', 'mo-anchor'); f.noValidate = true;
+      var inp = el('input', 'input'); inp.value = cs.anchor; inp.maxLength = 30; inp.setAttribute('aria-label', 'Salary that starts a pay cycle');
+      var sv = el('button', 'ghost', 'Save'); sv.type = 'submit';
+      f.appendChild(el('span', 'mo-anchor-l', 'A cycle starts when this arrives:')); f.appendChild(inp); f.appendChild(sv);
+      f.addEventListener('submit', function (ev) { ev.preventDefault(); var v = inp.value.trim(); if (!v) return; cs.anchor = v; saveCycleSettings(cs); moUi.idx = 0; renderMonthly(); toast('Pay cycles start with ' + v); });
+      root.appendChild(f);
+    }
+
+    // period switcher
     var nav = el('div', 'mo-nav');
-    var prev = el('button', 'mo-arrow', '‹'); prev.type = 'button'; prev.setAttribute('aria-label', 'Earlier month');
-    var next = el('button', 'mo-arrow', '›'); next.type = 'button'; next.setAttribute('aria-label', 'Later month');
-    prev.addEventListener('click', function () { var b = $('prev'); if (b && !b.disabled) b.click(); });
-    next.addEventListener('click', function () { var b = $('next'); if (b && !b.disabled) b.click(); });
-    nav.appendChild(prev); nav.appendChild(el('span', 'mo-month', monthLabel(state.sel))); nav.appendChild(next);
+    var prev = el('button', 'mo-arrow', '‹'); prev.type = 'button'; prev.setAttribute('aria-label', 'Earlier');
+    var next = el('button', 'mo-arrow', '›'); next.type = 'button'; next.setAttribute('aria-label', 'Later');
+    if (useCycle) {
+      prev.disabled = moUi.idx >= cycles.length - 1; next.disabled = moUi.idx <= 0;
+      prev.addEventListener('click', function () { moUi.idx++; renderMonthly(); });
+      next.addEventListener('click', function () { moUi.idx--; renderMonthly(); });
+    } else {
+      prev.addEventListener('click', function () { var b = $('prev'); if (b && !b.disabled) b.click(); });
+      next.addEventListener('click', function () { var b = $('next'); if (b && !b.disabled) b.click(); });
+    }
+    nav.appendChild(prev);
+    var lab = el('div', 'mo-month-wrap');
+    lab.appendChild(el('span', 'mo-month', useCycle ? rangeLabel(cur) : monthLabel(state.sel)));
+    if (useCycle) {
+      var np = KL.nextPayday(Date.now());
+      lab.appendChild(el('small', 'mo-sub', cur.open
+        ? 'Running now · next salary around ' + np.date.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }) + (np.days > 0 ? ' (in ' + np.days + (np.days === 1 ? ' day)' : ' days)') : ' (today)')
+        : 'Finished'));
+    }
+    nav.appendChild(lab); nav.appendChild(next);
     root.appendChild(nav);
 
     if (!cur.salaries && !cur.motherReceived && !cur.personalSpent && !cur.familySpent) {
       var em = el('div', 'empty');
-      em.appendChild(el('p', null, 'Nothing for ' + monthLabel(state.sel) + ' yet. Add your salaries in Income (💼 Salary 1 and Salary 2) and your mother’s monthly money (👵 Mother’s Pension) and this page works out your savings and the family fund.'));
+      em.appendChild(el('p', null, 'Nothing for this period yet. Add your salaries in Income (💼 Salary 1 and Salary 2) and your mother’s monthly money (👵 Mother’s Pension) and this page works out your savings and the family fund.'));
       var go = el('button', 'primary small', 'Open Income'); go.type = 'button';
       go.addEventListener('click', function () { var b = document.querySelector('.streambtn[data-stream="incomings"]'); if (b) b.click(); });
       em.appendChild(go); root.appendChild(em);
     } else {
-      // 1) savings
       var hero = el('div', 'mo-hero' + (cur.savings < 0 ? ' neg' : ''));
-      hero.appendChild(el('span', 'mo-hero-l', 'Saved this month'));
+      hero.appendChild(el('span', 'mo-hero-l', useCycle ? (cur.open ? 'Saved so far this cycle' : 'Saved this cycle') : 'Saved this month'));
       hero.appendChild(el('span', 'mo-hero-v', signedMoney(cur.savings)));
       hero.appendChild(el('span', 'mo-hero-s', cur.salaries > 0
         ? cur.savingsRate + '% of salary' + (cur.invested > 0 ? ' · ' + money(cur.invested) + ' invested' : '')
@@ -2356,7 +2453,6 @@
       hero.appendChild(el('span', 'mo-hero-n', 'Spent ' + money(cur.personalSpent) + ' of ' + money(cur.salaries)));
       root.appendChild(hero);
 
-      // 2) income
       var inc = el('div', 'mo-card');
       inc.appendChild(el('h3', 'mo-h', 'Income'));
       var ul = el('ul', 'mo-list');
@@ -2364,11 +2460,10 @@
         var li = el('li'); li.appendChild(el('span', null, e.desc.replace(/^[^\wऀ-ॿ]+/, '') + ' · ' + dFmt.format(new Date(e.ts))));
         li.appendChild(el('b', null, money(e.amount))); ul.appendChild(li);
       });
-      if (!cur.salaryEntries.length) { var li0 = el('li'); li0.appendChild(el('span', 'mo-dim', 'No salary added for this month')); ul.appendChild(li0); }
+      if (!cur.salaryEntries.length) { var li0 = el('li'); li0.appendChild(el('span', 'mo-dim', 'No salary in this period')); ul.appendChild(li0); }
       if (cur.otherIncome > 0) { var li1 = el('li'); li1.appendChild(el('span', null, 'Other income (not in savings)')); li1.appendChild(el('b', null, money(cur.otherIncome))); ul.appendChild(li1); }
       inc.appendChild(ul); root.appendChild(inc);
 
-      // 3) family fund
       var fam = el('div', 'mo-card');
       fam.appendChild(el('h3', 'mo-h', '🏠 Family fund (from Mother)'));
       var over = cur.familyLeft < 0;
@@ -2383,29 +2478,159 @@
         var li = el('li'); li.appendChild(el('span', null, r[0])); li.appendChild(el('b', null, money(r[1]))); fl.appendChild(li);
       });
       fam.appendChild(fl);
-      if (!cur.motherReceived) fam.appendChild(el('p', 'mo-note', 'Add this month’s money from Mother in Income (👵 Mother’s Pension) and family spending is deducted from it.'));
+      if (!cur.motherReceived) fam.appendChild(el('p', 'mo-note', 'Add this period’s money from Mother in Income (👵 Mother’s Pension) and family spending is deducted from it.'));
       else if (over) fam.appendChild(el('p', 'mo-note', 'You covered ' + money(cur.overflow) + ' of family spending beyond Mother’s money. Savings after covering it: ' + signedMoney(cur.savingsAfterOverflow) + '.'));
       root.appendChild(fam);
     }
 
-    // 4) every month
-    var hist = getMonthlyHistory(state.entries).slice(0, 12);
+    var hist = (useCycle ? cycles : getMonthlyHistory(state.entries)).slice(0, 12);
     if (hist.length) {
-      root.appendChild(el('h3', 'sec-title mo-title', 'Every month'));
+      root.appendChild(el('h3', 'sec-title mo-title', useCycle ? 'Every pay cycle' : 'Every month'));
       var hl = el('ul', 'mo-hist');
-      hist.forEach(function (m) {
-        var li = el('li'), b = el('button', 'mo-row' + (m.key === state.sel ? ' on' : '')); b.type = 'button';
-        var left = el('span', 'mo-row-l'); left.appendChild(el('b', null, monthLabel(m.key)));
+      hist.forEach(function (m, i) {
+        var li = el('li'), b = el('button', 'mo-row' + ((useCycle ? i === moUi.idx : m.key === state.sel) ? ' on' : '')); b.type = 'button';
+        var left = el('span', 'mo-row-l'); left.appendChild(el('b', null, useCycle ? rangeLabel(m) : monthLabel(m.key)));
         var parts = ['Salary ' + money(m.salaries), 'Personal ' + money(m.personalSpent)];
         if (m.motherReceived || m.familySpent) parts.push(m.familyLeft < 0 ? 'Family over ' + money(m.overflow) : 'Family +' + money(m.familyLeft));
         left.appendChild(el('small', null, parts.join(' · ')));
         b.appendChild(left);
         b.appendChild(el('span', 'mo-row-v' + (m.savings < 0 ? ' neg' : ''), signedMoney(m.savings)));
-        b.addEventListener('click', function () { state.sel = m.key; state.editing = null; render(); window.scrollTo({ top: 0 }); });
+        b.addEventListener('click', function () {
+          if (useCycle) { moUi.idx = i; renderMonthly(); } else { state.sel = m.key; state.editing = null; render(); }
+          window.scrollTo({ top: 0 });
+        });
         li.appendChild(b); hl.appendChild(li);
       });
       root.appendChild(hl);
     }
+  }
+
+  /* ---------- Bank tab ---------- */
+  var bankUi = { add: false, mode: {}, actual: {} };
+  function renderBank() {
+    var root = $('bank-root');
+    if (!root) return;
+    var KL = window.KharchaLedger;
+    root.textContent = '';
+    if (!KL) { root.appendChild(el('p', 'err', 'Bank could not load. Refresh the page.')); return; }
+    var accts = loadBank();
+    if (!accts.length) {
+      var intro = el('div', 'empty');
+      intro.appendChild(el('p', null, 'Track your bank balance. Type what the bank shows today; after that the app adds the income you log and takes off the spending that left the account, so you always see an estimate. Update it now and then to correct any drift.'));
+      root.appendChild(intro);
+    }
+    accts.forEach(function (a) { root.appendChild(bankCard(a)); });
+    if (bankUi.add || !accts.length) root.appendChild(bankSetupForm());
+    else {
+      var add = el('button', 'ghost', '+ Track another account'); add.type = 'button';
+      add.addEventListener('click', function () { bankUi.add = true; renderBank(); });
+      root.appendChild(add);
+    }
+  }
+
+  function bankSetupForm() {
+    var KL = window.KharchaLedger;
+    var f = el('form', 'add udh-form'); f.noValidate = true;
+    f.appendChild(el('h3', 'wal-h', 'Add a bank account'));
+    var name = walletInput('bank-new-name', 'e.g. ICICI Salary account'); name.maxLength = 40;
+    var bal = walletInput('bank-new-bal', 'Balance the bank shows now', 'decimal');
+    f.appendChild(walletField('Account name', 'bank-new-name', name));
+    f.appendChild(walletField('Balance right now (₹)', 'bank-new-bal', bal));
+    var err = el('p', 'err'); err.hidden = true; err.setAttribute('role', 'alert'); f.appendChild(err);
+    var save = el('button', 'primary', 'Start tracking'); save.type = 'submit'; f.appendChild(save);
+    f.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var nm = KL.cleanName(name.value), raw = bal.value.trim(), b = raw === '0' ? 0 : parseAmount(raw);
+      if (!nm) { err.textContent = 'Give the account a name, like ICICI.'; err.hidden = false; return; }
+      if (b == null) { err.textContent = 'Enter the balance as a number, like 123456.'; err.hidden = false; return; }
+      var list = loadBank();
+      if (list.some(function (x) { return KL.nameKey(x.name) === KL.nameKey(nm); })) { err.textContent = 'You already track ' + nm + '.'; err.hidden = false; return; }
+      list.push({ id: newLoanId(), name: nm, snapshots: [{ ts: Date.now(), balance: b }] });
+      saveBank(list); bankUi.add = false; renderBank(); render(); toast('Tracking ' + nm + ' from ' + money(b));
+    });
+    return f;
+  }
+
+  function bankCard(a) {
+    var KL = window.KharchaLedger;
+    var est = KL.bankEstimate(state.entries, a, isBankIn, isBankOut);
+    var card = el('div', 'wal-card');
+    var head = el('div', 'wal-head');
+    head.appendChild(el('span', 'wal-name', '🏦 ' + a.name));
+    var rm = el('button', 'udh-x', '×'); rm.type = 'button'; rm.setAttribute('aria-label', 'Stop tracking ' + a.name);
+    rm.addEventListener('click', function () {
+      showConfirmModal({ title: 'Stop tracking ' + a.name + '?', message: 'Only the balance card is removed. Your entries stay.', onConfirm: function () { saveBank(loadBank().filter(function (x) { return x.id !== a.id; })); renderBank(); render(); } });
+    });
+    head.appendChild(rm); card.appendChild(head);
+    card.appendChild(el('div', 'wal-bal' + (est.balance < 0 ? ' neg' : ''), money(est.balance)));
+    card.appendChild(el('div', 'wal-sub', 'Estimate. Started at ' + money(est.startBalance) + ' on ' + dFmt.format(new Date(est.since)) + ', + ' + money(est.income) + ' in, − ' + money(est.spent) + ' out.'));
+    var acts = el('div', 'wal-acts');
+    [['check', 'Update balance'], ['moves', 'What moved']].forEach(function (m) {
+      var b = el('button', 'scope-pill' + (bankUi.mode[a.id] === m[0] ? ' active' : ''), m[1]); b.type = 'button';
+      b.addEventListener('click', function () { bankUi.mode[a.id] = bankUi.mode[a.id] === m[0] ? null : m[0]; renderBank(); });
+      acts.appendChild(b);
+    });
+    card.appendChild(acts);
+    var mode = bankUi.mode[a.id];
+    if (mode === 'check') card.appendChild(bankCheck(a, est));
+    if (mode === 'moves') {
+      var ul = el('ul', 'wal-items');
+      if (!est.items.length) ul.appendChild(el('li', 'wal-hint', 'Nothing logged since the balance was set.'));
+      est.items.slice(0, 15).forEach(function (it) {
+        var li = el('li', 'wal-item' + (it.kind === 'in' ? ' up' : ''));
+        li.appendChild(el('span', null, dFmt.format(new Date(it.ts)) + ' · ' + String(it.label || '').replace(/^[^\wऀ-ॿ]+/, '').slice(0, 40)));
+        li.appendChild(el('span', 'wal-amt', (it.kind === 'in' ? '+ ' : '− ') + money(it.amount)));
+        ul.appendChild(li);
+      });
+      card.appendChild(ul);
+      card.appendChild(el('p', 'wal-hint', 'Not counted: credit-card spends (the card bill is), cash and wallet spends, and what friends or Mother paid. Log a card bill as "Credit card bill" so it comes off the balance.'));
+    }
+    return card;
+  }
+
+  function bankCheck(a, est) {
+    var KL = window.KharchaLedger;
+    var box = el('div', 'wal-form');
+    var f = el('form', 'wal-check'); f.noValidate = true;
+    var inp = walletInput('bank-' + a.id + '-actual', 'Balance the bank shows (₹)', 'decimal');
+    inp.setAttribute('aria-label', 'Balance the bank shows');
+    if (bankUi.actual[a.id] != null) inp.value = String(bankUi.actual[a.id]);
+    var go = el('button', 'ghost', 'Compare'); go.type = 'submit';
+    f.appendChild(inp); f.appendChild(go); box.appendChild(f);
+    var err = el('p', 'err'); err.hidden = true; err.setAttribute('role', 'alert'); box.appendChild(err);
+    f.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var raw = inp.value.trim(), n = raw === '0' ? 0 : parseAmount(raw);
+      if (n == null) { err.textContent = 'Enter the balance as a number, like 123456.'; err.hidden = false; return; }
+      bankUi.actual[a.id] = n; renderBank();
+    });
+    if (bankUi.actual[a.id] != null) {
+      var actual = bankUi.actual[a.id], r = KL.walletReconcile(est.balance, actual);
+      box.appendChild(el('p', r.kind === 'match' ? 'wal-ok' : 'wal-diff', r.kind === 'match' ? 'Matches the estimate. ✓'
+        : r.kind === 'spent' ? 'The bank shows ' + money(r.amount) + ' less than the estimate: spending or a card bill that was not logged.'
+        : 'The bank shows ' + money(r.amount) + ' more than the estimate: income that was not logged, or a refund.'));
+      function setBalance(logGap) {
+        var list = loadBank().map(function (x) {
+          return x.id === a.id ? { id: x.id, name: x.name, snapshots: x.snapshots.concat([{ ts: Date.now(), balance: actual }]) } : x;
+        });
+        saveBank(list); bankUi.actual[a.id] = null;
+        if (logGap && r.kind === 'spent') {
+          store.add({ amount: r.amount, desc: 'Unaccounted bank spending', spent_at: new Date(Date.now() - 2000).toISOString() })
+            .then(function () { render(); toast('Balance set; ' + money(r.amount) + ' logged as spending'); })
+            .catch(function () { toast('Balance set, but the gap could not be logged'); });
+        } else { toast('Balance set to ' + money(actual)); }
+        renderBank(); render();
+      }
+      var set = el('button', 'primary small', 'Set balance to ' + money(actual)); set.type = 'button';
+      set.addEventListener('click', function () { setBalance(false); });
+      box.appendChild(set);
+      if (r.kind === 'spent') {
+        var both = el('button', 'ghost', 'Set it and log ' + money(r.amount) + ' as unaccounted spending'); both.type = 'button';
+        both.addEventListener('click', function () { setBalance(true); });
+        box.appendChild(both);
+      }
+    }
+    return box;
   }
 
   /* ---------- Stream Switcher Tabs ---------- */
@@ -2430,6 +2655,7 @@
     var udhaarSec = $('udhaar-sec');
     var walletSec = $('wallet-sec');
     var monthlySec = $('monthly-sec');
+    var bankSec = $('bank-sec');
 
     var stream = state.activeStream || 'spends';
     if (spendsView) spendsView.hidden = (stream !== 'spends');
@@ -2442,6 +2668,8 @@
     if (walletSec) walletSec.hidden = (stream !== 'wallet');
     if (stream === 'udhaar') renderUdhaar();
     if (monthlySec) monthlySec.hidden = (stream !== 'monthly');
+    if (bankSec) bankSec.hidden = (stream !== 'bank');
+    if (stream === 'bank') renderBank();
     if (stream === 'wallet') renderWallet();
     if (stream === 'monthly') renderMonthly();
 
