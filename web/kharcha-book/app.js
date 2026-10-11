@@ -3561,6 +3561,11 @@
     try { kv.set(CAT_BUDGET_KEY, JSON.stringify(b)); } catch (e) {}
   }
 
+  // Spending by category as a donut plus a colour-keyed list. Tap a category to highlight it and
+  // set its budget; each row shows last month's change.
+  var CAT_COLORS = ['#0EA5E9', '#8B5CF6', '#F59E0B', '#10B981', '#EC4899', '#F97316'];
+  var CAT_OTHER = '#94A3B8';
+  var catSel = null;
   function renderCategoryBreakdown(list, cmp, prevKey) {
     var sec = $('category-sec');
     var container = $('cat-breakdown');
@@ -3574,59 +3579,97 @@
 
     var budgets = categoryBudgets();
     var prevName = monthLabel(prevKey).split(' ')[0].slice(0, 3);
-    res.categories.slice(0, 6).forEach(function (c) {
-      var row = el('button', 'cat-row');
-      row.type = 'button';
-      row.title = 'Tap to set a monthly budget for ' + c.name;
-      var head = el('div', 'cat-row-head');
-      var nameSpan = el('span', null, c.name + ' (' + c.count + ')');
-      var amtSpan = el('span', null, money(c.total) + ' · ' + c.pct + '%');
-      head.appendChild(nameSpan);
-      head.appendChild(amtSpan);
+    var top = res.categories.slice(0, 6);
+    var restP = res.categories.slice(6).reduce(function (s, c) { return s + paise(c.total); }, 0);
+    var segs = top.map(function (c, i) { return { name: c.name, total: c.total, color: CAT_COLORS[i % CAT_COLORS.length], cat: c }; });
+    if (restP > 0) segs.push({ name: 'Other', total: restP / 100, color: CAT_OTHER, cat: null });
+    var grandP = segs.reduce(function (s, x) { return s + paise(x.total); }, 0) || 1;
+    if (catSel && !segs.some(function (x) { return x.name === catSel; })) catSel = null;
+    var svgNS = 'http://www.w3.org/2000/svg';
 
-      var budget = budgets[c.name];
-      var used = budget ? Math.round((c.total / budget) * 100) : c.pct;
-      var track = el('div', 'cat-track');
-      var fill = el('div', 'cat-fill' + (budget && used >= 100 ? ' danger' : budget && used >= 80 ? ' warning' : ''));
-      fill.style.width = Math.min(100, Math.max(2, used)) + '%';
-      track.appendChild(fill);
-
-      var notes = [];
-      if (budget) notes.push(used + '% of ' + money(budget) + ' budget');
-      var prev = cmp.prevCats[c.name];
-      if (prev) {
-        var diff = c.total - prev;
-        notes.push((diff > 0 ? '▲ ' : diff < 0 ? '▼ ' : '') + money(Math.abs(diff)) + ' vs ' + prevName);
-      } else if (cmp.prev > 0) {
-        notes.push('New vs ' + prevName);
-      }
-
-      row.appendChild(head);
-      row.appendChild(track);
-      if (notes.length) row.appendChild(el('div', 'cat-note', notes.join(' · ')));
-      row.addEventListener('click', function () {
-        var curBudget = budgets[c.name] || 0;
-        openBudgetModal({
-          title: c.name + ' Budget',
-          intro: 'Set a monthly spending limit for ' + c.name + '. You will get warned when spending approaches this limit.',
-          spentText: money(c.total) + ' (' + c.pct + '% of month total)',
-          currentValue: curBudget,
-          presets: [500, 1000, 2500, 5000],
-          onSave: function (n) {
-            setCategoryBudget(c.name, n);
-            render();
-            toast('Budget for ' + c.name + ' set to ' + money(n));
-          },
-          onClear: function () {
-            setCategoryBudget(c.name, 0);
-            render();
-            toast('Budget for ' + c.name + ' cleared');
-          }
-        });
+    function draw(animate) {
+      container.textContent = '';
+      var wrap = el('div', 'dn');
+      var chart = el('div', 'dn-chart');
+      var svg = document.createElementNS(svgNS, 'svg');
+      svg.setAttribute('viewBox', '0 0 132 132'); svg.setAttribute('class', 'dn-svg');
+      svg.setAttribute('role', 'img'); svg.setAttribute('aria-label', 'Spending by category');
+      var R = 50, C = 2 * Math.PI * R;
+      var track = document.createElementNS(svgNS, 'circle');
+      track.setAttribute('cx', 66); track.setAttribute('cy', 66); track.setAttribute('r', R); track.setAttribute('class', 'dn-track');
+      svg.appendChild(track);
+      var g = document.createElementNS(svgNS, 'g'); g.setAttribute('transform', 'rotate(-90 66 66)');
+      var acc = 0, gap = segs.length > 1 ? 2.2 : 0, pending = [];
+      segs.forEach(function (sg) {
+        var frac = paise(sg.total) / grandP, len = Math.max(0.5, frac * C - gap);
+        var c = document.createElementNS(svgNS, 'circle');
+        c.setAttribute('cx', 66); c.setAttribute('cy', 66); c.setAttribute('r', R);
+        c.setAttribute('class', 'dn-seg' + (catSel && catSel !== sg.name ? ' dim' : ''));
+        c.setAttribute('stroke', sg.color);
+        c.setAttribute('stroke-dashoffset', String(-acc));
+        c.setAttribute('stroke-dasharray', animate ? '0 ' + C : len + ' ' + (C - len));
+        if (animate) pending.push([c, len, C]);
+        c.addEventListener('click', function () { catSel = catSel === sg.name ? null : sg.name; draw(false); });
+        g.appendChild(c); acc += frac * C;
       });
-      container.appendChild(row);
-    });
+      svg.appendChild(g); chart.appendChild(svg);
+      var sel = segs.filter(function (x) { return x.name === catSel; })[0];
+      var center = el('div', 'dn-center');
+      center.appendChild(el('b', null, money(sel ? sel.total : grandP / 100)));
+      center.appendChild(el('span', null, sel ? sel.name + ' · ' + Math.round(paise(sel.total) / grandP * 100) + '%' : 'spent this month'));
+      chart.appendChild(center); wrap.appendChild(chart);
+      if (pending.length) raf2(function () { pending.forEach(function (p) { p[0].setAttribute('stroke-dasharray', p[1] + ' ' + (p[2] - p[1])); }); });
+
+      var ul = el('div', 'dn-list');
+      segs.forEach(function (sg) {
+        var c = sg.cat, on = catSel === sg.name;
+        var row = el('div', 'dn-row' + (on ? ' on' : ''));
+        row.tabIndex = 0; row.setAttribute('role', 'button'); row.setAttribute('aria-pressed', on ? 'true' : 'false');
+        var dot = el('span', 'dn-dot'); dot.style.background = sg.color; row.appendChild(dot);
+        row.appendChild(el('span', 'dn-name', c ? c.name + ' (' + c.count + ')' : 'Other categories'));
+        row.appendChild(el('span', 'dn-amt', money(sg.total)));
+        var pct = Math.round(paise(sg.total) / grandP * 100);
+        var budget = c ? budgets[c.name] : 0;
+        var used = budget ? Math.round((sg.total / budget) * 100) : pct;
+        var bar = el('div', 'dn-bar'), fill = el('i', budget && used >= 100 ? 'danger' : budget && used >= 80 ? 'warning' : '');
+        fill.style.width = Math.min(100, Math.max(2, used)) + '%';
+        if (!fill.className) fill.style.background = sg.color;
+        bar.appendChild(fill); row.appendChild(bar);
+        var notes = [pct + '% of spending'];
+        if (budget) notes.unshift(used + '% of ' + money(budget) + ' budget');
+        if (c) {
+          var prev = cmp.prevCats[c.name];
+          if (prev) { var diff = c.total - prev; notes.push((diff > 0 ? '▲ ' : diff < 0 ? '▼ ' : '') + money(Math.abs(diff)) + ' vs ' + prevName); }
+          else if (cmp.prev > 0) notes.push('New vs ' + prevName);
+        }
+        row.appendChild(el('div', 'dn-sub', notes.join(' · ')));
+        if (on && c) {
+          var bb = el('button', 'dn-budget-btn', budget ? '🎯 Change budget' : '🎯 Set a budget'); bb.type = 'button';
+          bb.addEventListener('click', function (ev) {
+            ev.stopPropagation();
+            openBudgetModal({
+              title: c.name + ' Budget',
+              intro: 'Set a monthly spending limit for ' + c.name + '. You will get warned when spending approaches this limit.',
+              spentText: money(c.total) + ' (' + c.pct + '% of month total)',
+              currentValue: budget || 0,
+              presets: [500, 1000, 2500, 5000],
+              onSave: function (n) { setCategoryBudget(c.name, n); render(); toast('Budget for ' + c.name + ' set to ' + money(n)); },
+              onClear: function () { setCategoryBudget(c.name, 0); render(); toast('Budget for ' + c.name + ' cleared'); }
+            });
+          });
+          row.appendChild(bb);
+        }
+        function toggle() { catSel = on ? null : sg.name; draw(false); }
+        row.addEventListener('click', toggle);
+        row.addEventListener('keydown', function (ev) { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(); } });
+        ul.appendChild(row);
+      });
+      wrap.appendChild(ul); container.appendChild(wrap);
+    }
+    draw(!reducedMotionPref());
   }
+  function reducedMotionPref() { try { return window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; } }
+  function raf2(fn) { (window.requestAnimationFrame || function (f) { return setTimeout(f, 16); })(function () { (window.requestAnimationFrame || function (f) { return setTimeout(f, 16); })(fn); }); }
 
   /* ---------- Bank SMS Parser Modal & Auto-Detection ---------- */
   var parsedSMSDraft = null;
@@ -3817,6 +3860,7 @@
 
   function renderBreakdown(list, total) {
     var sec = $('breakdown-sec'), ul = $('breakdown');
+    if (!sec || !ul) return;   // this section was merged into the category donut
     ul.textContent = '';
     if (!list.length) { sec.hidden = true; return; }
     sec.hidden = false;

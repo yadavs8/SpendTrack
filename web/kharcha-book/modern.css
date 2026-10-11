@@ -92,3 +92,28 @@ button.row .method-badge { display: inline-block; margin-left: 6px; font-weight:
 .scope-picker .scope-pill { justify-content: center; text-align: center; padding-inline: 6px; white-space: nowrap; font-size: 0.86rem; }
 .extras-toggle { justify-self: start; padding: 4px 2px; font-size: 0.86rem; }
 .extras-toggle[hidden], .add-row-extra[hidden] { display: none; }
+
+/* ---------- category donut ---------- */
+.dn { display: grid; gap: 14px; }
+.dn-chart { position: relative; display: grid; place-items: center; }
+.dn-svg { width: min(230px, 64vw); height: auto; }
+.dn-track { fill: none; stroke: var(--line); stroke-width: 16; opacity: 0.6; }
+.dn-seg { fill: none; stroke-width: 16; cursor: pointer; transition: stroke-dasharray 0.9s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.2s; }
+.dn-seg.dim { opacity: 0.22; }
+.dn-center { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; gap: 2px; padding: 0 24%; pointer-events: none; }
+.dn-center b { font: 700 1.5rem/1.1 var(--f-display); font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.dn-center span { font-size: 0.74rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dn-list { display: grid; gap: 2px; }
+.dn-row { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; column-gap: 12px; row-gap: 5px; align-items: center; padding: 11px 10px; border-radius: 16px; border: 1px solid transparent; cursor: pointer; min-height: 52px; }
+.dn-row:hover { background: var(--bg); }
+.dn-row.on { background: var(--accent-soft); border-color: var(--line); }
+.dn-dot { width: 12px; height: 12px; border-radius: 50%; box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 0%, transparent); }
+.dn-name { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.dn-amt { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dn-bar { grid-column: 2 / -1; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.dn-bar i { display: block; height: 100%; border-radius: 3px; transition: width 0.6s ease; }
+.dn-bar i.warning { background: var(--warning); }
+.dn-bar i.danger { background: var(--danger); }
+.dn-sub { grid-column: 2 / -1; font-size: 0.76rem; color: var(--muted); }
+.dn-budget-btn { grid-column: 2 / -1; justify-self: start; min-height: 40px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--accent); background: transparent; color: var(--accent); font-weight: 600; font-size: 0.85rem; }
+@media (prefers-reduced-motion: reduce) { .dn-seg, .dn-bar i { transition: none; } }
