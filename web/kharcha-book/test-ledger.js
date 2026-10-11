@@ -209,4 +209,19 @@ t('parseBank keeps held and deposits', () => {
   assert.deepStrictEqual(o[0].held, ['1']); assert.strictEqual(o[0].deposits.length, 1);
 });
 
+const loanX = { id: 'l1', person: 'Ravi', kind: 'lent', amount: 5000, note: '', ts: 1, payments: [{ id: 'p1', amount: 2000, ts: 2, note: '' }] };
+t('editLoan fixes the amount, keeps repayments, and refuses less than repaid', () => {
+  const ok = L.editLoan(loanX, { amount: 12000 });
+  assert.strictEqual(ok.loan.amount, 12000); assert.strictEqual(ok.loan.payments.length, 1);
+  assert.strictEqual(L.outstanding(ok.loan), 10000);
+  assert.ok(L.editLoan(loanX, { amount: 1500 }).error);
+  assert.ok(L.editLoan(loanX, { amount: 0 }).error);
+  assert.strictEqual(L.editLoan(loanX, { person: '  Ravi   K ' }).loan.person, 'Ravi K');
+});
+t('editPayment corrects a repayment but not beyond the loan', () => {
+  assert.strictEqual(L.editPayment(loanX, 'p1', { amount: 2500 }).loan.payments[0].amount, 2500);
+  assert.ok(L.editPayment(loanX, 'p1', { amount: 6000 }).error);
+  assert.ok(L.editPayment(loanX, 'nope', { amount: 1 }).error);
+});
+
 console.log(n + ' tests passed');
