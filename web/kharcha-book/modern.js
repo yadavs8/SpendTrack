@@ -59,7 +59,7 @@
   };
   var NAV_OF = { spends: 'home', incomings: 'income', trips: 'trips' };   // everything else lives under More
   var MORE_GROUPS = [
-    ['My money', [['monthly', '📊', 'Monthly', 'Spend and savings'], ['bank', '🏦', 'Bank', 'Balance, cash at home'], ['wallet', '👛', 'Wallet', 'Amazon Pay balance']]],
+    ['My money', [['monthly', '📊', 'Monthly', 'Savings'], ['bank', '🏦', 'Bank', 'Balance, cash'], ['wallet', '👛', 'Wallet', 'Amazon Pay']]],
     ['People', [['udhaar', '🤝', 'Udhaar', 'Who owes you'], ['settlement', '👵', 'Settle', "Mother's money"]]],
     ['Plans', [['investments', '📈', 'Invest', 'SIPs and savings'], ['projects', '🔨', 'Projects', 'Home work costs']]],
     ['Account', [['__signout', '🚪', 'Sign out', '']]]

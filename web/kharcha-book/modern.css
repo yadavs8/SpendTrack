@@ -181,3 +181,12 @@ button.row .method-badge { display: inline-block; margin-left: 6px; font-weight:
 .backbar[hidden] { display: none; }
 .backbtn { background: none; border: 0; padding: 6px 4px; font-size: 1rem; font-weight: 700; color: var(--accent, #0a7); cursor: pointer; }
 .backttl { font-weight: 700; font-size: 1rem; color: var(--ink); }
+
+/* v54: make the More sheet robust */
+.msheet { display: flex; flex-direction: column; justify-content: flex-end; align-items: stretch; }
+.msheet[hidden] { display: none; }
+.msheet-card { flex: 0 1 auto; min-height: 0; max-height: 86vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.msheet-grid { display: grid; }
+.mtile { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; }
+.mtile .mt { display: flex; flex-direction: column; min-width: 0; text-align: left; }
+.mtile .mt b, .mtile .mt small { display: block; }
