@@ -47,6 +47,17 @@
       "type": "EXPENSE"
     },
     {
+      "id": "icici_upi_debit",
+      "name": "ICICI Bank UPI Debit",
+      "regex": "(?i)Acct\\s*[*xX]*(\\d{3,4})\\s*debited\\s*for\\s*(?:Rs\\.?|INR|₹)\\s*([0-9,]+(?:\\.[0-9]{1,2})?)\\s*on\\s*[^;]*;\\s*([^;.]+?)\\s+credited\\.?\\s*UPI[:\\s]*([0-9]{6,})",
+      "accountGroup": 1,
+      "amountGroup": 2,
+      "merchantGroup": 3,
+      "refGroup": 4,
+      "method": "UPI",
+      "type": "EXPENSE"
+    },
+    {
       "id": "bank_sms_card_debit",
       "name": "Credit/Debit Card Spend",
       "senderRegex": "(?i).*(?:HDFC|SBI|ICICI|AXIS|KOTAK|RBL).*",

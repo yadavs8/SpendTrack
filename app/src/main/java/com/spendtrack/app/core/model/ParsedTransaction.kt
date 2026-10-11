@@ -13,9 +13,12 @@ data class ParsedTransaction(
     val upiReference: String? = null,
     val bankReference: String? = null,
     val accountLast4: String? = null,
+    val bankName: String? = null,
     val dateTime: Long = System.currentTimeMillis(),
     val source: String, // "NOTIFICATION", "SMS", "MANUAL"
     val sourcePackage: String? = null,
     val rawText: String? = null,
-    val confidenceScore: Float = 1.0f
+    val confidenceScore: Float = 1.0f,
+    /** For INCOME: IncomeParser.Kind name (SALARY, INTEREST, CASHBACK, DIVIDEND, RECEIVED). */
+    val incomeKind: String? = null
 )

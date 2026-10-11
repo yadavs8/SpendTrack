@@ -24,7 +24,14 @@ data class SettingsUiState(
     val merchantRules: List<MerchantRuleEntity> = emptyList(),
     val userAccounts: List<com.spendtrack.app.data.database.entity.UserAccountEntity> = emptyList(),
     val importMessage: String? = null,
-    val exportCsvContent: String? = null
+    val exportCsvContent: String? = null,
+    val isCloudSyncEnabled: Boolean = false,
+    val cloudSyncEmail: String? = null,
+    val cloudSyncLastError: String? = null,
+    val cloudSyncLastSuccessAt: Long? = null,
+    val isCloudSyncBusy: Boolean = false,
+    val activeTripName: String? = null,
+    val ownerIdentity: String = ""
 )
 
 class SettingsViewModel : ViewModel() {
@@ -34,6 +41,7 @@ class SettingsViewModel : ViewModel() {
     private val transactionRepo = ServiceLocator.transactionRepository
     private val importExportManager = ServiceLocator.importExportManager
     private val userAccountRepo = ServiceLocator.userAccountRepository
+    private val cloudSyncRepo = ServiceLocator.cloudSyncRepository
 
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
@@ -53,7 +61,13 @@ class SettingsViewModel : ViewModel() {
                 settingsManager.isBiometricEnabled,
                 settingsManager.showConfirmationNotifs,
                 merchantRuleRepo.allRules,
-                userAccountRepo.allAccounts
+                userAccountRepo.allAccounts,
+                settingsManager.isCloudSyncEnabled,
+                settingsManager.cloudSyncEmail,
+                settingsManager.cloudSyncLastError,
+                settingsManager.cloudSyncLastSuccessAt,
+                settingsManager.activeTripNameFlow,
+                settingsManager.ownerIdentityFlow
             ) { values ->
                 @Suppress("UNCHECKED_CAST")
                 val apps = values[0] as Set<String>
@@ -67,6 +81,12 @@ class SettingsViewModel : ViewModel() {
                 val rules = values[7] as List<MerchantRuleEntity>
                 @Suppress("UNCHECKED_CAST")
                 val accounts = values[8] as List<com.spendtrack.app.data.database.entity.UserAccountEntity>
+                val cloudSyncEnabled = values[9] as Boolean
+                val cloudSyncEmail = values[10] as String?
+                val cloudSyncLastError = values[11] as String?
+                val cloudSyncLastSuccessAt = values[12] as Long?
+                val activeTrip = values[13] as String?
+                val ownerIdentity = values[14] as String
 
                 SettingsUiState(
                     monitoredApps = apps,
@@ -77,11 +97,55 @@ class SettingsViewModel : ViewModel() {
                     isBiometricEnabled = biometric,
                     confirmationNotifs = notifs,
                     merchantRules = rules,
-                    userAccounts = accounts
+                    userAccounts = accounts,
+                    isCloudSyncEnabled = cloudSyncEnabled,
+                    cloudSyncEmail = cloudSyncEmail,
+                    cloudSyncLastError = cloudSyncLastError,
+                    cloudSyncLastSuccessAt = cloudSyncLastSuccessAt,
+                    isCloudSyncBusy = _uiState.value.isCloudSyncBusy,
+                    activeTripName = activeTrip,
+                    ownerIdentity = ownerIdentity
                 )
             }.collect { state ->
                 _uiState.value = state
             }
+        }
+    }
+
+    fun signInToCloudSync(email: String, password: String, onResult: (success: Boolean, message: String?) -> Unit) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isCloudSyncBusy = true)
+            val result = cloudSyncRepo.signIn(email, password)
+            _uiState.value = _uiState.value.copy(isCloudSyncBusy = false)
+            result.fold(
+                onSuccess = {
+                    cloudSyncRepo.syncPending()
+                    onResult(true, null)
+                },
+                onFailure = { onResult(false, it.message) }
+            )
+        }
+    }
+
+    fun signOutOfCloudSync() {
+        viewModelScope.launch {
+            cloudSyncRepo.signOut()
+        }
+    }
+
+    fun setCloudSyncEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsManager.setCloudSyncEnabled(enabled)
+            if (enabled) cloudSyncRepo.syncPending()
+        }
+    }
+
+    fun syncCloudNow(onDone: () -> Unit) {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isCloudSyncBusy = true)
+            cloudSyncRepo.syncPending()
+            _uiState.value = _uiState.value.copy(isCloudSyncBusy = false)
+            onDone()
         }
     }
 
@@ -118,6 +182,18 @@ class SettingsViewModel : ViewModel() {
     fun updateDailyLimit(amount: Double, enableAlert: Boolean) {
         viewModelScope.launch {
             settingsManager.setDailyLimit(amount, enableAlert)
+        }
+    }
+
+    fun setActiveTrip(tripName: String?) {
+        viewModelScope.launch {
+            ServiceLocator.cloudSyncRepository.pushSharedSettings(settingsManager.setActiveTripName(tripName))
+        }
+    }
+
+    fun setOwnerIdentity(value: String) {
+        viewModelScope.launch {
+            ServiceLocator.cloudSyncRepository.pushSharedSettings(settingsManager.setOwnerIdentity(value))
         }
     }
 

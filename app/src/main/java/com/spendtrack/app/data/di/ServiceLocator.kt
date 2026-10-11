@@ -7,6 +7,7 @@ import com.spendtrack.app.core.deduplication.DeduplicationEngine
 import com.spendtrack.app.data.database.AppDatabase
 import com.spendtrack.app.data.datastore.SettingsManager
 import com.spendtrack.app.data.repository.CategoryRepository
+import com.spendtrack.app.data.repository.CloudSyncRepository
 import com.spendtrack.app.data.repository.MerchantRuleRepository
 import com.spendtrack.app.data.repository.TransactionRepository
 
@@ -45,7 +46,9 @@ object ServiceLocator {
             transactionDao = database.transactionDao(),
             categoryEngine = categoryEngine,
             deduplicationEngine = deduplicationEngine,
-            merchantRuleRepository = merchantRuleRepository
+            merchantRuleRepository = merchantRuleRepository,
+            settingsManager = settingsManager,
+            userAccountDao = database.userAccountDao()
         )
     }
 
@@ -56,6 +59,13 @@ object ServiceLocator {
     val rulePackEngine: com.spendtrack.app.core.parser.rulepack.RulePackEngine by lazy {
         val ctx = appContext ?: throw IllegalStateException("ServiceLocator not initialized with Context")
         com.spendtrack.app.core.parser.rulepack.RulePackEngine(ctx, database.templateRuleDao())
+    }
+
+    val cloudSyncRepository: CloudSyncRepository by lazy {
+        CloudSyncRepository(
+            transactionDao = database.transactionDao(),
+            settingsManager = settingsManager
+        )
     }
 
     val importExportManager: DataImportExportManager by lazy {

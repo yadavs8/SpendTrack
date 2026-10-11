@@ -15,8 +15,17 @@
     var n = Number(t);
     return n > 0 && n < 1e9 ? n : null;
   }
+  function safeTruncate(str, len) {
+    var s = String(str || '');
+    try {
+      encodeURIComponent(s);
+    } catch (err) {
+      s = s.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '');
+    }
+    return Array.from(s).slice(0, len || 50).join('');
+  }
   function normDesc(s) {
-    var t = String(s).replace(/\s+/g, ' ').trim().slice(0, 60);
+    var t = safeTruncate(String(s).replace(/\s+/g, ' ').trim(), 50);
     return t ? t.charAt(0).toUpperCase() + t.slice(1) : '';
   }
   function toLocalISOString(ts) {
@@ -28,9 +37,448 @@
   function money(v) { return Number.isInteger(v) ? inr0.format(v) : inr2.format(v); }
   function byTimeDesc(a, b) { return b.ts - a.ts || (a.id < b.id ? 1 : -1); }
 
-  function isFamilyEntry(desc) {
+  // Plain-text incomings (no emoji tag) must *start* with one of these words...
+  var INCOME_WORD_START = /^(?:salary|pension|income)\b/;
+  // ...and not read like a payment of it ("Income tax", "LIC pension premium", "Salary to maid").
+  var PAID_OUT_WORDS = /\b(?:tax|premium|policy|plan|fund|contribution|emi|paid|to|maid)\b/;
+
+  function isIncome(e) {
+    if (!e || !e.desc) return false;
+    // Rows from the phone carry an explicit kind (v5 column); typed-in rows are read from the text.
+    if (e.kind === 'income') return true;
+    if (e.kind === 'expense' || e.kind === 'cash_withdrawal' || e.kind === 'transfer') return false;
+    var d = e.desc.trim().toLowerCase();
+    // Expenses tagged with 🏠, 👤, 🔨 (project spends), or 📈 (investments) are not income
+    if (d.startsWith('🏠') || d.startsWith('👤') || d.includes('🔨') || d.includes('📈')) return false;
+    // Incomings added from the app carry 💼 / 👵 / 💰 tags
+    if (d.includes('💼') || d.includes('👵') || d.startsWith('💰')) return true;
+    if (d.includes('withdrawn from mother')) return true;
+    return INCOME_WORD_START.test(d) && !PAID_OUT_WORDS.test(d);
+  }
+
+  function isMotherSettlement(e) {
+    if (!e || !e.desc) return false;
+    var d = e.desc.toLowerCase();
+    return d.includes('withdrawn from mother') || (d.includes('👵') && d.includes('withdraw'));
+  }
+
+  function isMotherPension(e) {
+    if (!e || !e.desc) return false;
+    var d = e.desc.toLowerCase();
+    return (d.includes('👵') && (d.includes('pension') || !d.includes('withdraw'))) || (d.includes('pension') && !d.includes('withdrawn'));
+  }
+
+  function isSalary(e) {
+    if (!e || !e.desc || !isIncome(e)) return false;
+    var d = e.desc.toLowerCase();
+    return (d.includes('💼') || d.includes('salary')) && !isMotherSettlement(e) && !d.includes('maid');
+  }
+
+  function isTripEntry(e) {
+    var desc = typeof e === 'string' ? e : (e && e.desc ? e.desc : '');
     var d = desc.toLowerCase();
-    return d.includes('🏠') || d.includes('⚡') || d.includes('🔥') || d.includes('👧') || d.includes('family') || d.includes('bill') || d.includes('niece') || d.includes('electricity') || d.includes('gas');
+    return d.includes('✈️') || d.startsWith('trip:') || d.includes('trip:');
+  }
+
+  // Short tokens as whole words only: "sip" must not match "Sipping Chai Cafe".
+  var INVESTMENT_WORDS = /\b(?:sip|ppf|nps|fd|stocks|shares)\b/;
+  function isInvestment(e) {
+    if (!e || !e.desc) return false;
+    var d = e.desc.trim().toLowerCase();
+    return d.includes('📈') || d.startsWith('investment') || d.includes('mutual fund') || d.includes('fixed deposit') || INVESTMENT_WORDS.test(d);
+  }
+
+  // ATM / cash withdrawal synced from the phone ("💵 Cash withdrawn · HDFC ATM"): the money moved
+  // into your cash wallet. It's counted as "Unaccounted cash" until you log what it was spent on,
+  // so the month total is the same either way and cash is never counted twice.
+  function isCashWithdrawal(e) {
+    if (!e) return false;
+    if (e.kind === 'cash_withdrawal') return true;
+    return !!e.desc && e.desc.trim().indexOf('💵 Cash withdrawn') === 0;
+  }
+  function isCashSpend(e) { return !!e && e.method === 'cash' && isExpense(e); }
+
+  function isExpense(e) {
+    return !isIncome(e) && !isInvestment(e) && !isCashWithdrawal(e) && !(e && e.kind === 'transfer');
+  }
+
+  /* ---------- Cash wallet ---------- */
+  function cashSummary(entries, key) {
+    var list = (entries || []).filter(function (e) { return !key || monthKey(e.ts) === key; });
+    var withdrawn = sumRupees(list.filter(isCashWithdrawal));
+    var spent = sumRupees(list.filter(isCashSpend));
+    var unaccounted = Math.max(0, Math.round((withdrawn - spent) * 100) / 100);
+    return { withdrawn: withdrawn, spent: spent, unaccounted: unaccounted };
+  }
+  // The "💵 Unaccounted cash" line that keeps month totals right (not a stored row; never editable).
+  function unaccountedCashEntry(entries, key) {
+    var c = cashSummary(entries, key);
+    if (c.unaccounted <= 0) return null;
+    var p = key.split('-');
+    return { id: 'cash-unaccounted-' + key, synthetic: true, amount: c.unaccounted, desc: '💵 Unaccounted cash', ts: new Date(+p[0], +p[1], 0, 12).getTime(), method: 'cash' };
+  }
+
+  /* ---------- Payment methods ---------- */
+  var METHOD_LABELS = { upi: 'UPI', credit_card: 'Credit card', debit_card: 'Debit card', cash: 'Cash', netbanking: 'Net banking', atm: 'ATM', wallet: 'Wallet', other: 'Other' };
+  var METHOD_ICONS = { upi: '📲', credit_card: '💳', debit_card: '🏦', cash: '💵', netbanking: '🏛️', atm: '🏧', wallet: '👛', other: '•' };
+  function methodLabel(e) {
+    if (!e || !e.method) return '';
+    var base = METHOD_LABELS[e.method] || e.method;
+    if ((e.method === 'credit_card' || e.method === 'debit_card') && (e.bank || e.last4)) {
+      return (e.bank ? e.bank + ' ' : '') + base + (e.last4 ? ' ··' + e.last4 : '');
+    }
+    return base + (e.method === 'upi' && e.bank ? ' · ' + e.bank : '');
+  }
+  // This month's spending split by how it was paid; each credit/debit card listed on its own.
+  function methodBreakdown(list) {
+    var groups = {}, total = 0;
+    (list || []).forEach(function (e) {
+      if (!isExpense(e) && !e.synthetic) return;
+      var m = e.method || 'unknown';
+      var key = m, label = m === 'unknown' ? 'Not set' : (METHOD_LABELS[m] || m);
+      if ((m === 'credit_card' || m === 'debit_card') && (e.last4 || e.bank)) {
+        key = m + '|' + (e.bank || '') + '|' + (e.last4 || '');
+        label = (e.bank ? e.bank + ' ' : '') + METHOD_LABELS[m] + (e.last4 ? ' ··' + e.last4 : '');
+      }
+      if (!groups[key]) groups[key] = { key: key, method: m, label: label, p: 0, count: 0 };
+      groups[key].p += paise(e.amount);
+      groups[key].count++;
+      total += paise(e.amount);
+    });
+    return Object.keys(groups).map(function (k) {
+      var g = groups[k];
+      return { key: g.key, method: g.method, label: g.label, icon: METHOD_ICONS[g.method] || '❔', total: g.p / 100, count: g.count, pct: total ? Math.round(g.p * 100 / total) : 0 };
+    }).sort(function (a, b) { return b.total - a.total; });
+  }
+
+  function isProjectEntry(desc) {
+    var d = (desc || '').toLowerCase();
+    return d.includes('🔨') || d.includes('renovation') || d.includes('labour') || d.includes('mistri');
+  }
+
+  function isProjectMotherPaid(desc) {
+    var d = (desc || '').toLowerCase();
+    return isProjectEntry(d) && (d.includes('👵') || d.includes('mother'));
+  }
+
+  function isFamilyEntry(desc) {
+    var d = (desc || '').toLowerCase();
+    // If it's a project entry paid directly by Mother, it does NOT create a family reimbursement debt
+    if (isProjectMotherPaid(d)) return false;
+    // If it's a project entry paid by User, it IS included in family settlement reimbursement!
+    if (isProjectEntry(d)) return true;
+    return d.includes('🏠') || d.includes('family') || d.includes('niece') || d.includes('electricity') || d.includes('gas') || d.includes('bill');
+  }
+
+  function getEntryScope(e) {
+    if (!e || !e.desc) return 'personal';
+    if (isTripEntry(e)) return 'trip';
+    if (isInvestment(e)) return 'investment';
+    if (isFamilyEntry(e.desc)) return 'family';
+    return 'personal';
+  }
+
+  function cleanScopePrefix(desc) {
+    if (!desc) return '';
+    var s = desc.trim();
+    // Strip leading trip prefix (✈️ TripName: or ✈️ )
+    s = s.replace(/^[✈\u{2708}\u{FE0F}\u{1F6EB}\u{1F6EC}]+\s*(?:[^:]+:\s*)?/u, '').trim();
+    // Strip other leading scope tags (🏠, 👤, 📈, 🔨)
+    s = s.replace(/^[\u{1F3E0}\u{1F464}\u{1F4C8}\u{1F528}]\s*/u, '').trim();
+    return s;
+  }
+
+  function shiftScopeDesc(desc, targetScope, tripName) {
+    var clean = cleanScopePrefix(desc);
+    if (!clean) clean = 'Expense';
+    if (targetScope === 'family') return '🏠 ' + clean;
+    if (targetScope === 'investment') return '📈 ' + clean;
+    if (targetScope === 'personal') return '👤 ' + clean;
+    if (targetScope === 'trip') return '✈️ ' + (tripName || getActiveTripName() || 'Trip') + ': ' + clean;
+    return clean;
+  }
+
+  /* ---------- Trip backfill ----------
+     The first trip spend often happens before leaving town (fuel, airport cab), before trip mode is
+     on. When a trip starts, these are the recent spends worth offering to move into it. */
+  function recentSpendsForTrip(entries, nowMs, hours) {
+    var since = nowMs - (hours || 12) * 3600000;
+    return (entries || []).filter(function (e) {
+      return e && e.ts >= since && e.ts <= nowMs && isExpense(e) && !isTripEntry(e) && !isProjectEntry(e.desc);
+    }).sort(function (a, b) { return a.ts - b.ts; });
+  }
+
+  /* ---------- Recurring bills & month-end forecast ---------- */
+  function recurringKey(desc) {
+    return cleanScopePrefix(desc).toLowerCase()
+      .replace(/\([^)]*\)/g, ' ').replace(/[^a-z\s]/g, ' ').trim()
+      .split(/\s+/).slice(0, 3).join(' ');
+  }
+  function median(nums) {
+    var s = nums.slice().sort(function (a, b) { return a - b; });
+    var m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  }
+  // A bill = the same payee with a similar amount (within 25%) in at least 2 of the last 3 months.
+  function recurringBills(entries, curMonthKey) {
+    var prev = [prevMonthKey(curMonthKey)];
+    prev.push(prevMonthKey(prev[0]));
+    prev.push(prevMonthKey(prev[1]));
+    var groups = {};
+    (entries || []).forEach(function (e) {
+      if (!e || isIncome(e) || isTripEntry(e)) return;
+      var key = recurringKey(e.desc);
+      if (key.length < 3) return;
+      var mk = monthKey(e.ts);
+      if (prev.indexOf(mk) < 0 && mk !== curMonthKey) return;
+      (groups[key] = groups[key] || []).push(e);
+    });
+    var bills = [];
+    Object.keys(groups).forEach(function (key) {
+      var list = groups[key];
+      var past = list.filter(function (e) { return monthKey(e.ts) !== curMonthKey; });
+      var months = {};
+      past.forEach(function (e) { months[monthKey(e.ts)] = true; });
+      if (Object.keys(months).length < 2) return;
+      var amounts = past.map(function (e) { return e.amount; });
+      var lo = Math.min.apply(null, amounts), hi = Math.max.apply(null, amounts);
+      if (lo <= 0 || hi / lo > 1.25) return;
+      var latest = past.slice().sort(function (a, b) { return b.ts - a.ts; })[0];
+      bills.push({
+        key: key,
+        label: cleanScopePrefix(latest.desc),
+        amount: Math.round(median(amounts)),
+        day: Math.round(median(past.map(function (e) { return new Date(e.ts).getDate(); }))),
+        paidThisMonth: list.some(function (e) { return monthKey(e.ts) === curMonthKey; }),
+        isExpense: isExpense(latest)
+      });
+    });
+    return bills.sort(function (a, b) { return a.day - b.day; });
+  }
+  // Projected month-end spend = spent so far + bills still due + the daily pace of everything else.
+  function monthForecast(entries, curMonthKey, now) {
+    var monthList = (entries || []).filter(function (e) { return monthKey(e.ts) === curMonthKey && isExpense(e); });
+    var cashLine = unaccountedCashEntry(entries, curMonthKey);
+    if (cashLine) monthList.push(cashLine);
+    var spent = sumRupees(monthList);
+    var bills = recurringBills(entries, curMonthKey).filter(function (b) { return b.isExpense; });
+    var due = bills.filter(function (b) { return !b.paidThisMonth; });
+    var upcoming = due.reduce(function (s, b) { return s + b.amount; }, 0);
+    var paidBills = bills.filter(function (b) { return b.paidThisMonth; }).reduce(function (s, b) { return s + b.amount; }, 0);
+    var d = now || new Date();
+    var daysInMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    var elapsed = Math.max(1, d.getDate());
+    var variablePerDay = Math.max(0, spent - paidBills) / elapsed;
+    return {
+      spent: spent,
+      upcoming: upcoming,
+      dueBills: due,
+      projected: Math.round(spent + upcoming + variablePerDay * (daysInMonth - elapsed))
+    };
+  }
+
+  /* ---------- Settle-up links ---------- */
+  // A UPI "pay me" link the other person taps on their phone; amount and note come pre-filled.
+  function upiPayLink(vpa, name, amount, note) {
+    return 'upi://pay?pa=' + encodeURIComponent(vpa) + '&pn=' + encodeURIComponent(name || 'Kharcha Book') +
+      '&am=' + Number(amount).toFixed(2) + '&cu=INR&tn=' + encodeURIComponent(note || 'Settle up');
+  }
+  // WhatsApp does not linkify upi:// everywhere, so the UPI ID and amount are spelled out too.
+  function settleMessage(toName, amount, reason, myVpa) {
+    var msg = 'Hi ' + toName + ', ' + money(amount) + ' for ' + reason + '.';
+    if (myVpa) msg += '\nPay to UPI ID: ' + myVpa + '\n' + upiPayLink(myVpa, 'Settle up', amount, reason);
+    return msg;
+  }
+  function whatsappLink(text) { return 'https://wa.me/?text=' + encodeURIComponent(text); }
+
+  function getProjectSummary(monthEntries) {
+    var list = (monthEntries || []).filter(function (e) {
+      return isExpense(e) && isProjectEntry(e.desc);
+    });
+    var totalSpent = list.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
+    var meEntries = list.filter(function (e) { return !isProjectMotherPaid(e.desc); });
+    var motherEntries = list.filter(function (e) { return isProjectMotherPaid(e.desc); });
+    var meSpent = meEntries.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
+    var motherSpent = motherEntries.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
+    return {
+      entries: list,
+      totalSpent: totalSpent,
+      meEntries: meEntries,
+      meSpent: meSpent,
+      motherEntries: motherEntries,
+      motherSpent: motherSpent
+    };
+  }
+
+  function getFamilySettlement(monthEntries) {
+    var list = monthEntries || [];
+    var familyExpenses = list.filter(function (e) { return isExpense(e) && isFamilyEntry(e.desc); });
+    var familySpent = familyExpenses.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
+
+    var motherSettledEntries = list.filter(function (e) { return isIncome(e) && isMotherSettlement(e); });
+    var motherWithdrawn = motherSettledEntries.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
+
+    var pending = Math.max(0, (familySpent * 100 - motherWithdrawn * 100) / 100);
+    var status = pending === 0 ? 'settled' : 'pending';
+
+    return {
+      familyExpenses: familyExpenses,
+      familySpent: familySpent,
+      motherSettledEntries: motherSettledEntries,
+      motherWithdrawn: motherWithdrawn,
+      pending: pending,
+      status: status
+    };
+  }
+
+  /* ---------- Continuous Merchant Auto-Memory ---------- */
+  var MERCHANT_SCOPE_KEY = 'kharcha_merchant_scope_map';
+  function merchantScopeMap() {
+    try { return JSON.parse(kv.get(MERCHANT_SCOPE_KEY)) || {}; } catch (e) { return {}; }
+  }
+  function extractMerchantCore(desc) {
+    if (!desc) return '';
+    var clean = cleanScopePrefix(desc);
+    clean = clean.replace(/\[Paid by Friend\]/gi, '').trim();
+    // Remove leading emoji and punctuation
+    clean = clean.replace(/^[^\p{L}\p{N}]+/u, '').trim();
+    // Take first 1-2 words or whole string if short
+    var words = clean.split(/\s+/).slice(0, 3).join(' ').toLowerCase();
+    return words;
+  }
+  function rememberMerchantScope(desc, scope) {
+    if (!desc || !scope) return;
+    var core = extractMerchantCore(desc);
+    if (!core || core.length < 2) return;
+    var map = merchantScopeMap();
+    map[core] = scope;
+    try { kv.set(MERCHANT_SCOPE_KEY, JSON.stringify(map)); } catch (e) {}
+  }
+  function predictMerchantScope(desc) {
+    if (!desc) return null;
+    var core = extractMerchantCore(desc);
+    if (!core) return null;
+    var map = merchantScopeMap();
+    if (map[core]) return map[core];
+    // Check word-based or substring overlap
+    var coreTokens = core.split(/\s+/).filter(function (t) { return t.length >= 3; });
+    var keys = Object.keys(map);
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      if (core.includes(k) || k.includes(core)) return map[k];
+      var kTokens = k.split(/\s+/).filter(function (t) { return t.length >= 3; });
+      for (var j = 0; j < coreTokens.length; j++) {
+        if (kTokens.includes(coreTokens[j])) return map[k];
+      }
+    }
+    return null;
+  }
+
+  function parseTripPayer(desc) {
+    if (!desc) return 'Me';
+    var d = desc.trim();
+    var m = d.match(/\[Paid by ([^\]]+)\]/i);
+    if (m && m[1]) return m[1].trim();
+    if (d.includes('🤝') || /friend paid/i.test(d)) return 'Friend';
+    return 'Me';
+  }
+
+  function getTripSummary(monthEntries, tripName, explicitFriends) {
+    var filterName = (tripName || '').trim().toLowerCase();
+    var list = (monthEntries || []).filter(function (e) {
+      if (!isExpense(e) || !isTripEntry(e)) return false;
+      if (!filterName) return true;
+      var d = (e.desc || '').toLowerCase();
+      return d.includes(filterName);
+    });
+    var totalSpent = list.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
+    var daySet = new Set(list.map(function (e) { return dayKey(e.ts); }));
+    var numDays = daySet.size || 1;
+    var dailyAvg = totalSpent > 0 ? Math.round(totalSpent / numDays) : 0;
+
+    // Track all participants/friends
+    var friendSet = new Set();
+    friendSet.add('Me');
+    if (Array.isArray(explicitFriends)) {
+      explicitFriends.forEach(function (f) {
+        if (f && f.trim()) friendSet.add(f.trim());
+      });
+    }
+
+    // Tally payments per person
+    var payerTotals = {};
+    list.forEach(function (e) {
+      var payer = parseTripPayer(e.desc);
+      friendSet.add(payer);
+      if (!payerTotals[payer]) payerTotals[payer] = 0;
+      payerTotals[payer] = (payerTotals[payer] * 100 + paise(e.amount)) / 100;
+    });
+
+    // If explicitFriends wasn't passed and only Me paid or binary Friend
+    var allParticipants = Array.from(friendSet);
+    if (allParticipants.length === 1 && allParticipants[0] === 'Me' && (!explicitFriends || !explicitFriends.length)) {
+      // Default to 2 people (Me & Friend) for 50/50 balance preview
+      if (list.some(function (e) { return parseTripPayer(e.desc) !== 'Me'; })) {
+        allParticipants.push('Friend');
+      }
+    }
+    var numPeople = Math.max(1, allParticipants.length);
+    var perPersonShare = totalSpent > 0 ? Math.round((totalSpent * 100) / numPeople) / 100 : 0;
+
+    // Balances breakdown
+    var balances = allParticipants.map(function (person) {
+      var paid = payerTotals[person] || 0;
+      var net = (paid * 100 - perPersonShare * 100) / 100;
+      return {
+        name: person,
+        paid: paid,
+        share: perPersonShare,
+        net: net // > 0: gets back from group, < 0: owes to group
+      };
+    });
+
+    // Backward-compatible properties for 2-party view
+    var paidByMe = payerTotals['Me'] || 0;
+    var friendEntries = list.filter(function (e) { return parseTripPayer(e.desc) !== 'Me'; });
+    var meEntries = list.filter(function (e) { return parseTripPayer(e.desc) === 'Me'; });
+    var paidByFriend = friendEntries.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
+    var netDiff = (paidByMe * 100 - paidByFriend * 100) / 200;
+
+    return {
+      entries: list,
+      totalSpent: totalSpent,
+      itemsCount: list.length,
+      daysCount: numDays,
+      dailyAvg: dailyAvg,
+      participants: allParticipants,
+      perPersonShare: perPersonShare,
+      balances: balances,
+      meEntries: meEntries,
+      paidByMe: paidByMe,
+      friendEntries: friendEntries,
+      paidByFriend: paidByFriend,
+      netDiff: netDiff
+    };
+  }
+
+  function getPersonalCashFlow(monthEntries) {
+    var list = monthEntries || [];
+    var salaries = list.filter(function (e) { return isSalary(e); }).reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
+    var personalExpenses = list.filter(function (e) { return isExpense(e) && !isFamilyEntry(e.desc); });
+    // ATM cash not yet itemised is still money spent (see isCashWithdrawal).
+    var personalSpent = (personalExpenses.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) + paise(cashSummary(list).unaccounted)) / 100;
+    var investments = list.filter(isInvestment);
+    var totalInvested = investments.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
+    var personalSavings = (salaries * 100 - personalSpent * 100) / 100;
+    var savingsRate = salaries > 0 ? Math.round((personalSavings / salaries) * 100) : 0;
+
+    return {
+      salaries: salaries,
+      personalSpent: personalSpent,
+      totalInvested: totalInvested,
+      personalSavings: personalSavings,
+      savingsRate: savingsRate
+    };
   }
 
   function groupByDay(list) {
@@ -55,17 +503,338 @@
   }
   function monthTotals(entries) {
     var map = new Map();
-    entries.forEach(function (e) {
+    (entries || []).filter(isExpense).forEach(function (e) {
       var k = monthKey(e.ts);
       if (!map.has(k)) map.set(k, { key: k, items: [] });
       map.get(k).items.push(e);
     });
+    // ATM cash not yet itemised still counts in its month (see isCashWithdrawal).
+    (entries || []).filter(isCashWithdrawal).forEach(function (e) {
+      var k = monthKey(e.ts);
+      if (!map.has(k)) map.set(k, { key: k, items: [] });
+    });
+    map.forEach(function (m) {
+      var cash = unaccountedCashEntry(entries, m.key);
+      if (cash) m.items.push(cash);
+    });
     return Array.from(map.values())
       .map(function (m) {
         var top = byDescription(m.items)[0];
-        return { key: m.key, total: sumRupees(m.items), count: m.items.length, top: top ? top.label : '', topTotal: top ? top.total : 0 };
+        var count = m.items.filter(function (e) { return !e.synthetic; }).length;
+        return { key: m.key, total: sumRupees(m.items), count: count, top: top ? top.label : '', topTotal: top ? top.total : 0 };
       })
       .sort(function (a, b) { return a.key < b.key ? 1 : -1; });
+  }
+
+  // Whole-word matches only, so "credited" is not read as Cred and "AMAZON" (a merchant) is not read as Amazon Pay.
+  var KNOWN_BANKS = [
+    { name: 'HDFC Bank', match: /\bHDFC(?:BK|BANK)?\b/i },
+    { name: 'ICICI Bank', match: /\bICICI(?:B|BANK)?\b/i },
+    { name: 'State Bank of India', match: /\bSBI(?:INB|UPI|PSG|CRD)?\b|STATE BANK/i },
+    { name: 'Axis Bank', match: /\bAXIS(?:BK)?\b/i },
+    { name: 'Kotak Bank', match: /\bKOTAK(?:B|BK)?\b/i },
+    { name: 'Punjab National Bank', match: /\bPNB(?:SMS)?\b/i },
+    { name: 'Bank of Baroda', match: /\bBOB(?:TXT|SMS)?\b|\bBARODA\b/i },
+    { name: 'Paytm Payments Bank', match: /\bPAYTM(?:B)?\b/i },
+    { name: 'Google Pay', match: /\bGPAY\b|GOOGLE PAY/i },
+    { name: 'PhonePe', match: /\bPHONEPE\b/i },
+    { name: 'Amazon Pay', match: /AMAZON ?PAY\b|\bAMZPAY\b/i },
+    { name: 'Canara Bank', match: /\bCANARA\b|\bCANBNK\b|\bCANBK\b/i },
+    { name: 'IndusInd Bank', match: /\bINDUSIND\b|\bINDUSB\b|\bINDUSI\b/i },
+    { name: 'IDFC FIRST Bank', match: /\bIDFC(?:FB)?\b/i },
+    { name: 'Yes Bank', match: /\bYESBNK\b|\bYES BANK\b/i },
+    { name: 'Union Bank', match: /\bUNION BANK\b|\bUNIONB\b|\bUBOI\b/i },
+    { name: 'Federal Bank', match: /\bFEDERAL BANK\b|\bFEDBNK\b/i },
+    { name: 'Cred', match: /\bCRED\b/i },
+    { name: 'Slice', match: /\bSLICE(?:IT)?\b/i },
+    { name: 'Jupiter', match: /\bJUPITER\b|\bJUPITR\b/i },
+    { name: 'Fi Money', match: /\bFI MONEY\b|\bEPIFI\b/i }
+  ];
+
+  // Checked in order; the first match rejects the message.
+  var REJECT_RULES = [
+    { kind: 'otp', re: /\botp\b|one[- ]time password|verification code|secret code|do not share/i,
+      msg: 'This is an OTP / verification message, not a transaction.' },
+    { kind: 'scam', re: /\bkyc\b|will be (?:blocked|suspended|deactivated|closed)|has been (?:blocked|suspended|deactivated)|account (?:is )?(?:blocked|suspended)|lottery|you have won|\bclaim (?:your|now)\b|update your (?:pan|details|account)/i,
+      msg: 'This looks like a scam / phishing message. Banks never ask you to update KYC or unblock an account through an SMS.' },
+    { kind: 'promo', re: /pre-approved|apply (?:now|for)|congratulations|flat \d+%|reward points|earn cashback|limited period offer|get up to/i,
+      msg: 'This is a promotional offer, not a debit transaction.' },
+    { kind: 'request', re: /has requested|requested (?:money|payment|rs|inr|₹)|collect request|payment request/i,
+      msg: 'This is a payment request. No money has left your account.' },
+    { kind: 'failed', re: /\bfail(?:ed|ure)?\b|\bdeclined\b|\bunsuccessful\b|not (?:been )?processed|could not be (?:processed|completed)|\brejected\b|insufficient (?:funds|balance)/i,
+      msg: 'This transaction failed, so no money was spent.' },
+    { kind: 'refund', re: /\brevers(?:ed|al)\b|\brefund(?:ed)?\b|\bchargeback\b|cash ?back[\s\S]*\bcredited\b|\bcredited\b[\s\S]*cash ?back/i,
+      msg: 'This is a refund / reversal (money coming back), not an expense.' },
+    { kind: 'future', re: /will be debited|to be debited|\bdue (?:on|date|by)\b|\bis due\b|\bpay by\b|(?:total|min(?:imum)?) (?:amount )?due|\breminder\b|\bupcoming\b|\bscheduled\b|mandate (?:is |has been )?(?:created|registered|set ?up|approved)|autopay (?:is |has been )?(?:set|registered|enabled|activated)/i,
+      msg: 'This is a reminder or an upcoming debit. Add it once the money is actually debited.' },
+    { kind: 'transfer', re: /self[- ]?transfer|to (?:your )?own (?:a\/c|account)|towards [\w ]{0,30}?card|credit card (?:bill|payment)|card bill|received (?:towards|on|for) [\w ]{0,30}?card|cred\.?club|\bcred club\b/i,
+      msg: 'This is a credit card bill payment or a transfer between your own accounts. It is not a new spend (the card swipes themselves are).' }
+  ];
+
+  var STRONG_OUT = /\bdebited\b|\bspent\b|\bwithdrawn\b|\bcharged\b|\bpurchase\b/i;
+  var WEAK_OUT = /\bpaid\b|\bsent\b|\btrf to\b|\btransferred to\b|\bused (?:at|for|on)\b/i;
+  var INCOMING = /\bcredited\b|\breceived\b|\bdeposited\b|\bcredit of\b|\badded to (?:your )?(?:wallet|a\/c|account)\b/i;
+  var CUR_AMT = /(?:rs\.?|inr|₹)\s*([\d,]+(?:\.\d{1,2})?)/gi;
+  var BARE_AMT = /\b(?:debited|spent|paid|withdrawn|charged)\s+(?:by|for|of|with)?\s*([\d,]+(?:\.\d{1,2})?)\b/gi;
+  var BAL_WORD = /\b(?:avl|avail(?:able)?|bal|balance|limit|due|outstanding)\b/gi;
+
+  // An amount is a balance/limit if a balance word comes right before it with no other amount or debit word in between.
+  function isBalanceAmount(txt, idx) {
+    var before = txt.slice(Math.max(0, idx - 30), idx), last = -1, m;
+    BAL_WORD.lastIndex = 0;
+    while ((m = BAL_WORD.exec(before))) last = m.index + m[0].length;
+    if (last < 0) return false;
+    var gap = before.slice(last);
+    return !/(?:rs\.?|inr|₹)\s*\d|\d[.,]\d/i.test(gap) && !/\b(?:debited|spent|paid|withdrawn|charged)\b/i.test(gap);
+  }
+
+  function extractAmount(txt) {
+    var cands = [], m;
+    CUR_AMT.lastIndex = 0;
+    while ((m = CUR_AMT.exec(txt))) cands.push({ v: m[1], idx: m.index });
+    BARE_AMT.lastIndex = 0;
+    while ((m = BARE_AMT.exec(txt))) cands.push({ v: m[1], idx: m.index + m[0].length - m[1].length });
+    cands = cands.filter(function (c) { return parseAmount(c.v) && !isBalanceAmount(txt, c.idx); });
+    if (!cands.length) return null;
+    // Prefer the amount closest to a debit word.
+    var outIdx = [], re = /\b(?:debited|spent|paid|withdrawn|charged|sent|purchase)\b/gi;
+    while ((m = re.exec(txt))) outIdx.push(m.index);
+    var best = cands[0], bestDist = Infinity;
+    cands.forEach(function (c) {
+      outIdx.forEach(function (o) {
+        var d = Math.abs(o - c.idx);
+        if (d < bestDist) { bestDist = d; best = c; }
+      });
+    });
+    return { amount: parseAmount(best.v), nearDebit: bestDist < 40 };
+  }
+
+  var MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+  // Returns the transaction time from the SMS (ms), or null if none / implausible. Indian dd-mm order.
+  function parseSMSDate(txt, now) {
+    now = now || Date.now();
+    var y, mo, d, m;
+    if ((m = txt.match(/\b(\d{1,2})[-\/ ]?(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[-\/ ,]*(\d{4}|\d{2})(?!\d)/i))) {
+      d = +m[1]; mo = MONTHS[m[2].toLowerCase()]; y = +m[3];
+    } else if ((m = txt.match(/\b(\d{4})-(\d{1,2})-(\d{1,2})\b/))) {
+      y = +m[1]; mo = +m[2] - 1; d = +m[3];
+    } else if ((m = txt.match(/\b(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4}|\d{2})\b/))) {
+      d = +m[1]; mo = +m[2] - 1; y = +m[3];
+    } else return null;
+    if (y < 100) y += 2000;
+    var hh = null, mm = 0, t = txt.match(/\b(\d{1,2}):(\d{2})(?::\d{2})?\s*(am|pm)?\b/i);
+    if (t && +t[1] < 24 && +t[2] < 60) {
+      hh = +t[1]; mm = +t[2];
+      if (t[3] && /pm/i.test(t[3]) && hh < 12) hh += 12;
+      if (t[3] && /am/i.test(t[3]) && hh === 12) hh = 0;
+    }
+    var dt = new Date(y, mo, d, hh == null ? 12 : hh, mm);
+    if (dt.getDate() !== d || dt.getMonth() !== mo) return null;
+    var today = new Date(now);
+    var sameDay = dt.getFullYear() === today.getFullYear() && dt.getMonth() === today.getMonth() && dt.getDate() === today.getDate();
+    if (sameDay && hh == null) return now;
+    var endOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59).getTime();
+    if (dt.getTime() > endOfToday || now - dt.getTime() > 400 * 864e5) return null;
+    return dt.getTime();
+  }
+
+  function extractRef(txt) {
+    var m = txt.match(/(?:upi\s*ref(?:erence)?|\bref(?:erence)?|\brrn|\butr|txn\s*id|transaction\s*id)\s*(?:no\.?|num(?:ber)?|id|#)?\s*[:.#-]?\s*([A-Z0-9]{6,24})\b/i);
+    return m && /\d{4,}/.test(m[1]) ? m[1].toUpperCase() : null;
+  }
+
+  function extractAccount(txt) {
+    var m = txt.match(/(?:a\/c|acct|account|card)(?:\s*no\.?)?\s*(?:ending(?:\s*with)?)?\s*[:\s]*(?:[x*]+\s*)?(\d{3,4})\b/i);
+    return m ? m[1] : null;
+  }
+
+  function prettyName(s) {
+    return s.replace(/[._-]+/g, ' ').replace(/\d+$/, '').trim().split(/\s+/)
+      .map(function (w) { return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase(); }).join(' ');
+  }
+  var PAYEE_STOP = /^(?:you|your|a\/?c|account|card|vpa|upi|the|bank|rs|inr|us|mobile|self)\b/i;
+  function extractPayee(txt) {
+    var vpa = txt.match(/\b([a-z][a-z0-9._-]{1,40})@[a-z]{2,}\b/i);
+    if (vpa && !/^(?:paytmqr|bharatpe|q\d|upi|\d)/i.test(vpa[1])) {
+      var n = prettyName(vpa[1]);
+      if (n.length >= 2) return n;
+    }
+    var m = txt.match(/\b(?:at|to|trf to|info[:\s])\s*(?:vpa\s+)?([A-Za-z][A-Za-z0-9 &'._-]{1,30}?)(?=\s+(?:on|ref\w*|via|vpa|using|upi|from|for|dated|avl|with|is|has|txn)\b|[.,;(:]|\s*$)/i) ||
+            txt.match(/\bfor\s+([A-Za-z][A-Za-z0-9 &'._-]{1,30}?)(?=\s+(?:payment|via|on)\b|[.,;(]|\s*$)/i);
+    if (m) {
+      var p = m[1].trim();
+      if (p.length >= 2 && !PAYEE_STOP.test(p)) return p === p.toUpperCase() && p.length > 3 ? prettyName(p) : p;
+    }
+    return '';
+  }
+
+  var CATEGORY_RULES = [
+    { re: /swiggy|zomato|\beats\b|\bfood\b|restaurant|\bcafe\b|domino|pizza/i, emoji: '🍔', label: function (p) { return 'Food & Dining (' + p + ')'; }, scope: 'personal' },
+    { re: /zepto|blinkit|instamart|grocery|dmart|supermarket|bigbasket|bazaar/i, emoji: '🛒', label: function (p) { return 'General Grocery (' + p + ')'; }, scope: 'family' },
+    { re: /electricity|bescom|tata power|torrent power|light bill/i, emoji: '⚡', label: function () { return 'Electricity Bill'; }, scope: 'family' },
+    { re: /\bgas\b|indane|bharat ?gas|cylinder/i, emoji: '🔥', label: function () { return 'Gas Bill'; }, scope: 'family' },
+    { re: /airtel|\bjio\b|\bvi\b|vodafone|wifi|broadband|recharge/i, emoji: '📱', label: function () { return 'Mobile & WiFi'; }, scope: 'personal' },
+    { re: /hpcl|iocl|bpcl|petrol|\bfuel\b|\bshell\b/i, emoji: '⛽', label: function () { return 'Petrol / Fuel'; }, scope: 'personal' },
+    { re: /\buber\b|\bola\b|rapido|namma yatri|\bauto\b|\bcab\b|\bmetro\b/i, emoji: '🛺', label: function () { return 'Auto / Cab'; }, scope: 'personal' },
+    { re: /amazon|flipkart|myntra|meesho|nykaa/i, emoji: '🛍️', label: function (p) { return 'Online Shopping (' + p + ')'; }, scope: 'personal' },
+    { re: /pharmacy|pharmeasy|apollo|\b1mg\b|doctor|clinic|hospital|medicine/i, emoji: '💊', label: function () { return 'Medicines & Doctor'; }, scope: 'family' },
+    { re: /\bmilk\b|doodh|dairy/i, emoji: '🥛', label: function () { return 'Milk / Doodh'; }, scope: 'family' }
+  ];
+  function categorise(payee, txt) {
+    var targets = [payee, txt];
+    for (var t = 0; t < targets.length; t++) {
+      if (!targets[t]) continue;
+      for (var i = 0; i < CATEGORY_RULES.length; i++) {
+        if (CATEGORY_RULES[i].re.test(targets[t])) return CATEGORY_RULES[i];
+      }
+    }
+    return null;
+  }
+
+  function parseBankSMS(rawText, now) {
+    if (!rawText || typeof rawText !== 'string') return { valid: false, kind: 'empty', error: 'Empty message provided.' };
+    var txt = rawText.trim().replace(/\s+/g, ' ');
+    if (!txt) return { valid: false, kind: 'empty', error: 'Empty message provided.' };
+
+    // 1. Reject messages that are not money actually leaving the account
+    for (var r = 0; r < REJECT_RULES.length; r++) {
+      if (REJECT_RULES[r].re.test(txt)) return { valid: false, kind: REJECT_RULES[r].kind, error: REJECT_RULES[r].msg };
+    }
+    var strongOut = STRONG_OUT.test(txt), weakOut = WEAK_OUT.test(txt);
+    if (INCOMING.test(txt) && !strongOut) {
+      return { valid: false, kind: 'credit', error: 'This is a credit/income message (money received), not an expense.' };
+    }
+
+    // 2. Identify Bank / Sender (header like "AD-HDFCBK:" first, then body)
+    var detectedBank = null;
+    var headerMatch = txt.match(/^([A-Z]{2}-[A-Z0-9]{3,8}(?:-[A-Z0-9]+)?):\s*/i);
+    var sources = headerMatch ? [headerMatch[1], txt] : [txt];
+    for (var s = 0; s < sources.length && !detectedBank; s++) {
+      for (var i = 0; i < KNOWN_BANKS.length; i++) {
+        if (KNOWN_BANKS[i].match.test(sources[s])) { detectedBank = KNOWN_BANKS[i].name; break; }
+      }
+    }
+
+    if (!strongOut && !weakOut) {
+      return { valid: false, kind: 'nodebit', error: detectedBank
+        ? 'Message from bank found, but does not contain a debit transaction.'
+        : 'No recognized bank or debit pattern found in message.' };
+    }
+
+    // 3. Extract Amount (ignoring balances, limits and dues)
+    var amt = extractAmount(txt);
+    if (!amt || !amt.amount) return { valid: false, kind: 'noamount', error: 'Could not extract valid transaction amount from SMS.' };
+
+    // 4. Details used for confidence and duplicate detection
+    var refNo = extractRef(txt);
+    var account = extractAccount(txt);
+    var tsFromSMS = parseSMSDate(txt, now);
+    var warnings = [];
+    if (!detectedBank) warnings.push('Sender is not a recognised bank or UPI app.');
+    if (/https?:\/\/|www\.|bit\.ly/i.test(txt)) warnings.push('Contains a link. Real debit alerts rarely need you to click anything.');
+    if (!amt.nearDebit) warnings.push('Amount was not found right next to "debited/spent". Please check it.');
+    if (tsFromSMS == null) warnings.push('No valid date in the SMS, so today\'s date is used.');
+
+    // 5. Payee and category
+    var payee = extractPayee(txt);
+    var rawPayee = payee;
+    if (!payee) payee = detectedBank ? (detectedBank + ' Spend') : 'Bank Spend';
+    var cat = categorise(rawPayee, txt);
+    var emoji = cat ? cat.emoji : '💳';
+    var label = cat ? cat.label(payee) : payee;
+    var scope = cat ? cat.scope : 'personal';
+    var descWithEmoji = (scope === 'family') ? ('🏠 ' + emoji + ' ' + label) : (emoji + ' ' + label);
+
+    var confident = detectedBank && amt.nearDebit && (refNo || account) && strongOut && !warnings.length;
+
+    return {
+      valid: true,
+      bank: detectedBank || 'Bank SMS',
+      amount: amt.amount,
+      rawPayee: rawPayee,
+      desc: descWithEmoji,
+      scope: scope,
+      refNo: refNo,
+      account: account,
+      ts: tsFromSMS,
+      confidence: confident ? 'high' : 'check',
+      warnings: warnings,
+      rawSMS: txt
+    };
+  }
+
+  // Exact = same bank reference number. Likely = same amount on the same day (when refs can't be compared).
+  function findDuplicate(parsed, entries, now) {
+    if (!parsed || !parsed.valid) return null;
+    if (parsed.refNo) {
+      var exact = entries.find(function (e) { return e.refNo && e.refNo === parsed.refNo; });
+      if (exact) return { kind: 'exact', entry: exact };
+    }
+    var day = dayKey(parsed.ts || now || Date.now());
+    var p = paise(parsed.amount);
+    var likely = entries.find(function (e) {
+      return paise(e.amount) === p && dayKey(e.ts) === day && !(parsed.refNo && e.refNo && e.refNo !== parsed.refNo);
+    });
+    return likely ? { kind: 'likely', entry: likely } : null;
+  }
+
+  function categoryBreakdown(entries) {
+    var map = new Map();
+    var grandTotal = sumRupees(entries);
+    if (grandTotal <= 0) return { categories: [], total: 0 };
+
+    entries.forEach(function (e) {
+      var desc = e.desc || '';
+      // Whole emoji only: a /[🏠👤]/ class without the u flag also ate half of 💵 💊 💳 💰.
+      var clean = desc.replace(/^(?:🏠|👤)\s*/u, '').trim();
+      var firstSymbol = Array.from(clean)[0] || '💳';
+      var categoryName = clean;
+
+      var lower = clean.toLowerCase();
+      if (clean.indexOf('💵 Unaccounted cash') === 0) categoryName = '💵 Unaccounted cash';
+      else if (clean.includes('🛒') || lower.includes('grocery') || lower.includes('supermarket') || lower.includes('dmart') || lower.includes('zepto') || lower.includes('blinkit') || lower.includes('instamart') || lower.includes('bigbasket')) categoryName = '🛒 Grocery';
+      else if (clean.includes('🥦') || lower.includes('vegetable') || lower.includes('sabzi') || lower.includes('fruits')) categoryName = '🥦 Vegetables';
+      else if (clean.includes('🥛') || lower.includes('milk') || lower.includes('doodh') || lower.includes('dairy') || lower.includes('paneer') || lower.includes('curd')) categoryName = '🥛 Milk & Dairy';
+      else if (clean.includes('⚡') || lower.includes('electricity') || lower.includes('power') || lower.includes('bescom') || lower.includes('light bill')) categoryName = '⚡ Electricity Bill';
+      else if (clean.includes('🔥') || lower.includes('gas') || lower.includes('cylinder') || lower.includes('indane') || lower.includes('hp gas') || lower.includes('bharat gas')) categoryName = '🔥 Gas Bill';
+      else if (clean.includes('📱') || lower.includes('airtel') || lower.includes('jio') || lower.includes('vodafone') || lower.includes('vi ') || lower.includes('wifi') || lower.includes('wi-fi') || lower.includes('broadband') || lower.includes('recharge') || lower.includes('fiber') || lower.includes('telecom')) categoryName = '📱 Mobile & WiFi';
+      else if (clean.includes('⛽') || lower.includes('petrol') || lower.includes('fuel') || lower.includes('diesel') || lower.includes('cng') || lower.includes('hpcl') || lower.includes('bpcl') || lower.includes('iocl') || lower.includes('shell')) categoryName = '⛽ Fuel';
+      else if (clean.includes('🍔') || lower.includes('swiggy') || lower.includes('zomato') || lower.includes('food') || lower.includes('restaurant') || lower.includes('cafe') || lower.includes('pizza') || lower.includes('burger') || lower.includes('chai') || lower.includes('tea') || lower.includes('coffee') || lower.includes('snacks')) categoryName = '🍔 Food & Dining';
+      else if (clean.includes('🛍️') || lower.includes('shopping') || lower.includes('amazon') || lower.includes('flipkart') || lower.includes('myntra') || lower.includes('meesho') || lower.includes('nykaa') || lower.includes('ajio')) categoryName = '🛍️ Online Shopping';
+      else if (clean.includes('👧') || lower.includes('niece') || lower.includes('allowance')) categoryName = '👧 Niece Allowance';
+      else if (clean.includes('💊') || lower.includes('medicine') || lower.includes('doctor') || lower.includes('pharmacy') || lower.includes('apollo') || lower.includes('1mg') || lower.includes('clinic') || lower.includes('hospital')) categoryName = '💊 Health & Medicines';
+      else if (clean.includes('🧹') || lower.includes('maid') || lower.includes('house help') || lower.includes('kamwali')) categoryName = '🧹 House Help';
+      else if (clean.includes('🛺') || lower.includes('auto') || lower.includes('cab') || lower.includes('taxi') || lower.includes('uber') || lower.includes('ola') || lower.includes('rapido') || lower.includes('metro')) categoryName = '🛺 Travel & Cab';
+      else if (lower.includes('cash') || lower.includes('atm') || lower.includes('withdrawal')) categoryName = '💵 Cash Withdrawal';
+      else if (lower.includes('transfer') || lower.includes('diye') || lower.includes('given to') || lower.includes('sent to')) categoryName = '🤝 Personal Transfers';
+      else {
+        var cleanNoPunct = clean.replace(/^[^\p{L}\p{N}]+/u, '').trim();
+        categoryName = '💳 ' + (cleanNoPunct || 'Other Spends');
+      }
+
+      if (!map.has(categoryName)) map.set(categoryName, { name: categoryName, paise: 0, count: 0 });
+      var item = map.get(categoryName);
+      item.paise += paise(e.amount);
+      item.count++;
+    });
+
+    var list = Array.from(map.values()).map(function (x) {
+      var total = x.paise / 100;
+      var pct = Math.round((total / grandTotal) * 100);
+      return { name: x.name, total: total, count: x.count, pct: pct };
+    }).sort(function (a, b) { return b.total - a.total; });
+
+    return { categories: list, total: grandTotal };
+  }
+
+  function monthCompare(curList, prevList) {
+    var cur = sumRupees(curList), prev = sumRupees(prevList), prevCats = {};
+    categoryBreakdown(prevList).categories.forEach(function (c) { prevCats[c.name] = c.total; });
+    return { cur: cur, prev: prev, pct: prev > 0 ? Math.round(((cur - prev) / prev) * 100) : null, prevCats: prevCats };
+  }
+  function prevMonthKey(key) {
+    var p = key.split('-'); var d = new Date(+p[0], +p[1] - 2, 1);
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1);
   }
 
   var dFmt = new Intl.DateTimeFormat('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
@@ -74,25 +843,134 @@
   function monthLabel(key) { var p = key.split('-'); return mFmt.format(new Date(+p[0], +p[1] - 1, 1)); }
   function keyToDate(key) { var p = key.split('-'); return new Date(+p[0], +p[1] - 1, +p[2], 12); }
 
-  /* Exposed for tests only. */
-  window.__kharcha = { parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry };
+  /* Exposed for tests and diagnostics. */
+  window.__kharcha = {
+    state: state,
+    store: store,
+    enterApp: enterApp,
+    getSb: function () { return sb; },
+    parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, parseSMSDate: parseSMSDate, findDuplicate: findDuplicate, categoryBreakdown: categoryBreakdown, monthCompare: monthCompare,
+    isIncome: isIncome, isMotherSettlement: isMotherSettlement, isMotherPension: isMotherPension, isSalary: isSalary, isExpense: isExpense, isInvestment: isInvestment, getFamilySettlement: getFamilySettlement, getPersonalCashFlow: getPersonalCashFlow,
+    isProjectEntry: isProjectEntry, isProjectMotherPaid: isProjectMotherPaid, getProjectSummary: getProjectSummary,
+    isTripEntry: isTripEntry, getTripSummary: getTripSummary, parseTripPayer: parseTripPayer,
+    getAllTrips: getAllTrips, getTripFriends: getTripFriends, addTripFriend: addTripFriend, removeTripFriend: removeTripFriend,
+    getEntryScope: getEntryScope, shiftScopeDesc: shiftScopeDesc,
+    rememberMerchantScope: rememberMerchantScope, predictMerchantScope: predictMerchantScope,
+    recentSpendsForTrip: recentSpendsForTrip, recurringBills: recurringBills, monthForecast: monthForecast,
+    upiPayLink: upiPayLink, settleMessage: settleMessage, whatsappLink: whatsappLink,
+    isCashWithdrawal: isCashWithdrawal, cashSummary: cashSummary, unaccountedCashEntry: unaccountedCashEntry,
+    methodBreakdown: methodBreakdown, methodLabel: methodLabel
+  };
 
   var TABLE = 'daily_expenses';
   var COLS = 'id, amount, description, spent_at';
+  // ref_no / raw_sms come from supabase/daily_expenses_v2_sms.sql. Until that migration runs, the app falls back to COLS.
+  var COLS_EXT = COLS + ', ref_no, raw_sms';
+  // kind / method / account_last4 / bank come from supabase/kharcha_v5_money_types.sql.
+  var COLS_V5 = COLS_EXT + ', kind, method, account_last4, bank';
+  var hasExtCols = true;   // v2 columns present
+  var hasV5Cols = true;    // v5 columns present
+  function selectCols() { return hasV5Cols ? COLS_V5 : (hasExtCols ? COLS_EXT : COLS); }
+  // A missing column drops one tier (v5 -> v2 -> basic) and the caller retries.
+  function downgradeCols() {
+    if (hasV5Cols) { hasV5Cols = false; return true; }
+    if (hasExtCols) { hasExtCols = false; return true; }
+    return false;
+  }
+  function isMissingColumn(err) {
+    return err && (err.code === '42703' || err.code === 'PGRST204' || /column .*(does not exist|not find)|could not find the '.*' column/i.test(err.message || ''));
+  }
 
   var DEFAULT_CHIPS = [
-    { label: 'Grocery', scope: 'personal', emoji: '🛒' },
-    { label: 'Milk', scope: 'personal', emoji: '🥛' },
-    { label: 'Vegetables', scope: 'personal', emoji: '🥦' },
-    { label: 'Online Spend', scope: 'personal', emoji: '🛍️' },
-    { label: 'Electricity Bill', scope: 'family', emoji: '⚡' },
-    { label: 'Gas Bill', scope: 'family', emoji: '🔥' },
-    { label: 'Niece Allowance', scope: 'family', emoji: '👧' }
+    { label: 'General Grocery', emoji: '🛒' },
+    { label: 'Daily Vegetables', emoji: '🥦' },
+    { label: 'Milk / Doodh', emoji: '🥛' },
+    { label: 'Bread & Eggs', emoji: '🍞' },
+    { label: 'Fresh Fruits', emoji: '🍎' },
+    { label: 'Online Spend', emoji: '🛍️' },
+    { label: 'Tea / Chai & Snacks', emoji: '☕' },
+    { label: 'Electricity Bill', emoji: '⚡' },
+    { label: 'Gas Bill / Cylinder', emoji: '🔥' },
+    { label: 'Mobile & WiFi Recharge', emoji: '📱' },
+    { label: 'Petrol / Fuel', emoji: '⛽' },
+    { label: 'Niece Allowance', emoji: '👧' },
+    { label: 'Medicines & Doctor', emoji: '💊' },
+    { label: 'House Help / Maid', emoji: '🧹' },
+    { label: 'Auto / Cab / Bus', emoji: '🛺' }
   ];
 
-  var state = { mode: 'pending', entries: [], sel: null, editing: null, draft: null, scopeFilter: 'all' };
+  var state = { mode: 'pending', entries: [], sel: null, editing: null, draft: null, scopeFilter: 'all', activeStream: 'spends', expandedDays: {} };
   var searchQuery = '';
   var sb = null;
+
+  /* ---------- Shared settings: one row in Supabase kharcha_settings, used by web + phone ----------
+     Same keys and string values as localStorage, so feature code just swaps localStorage for kv.
+     localStorage stays as the offline cache, and is all there is until the v4 SQL has been run. */
+  var SHARED_KEYS = ['kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
+    'kharcha_active_trip_name', 'kharcha_all_trips_list', 'kharcha_category_budgets', 'kharcha_merchant_memory',
+    'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers'];
+  var SHARED_PREFIXES = ['kharcha_trip_friends_', 'kharcha_trip_budget_'];
+  function isSharedKey(k) {
+    return SHARED_KEYS.indexOf(k) >= 0 || SHARED_PREFIXES.some(function (p) { return k.indexOf(p) === 0; });
+  }
+  var kv = {
+    data: {}, remote: false, userId: null, timer: null,
+    get: function (k) {
+      if (Object.prototype.hasOwnProperty.call(this.data, k)) return this.data[k];
+      try { return localStorage.getItem(k); } catch (e) { return null; }
+    },
+    set: function (k, v) {
+      v = String(v);
+      this.data[k] = v;
+      try { localStorage.setItem(k, v); } catch (e) {}
+      this.schedulePush();
+    },
+    remove: function (k) {
+      this.data[k] = null; // null (not delete) so the removal reaches the other devices
+      try { localStorage.removeItem(k); } catch (e) {}
+      this.schedulePush();
+    },
+    localSharedValues: function () {
+      var out = {};
+      try {
+        for (var i = 0; i < localStorage.length; i++) {
+          var k = localStorage.key(i);
+          if (isSharedKey(k)) out[k] = localStorage.getItem(k);
+        }
+      } catch (e) {}
+      return out;
+    },
+    // Server wins for keys it has; keys only this device knows are kept and pushed up.
+    load: async function () {
+      try {
+        var user = (await sb.auth.getUser()).data.user;
+        if (!user) return;
+        this.userId = user.id;
+        var res = await sb.from('kharcha_settings').select('data').maybeSingle();
+        if (res.error) { console.warn('Kharcha: shared settings unavailable (' + res.error.message + '); using this device only'); return; }
+        var server = (res.data && res.data.data) || {};
+        var local = this.localSharedValues();
+        var changed = !res.data;
+        Object.keys(local).forEach(function (k) { if (!Object.prototype.hasOwnProperty.call(server, k)) { server[k] = local[k]; changed = true; } });
+        this.data = server;
+        Object.keys(server).forEach(function (k) {
+          try { if (server[k] == null) localStorage.removeItem(k); else localStorage.setItem(k, String(server[k])); } catch (e) {}
+        });
+        this.remote = true;
+        if (changed) await this.push();
+      } catch (e) { console.warn('Kharcha: shared settings load failed', e); }
+    },
+    schedulePush: function () {
+      var self = this;
+      clearTimeout(this.timer);
+      this.timer = setTimeout(function () { self.timer = null; self.push(); }, 600);
+    },
+    push: async function () {
+      if (!this.remote || !this.userId) return;
+      var res = await sb.from('kharcha_settings').upsert({ user_id: this.userId, data: this.data, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+      if (res.error) console.warn('Kharcha: shared settings save failed', res.error.message);
+    }
+  };
 
   function $(id) { return document.getElementById(id); }
   function el(tag, cls, text) {
@@ -105,35 +983,82 @@
     return e && typeof e.amount === 'number' && isFinite(e.amount) && typeof e.ts === 'number' && !isNaN(e.ts) && typeof e.desc === 'string';
   }
   function fromRow(r) {
-    return { id: r.id, amount: Number(r.amount), desc: r.description, ts: Date.parse(r.spent_at) };
+    return {
+      id: r.id, amount: Number(r.amount), desc: r.description, ts: Date.parse(r.spent_at), refNo: r.ref_no || null,
+      kind: r.kind || null, method: r.method || null, last4: r.account_last4 || null, bank: r.bank || null
+    };
   }
 
   /* ---------- storage ---------- */
   var store = {
     loadAll: async function () {
+      console.log('Kharcha: store.loadAll begin, selectCols=' + selectCols());
       var out = [], from = 0, size = 1000;
       while (true) {
-        var res = await sb.from(TABLE).select(COLS)
+        var res = await sb.from(TABLE).select(selectCols())
           .order('spent_at', { ascending: false }).order('id').range(from, from + size - 1);
+        console.log('Kharcha: query batch res error=' + (res.error ? JSON.stringify(res.error) : 'null') + ' dataCount=' + (res.data ? res.data.length : 'null'));
+        if (res.error && isMissingColumn(res.error) && downgradeCols()) {
+          console.warn('Kharcha: missing columns, retrying with ' + selectCols());
+          continue;
+        }
         if (res.error) throw res.error;
-        out = out.concat(res.data);
-        if (res.data.length < size) break;
+        out = out.concat(res.data || []);
+        if (!res.data || res.data.length < size) break;
         from += size;
       }
-      return out.map(fromRow).filter(validEntry);
+      var filtered = out.map(fromRow).filter(validEntry);
+      console.log('Kharcha: store.loadAll done, total=' + filtered.length);
+      return filtered;
     },
     add: async function (e) {
-      var payload = { amount: e.amount, description: e.desc };
+      if (isDemoMode) {
+        var cleanDesc = safeTruncate(e.desc, 50);
+        var mockEntry = { id: 'demo-' + Date.now(), amount: e.amount, desc: cleanDesc, ts: e.spent_at ? Date.parse(e.spent_at) : Date.now(), refNo: e.ref_no || null, method: e.method || null, kind: e.kind || null };
+        state.entries.push(mockEntry);
+        return;
+      }
+      var userRes = await sb.auth.getUser();
+      if (!userRes.data || !userRes.data.user) {
+        showScreen('auth');
+        throw new Error("Your sign-in session expired. Please sign in again.");
+      }
+      var cleanDesc = safeTruncate(e.desc, 50);
+      var payload = { amount: e.amount, description: cleanDesc, user_id: userRes.data.user.id };
       if (e.spent_at) payload.spent_at = e.spent_at;
-      var res = await sb.from(TABLE).insert(payload).select(COLS).single();
-      if (res.error) throw res.error;
+      if (hasExtCols && e.ref_no) payload.ref_no = e.ref_no;
+      if (hasExtCols && e.raw_sms) payload.raw_sms = safeTruncate(e.raw_sms, 500);
+      if (hasV5Cols && e.method) payload.method = e.method;
+      if (hasV5Cols && e.kind) payload.kind = e.kind;
+      var res = await sb.from(TABLE).insert([payload]).select(selectCols()).single();
+      while (res.error && isMissingColumn(res.error) && downgradeCols()) {
+        if (!hasV5Cols) { delete payload.method; delete payload.kind; }
+        if (!hasExtCols) { delete payload.ref_no; delete payload.raw_sms; }
+        res = await sb.from(TABLE).insert([payload]).select(selectCols()).single();
+      }
+      if (res.error && res.error.code === '23505') {
+        throw new Error('Already added: this transaction (Ref ' + e.ref_no + ') is already in your Kharcha Book.');
+      }
+      if (res.error) {
+        console.error('Supabase add error:', res.error);
+        throw res.error;
+      }
       state.entries.push(fromRow(res.data));
     },
     update: async function (id, patch) {
-      var payload = { amount: patch.amount, description: patch.desc };
+      var cleanDesc = safeTruncate(patch.desc, 50);
+      var payload = { amount: patch.amount, description: cleanDesc };
       if (patch.spent_at) payload.spent_at = patch.spent_at;
-      var res = await sb.from(TABLE).update(payload).eq('id', id).select(COLS).single();
-      if (res.error) throw res.error;
+      if (hasV5Cols && patch.method !== undefined) payload.method = patch.method || null;
+      var res = await sb.from(TABLE).update(payload).eq('id', id).select(selectCols()).single();
+      while (res.error && isMissingColumn(res.error) && downgradeCols()) {
+        if (!hasV5Cols) delete payload.method;
+        res = await sb.from(TABLE).update(payload).eq('id', id).select(selectCols()).single();
+      }
+      if (res.error) {
+        console.error('Supabase update error:', res.error);
+        throw res.error;
+      }
       var i = state.entries.findIndex(function (x) { return x.id === id; });
       if (i >= 0) state.entries[i] = fromRow(res.data);
     },
@@ -160,8 +1085,52 @@
     pill.addEventListener('click', function () {
       var input = pill.querySelector('input');
       if (input) setSelectedScope(input.value);
+      if (input && input.name === 'scope') updateTripPickRow();
     });
   });
+
+  // Populated with every trip that exists (not just the active one), so a hotel/flight booked
+  // ahead of a trip that hasn't started yet can be tagged to it without making it the active trip.
+  function updateTripPickRow() {
+    var row = $('trip-pick-row');
+    var select = $('trip-pick');
+    if (!row || !select) return;
+    row.hidden = getSelectedScope() !== 'trip';
+    if (row.hidden) return;
+    var current = select.value;
+    select.innerHTML = '';
+    var placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = '+ New trip…';
+    select.appendChild(placeholder);
+    var active = getActiveTripName();
+    getAllTrips().forEach(function (t) {
+      var opt = document.createElement('option');
+      opt.value = t;
+      opt.textContent = '✈️ ' + t + (t === active ? ' (active)' : '');
+      select.appendChild(opt);
+    });
+    if (current && getAllTrips().includes(current)) select.value = current;
+  }
+  var tripPickSelect = $('trip-pick');
+  if (tripPickSelect) {
+    tripPickSelect.addEventListener('change', function () {
+      if (tripPickSelect.value !== '') return;
+      showInputModal({
+        title: '✈️ New trip',
+        message: "Name it now and tag this expense to it -- it won't become your active trip until you switch to it later.",
+        fields: [{ label: 'Trip name', placeholder: 'e.g. Goa Dec' }],
+        confirmText: 'Create',
+        onConfirm: function (values) {
+          var name = (values[0] || '').trim();
+          if (!name) return;
+          saveTripToList(name);
+          updateTripPickRow();
+          tripPickSelect.value = name;
+        }
+      });
+    });
+  }
 
   /* ---------- Scope Filter Tabs on Hero Card ---------- */
   document.querySelectorAll('.scopetab').forEach(function (tab) {
@@ -175,8 +1144,8 @@
 
   /* ---------- Budget Feature ---------- */
   var BUDGET_KEY = 'kharcha_monthly_budget';
-  function getBudget() { try { return Number(localStorage.getItem(BUDGET_KEY)) || 0; } catch (e) { return 0; } }
-  function setBudget(val) { try { if (val > 0) localStorage.setItem(BUDGET_KEY, String(val)); else localStorage.removeItem(BUDGET_KEY); } catch (e) {} }
+  function getBudget() { try { return Number(kv.get(BUDGET_KEY)) || 0; } catch (e) { return 0; } }
+  function setBudget(val) { try { if (val > 0) kv.set(BUDGET_KEY, String(val)); else kv.remove(BUDGET_KEY); } catch (e) {} }
 
   function renderBudget(curTotal) {
     var b = getBudget();
@@ -199,15 +1168,295 @@
     else fill.className = 'budget-progress-fill';
   }
 
+  /* ---------- In-App Budget Modal ---------- */
+  var currentBudgetSaveCallback = null;
+  var currentBudgetClearCallback = null;
+
+  function openBudgetModal(options) {
+    var modal = $('budget-modal');
+    if (!modal) return;
+
+    var titleEl = $('budget-modal-title');
+    if (titleEl) titleEl.textContent = options.title || '🎯 Set Budget';
+
+    var introEl = $('budget-modal-intro');
+    if (introEl) introEl.textContent = options.intro || 'Set your spending limit in ₹. Leave blank or enter 0 to remove.';
+
+    var spentWrap = $('budget-modal-spent-wrap');
+    var spentVal = $('budget-modal-spent');
+    if (spentWrap && spentVal) {
+      if (options.spentText) {
+        spentWrap.hidden = false;
+        spentVal.textContent = options.spentText;
+      } else {
+        spentWrap.hidden = true;
+      }
+    }
+
+    var input = $('budget-modal-input');
+    if (input) {
+      input.value = (options.currentValue && options.currentValue > 0) ? options.currentValue : '';
+    }
+
+    var errEl = $('budget-modal-err');
+    if (errEl) errEl.hidden = true;
+
+    var presetsWrap = $('budget-modal-presets');
+    if (presetsWrap) {
+      presetsWrap.textContent = '';
+      var presets = options.presets || [1000, 2500, 5000, 10000];
+      presets.forEach(function (amt) {
+        var chip = el('button', 'budget-chip', '₹' + amt.toLocaleString('en-IN'));
+        chip.type = 'button';
+        chip.addEventListener('click', function () {
+          if (input) {
+            input.value = amt;
+            if (errEl) errEl.hidden = true;
+            input.focus();
+          }
+        });
+        presetsWrap.appendChild(chip);
+      });
+    }
+
+    var clearBtn = $('clear-budget-modal-btn');
+    if (clearBtn) {
+      clearBtn.style.display = (options.currentValue && options.currentValue > 0) ? 'inline-block' : 'none';
+    }
+
+    currentBudgetSaveCallback = options.onSave;
+    currentBudgetClearCallback = options.onClear;
+
+    modal.hidden = false;
+    if (input) {
+      setTimeout(function () {
+        input.focus();
+        input.select();
+      }, 100);
+    }
+  }
+
+  function closeBudgetModal() {
+    var modal = $('budget-modal');
+    if (modal) modal.hidden = true;
+    currentBudgetSaveCallback = null;
+    currentBudgetClearCallback = null;
+  }
+
+  (function initBudgetModalEvents() {
+    var modal = $('budget-modal');
+    if (!modal) return;
+
+    var closeBtn = $('close-budget-modal');
+    if (closeBtn) closeBtn.addEventListener('click', closeBudgetModal);
+
+    var cancelBtn = $('cancel-budget-modal-btn');
+    if (cancelBtn) cancelBtn.addEventListener('click', closeBudgetModal);
+
+    var clearBtn = $('clear-budget-modal-btn');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', function () {
+        var cb = currentBudgetClearCallback;
+        closeBudgetModal();
+        if (cb) cb();
+      });
+    }
+
+    var input = $('budget-modal-input');
+    var saveBtn = $('save-budget-modal-btn');
+    var errEl = $('budget-modal-err');
+
+    function handleSave() {
+      if (!input) return;
+      var raw = input.value.trim();
+      if (!raw || raw === '0') {
+        var cb = currentBudgetClearCallback;
+        closeBudgetModal();
+        if (cb) cb();
+        return;
+      }
+      var n = Number(raw.replace(/[,\s₹]/g, ''));
+      if (isNaN(n) || n < 0) {
+        if (errEl) {
+          errEl.textContent = 'Please enter a valid positive number.';
+          errEl.hidden = false;
+        }
+        input.focus();
+        return;
+      }
+      var rounded = Math.round(n * 100) / 100;
+      var saveCb = currentBudgetSaveCallback;
+      closeBudgetModal();
+      if (saveCb) saveCb(rounded);
+    }
+
+    if (saveBtn) saveBtn.addEventListener('click', handleSave);
+
+    if (input) {
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          handleSave();
+        } else if (e.key === 'Escape') {
+          closeBudgetModal();
+        }
+      });
+    }
+
+    modal.addEventListener('click', function (e) {
+      if (e.target === modal) closeBudgetModal();
+    });
+  })();
+
+  /* ---------- In-App Confirm Modal ---------- */
+  var confirmModalCallback = null;
+
+  function showConfirmModal(options) {
+    var modal = $('confirm-modal');
+    if (!modal) {
+      if (confirm(options.message)) {
+        if (options.onConfirm) options.onConfirm();
+      }
+      return;
+    }
+
+    var titleEl = $('confirm-modal-title');
+    if (titleEl) titleEl.textContent = options.title || 'Confirm Action';
+
+    var msgEl = $('confirm-modal-msg');
+    if (msgEl) msgEl.textContent = options.message || 'Are you sure?';
+
+    var okBtn = $('ok-confirm-modal-btn');
+    if (okBtn) {
+      okBtn.textContent = options.confirmText || 'Confirm';
+      if (options.isDanger) {
+        okBtn.style.background = 'var(--danger)';
+      } else {
+        okBtn.style.background = '';
+      }
+    }
+
+    confirmModalCallback = options.onConfirm;
+    modal.hidden = false;
+  }
+
+  /* In-app text input pop-up -- replaces window.prompt(), which in the Android app (WebView) shows
+     the system's bare dialog instead of something that looks like Kharcha Book.
+     options: { title, message, fields: [{ label, value, placeholder, inputmode }], confirmText,
+                onConfirm(values) } -- values is an array of trimmed strings, one per field. */
+  function showInputModal(options) {
+    var back = el('div', 'modal-backdrop');
+    var card = el('div', 'modal-card modal-input');
+    var form = document.createElement('form');
+    form.noValidate = true;
+    var head = el('div', 'modal-head');
+    head.appendChild(el('h3', null, options.title || 'Enter details'));
+    var x = el('button', 'close-btn', '×');
+    x.type = 'button';
+    x.setAttribute('aria-label', 'Close');
+    head.appendChild(x);
+    form.appendChild(head);
+    if (options.message) form.appendChild(el('p', 'modal-intro', options.message));
+    var inputs = (options.fields || [{}]).map(function (f) {
+      var wrap = el('label', 'field modal-field');
+      if (f.label) wrap.appendChild(el('span', 'modal-field-label', f.label));
+      var input = el('input', 'input');
+      input.type = 'text';
+      input.value = f.value || '';
+      if (f.placeholder) input.placeholder = f.placeholder;
+      if (f.inputmode) input.setAttribute('inputmode', f.inputmode);
+      input.autocomplete = 'off';
+      wrap.appendChild(input);
+      form.appendChild(wrap);
+      return input;
+    });
+    var foot = el('div', 'modal-foot');
+    var cancel = el('button', 'ghost', 'Cancel'); cancel.type = 'button';
+    var ok = el('button', 'primary', options.confirmText || 'Save'); ok.type = 'submit';
+    foot.appendChild(cancel); foot.appendChild(ok);
+    form.appendChild(foot);
+    card.appendChild(form);
+    back.appendChild(card);
+    document.body.appendChild(back);
+
+    function close() { document.removeEventListener('keydown', onKey); back.remove(); }
+    function onKey(ev) { if (ev.key === 'Escape') close(); }
+    document.addEventListener('keydown', onKey);
+    x.addEventListener('click', close);
+    cancel.addEventListener('click', close);
+    back.addEventListener('click', function (ev) { if (ev.target === back) close(); });
+    form.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var values = inputs.map(function (i) { return i.value.trim(); });
+      close();
+      if (options.onConfirm) options.onConfirm(values);
+    });
+    setTimeout(function () { if (inputs[0]) { inputs[0].focus(); inputs[0].select(); } }, 50);
+  }
+
+  function closeConfirmModal() {
+    var modal = $('confirm-modal');
+    if (modal) modal.hidden = true;
+    confirmModalCallback = null;
+  }
+
+  (function initConfirmModalEvents() {
+    var modal = $('confirm-modal');
+    if (!modal) return;
+
+    var closeBtn = $('close-confirm-modal');
+    if (closeBtn) closeBtn.addEventListener('click', closeConfirmModal);
+
+    var cancelBtn = $('cancel-confirm-modal-btn');
+    if (cancelBtn) cancelBtn.addEventListener('click', closeConfirmModal);
+
+    var okBtn = $('ok-confirm-modal-btn');
+    if (okBtn) {
+      okBtn.addEventListener('click', function () {
+        var cb = confirmModalCallback;
+        closeConfirmModal();
+        if (cb) cb();
+      });
+    }
+
+    modal.addEventListener('click', function (e) {
+      if (e.target === modal) closeConfirmModal();
+    });
+  })();
+
   $('budget-edit-btn').addEventListener('click', function () {
     var cur = getBudget();
-    var val = prompt('Enter your monthly budget limit in ₹ (enter 0 to clear):', cur || '');
-    if (val === null) return;
-    var n = Number(val.replace(/[,\s₹]/g, ''));
-    if (isNaN(n) || n < 0) { alert('Please enter a valid positive number.'); return; }
-    setBudget(n);
-    render();
+    var list = visibleEntries(state.sel);
+    var curTotal = list.reduce(function (s, e) { return s + e.amount; }, 0);
+    openBudgetModal({
+      title: '🎯 Monthly Budget',
+      intro: 'Set your overall monthly spending limit. You will see real-time progress and alerts as you spend.',
+      spentText: money(curTotal),
+      currentValue: cur || 0,
+      presets: [10000, 20000, 30000, 50000],
+      onSave: function (n) {
+        setBudget(n);
+        render();
+        toast('Monthly budget set to ' + money(n));
+      },
+      onClear: function () {
+        setBudget(0);
+        render();
+        toast('Monthly budget cleared');
+      }
+    });
   });
+
+  /* Hero Insights & Stats Accordion Toggle */
+  var insightsToggle = $('hero-insights-toggle');
+  var insightsPanel = $('hero-insights-panel');
+  if (insightsToggle && insightsPanel) {
+    insightsToggle.addEventListener('click', function () {
+      var isHidden = insightsPanel.hidden;
+      insightsPanel.hidden = !isHidden;
+      insightsToggle.setAttribute('aria-expanded', String(isHidden));
+    });
+  }
 
   /* ---------- Search & CSV Export ---------- */
   $('search').addEventListener('input', function (ev) {
@@ -215,31 +1464,68 @@
     render();
   });
 
-  $('export-csv').addEventListener('click', function () {
-    var list = state.entries.filter(function (e) { return monthKey(e.ts) === state.sel; });
-    if (state.scopeFilter === 'personal') list = list.filter(function (e) { return !isFamilyEntry(e.desc); });
-    else if (state.scopeFilter === 'family') list = list.filter(function (e) { return isFamilyEntry(e.desc); });
-
-    if (searchQuery) {
-      list = list.filter(function (e) {
-        return e.desc.toLowerCase().includes(searchQuery) || dFmt.format(new Date(e.ts)).toLowerCase().includes(searchQuery);
+  var moveBtn = $('move-all-family');
+  if (moveBtn) {
+    moveBtn.addEventListener('click', function () {
+      var personalEntries = state.entries.filter(function (e) { return !isFamilyEntry(e.desc); });
+      if (!personalEntries.length) {
+        toast('All expenses are already under Family & Bills!');
+        return;
+      }
+      showConfirmModal({
+        title: '🏠 Move to Family & Bills',
+        message: 'Move ' + personalEntries.length + ' personal expense(s) to Family & Bills?',
+        confirmText: 'Move All',
+        onConfirm: async function () {
+          moveBtn.disabled = true;
+          moveBtn.textContent = 'Moving…';
+          var count = 0;
+          try {
+            for (var i = 0; i < personalEntries.length; i++) {
+              var e = personalEntries[i];
+              var clean = e.desc.replace(/^[👤🏠]\s*/, '');
+              var newDesc = '🏠 ' + clean;
+              await store.update(e.id, { amount: e.amount, desc: newDesc, spent_at: new Date(e.ts).toISOString() });
+              count++;
+            }
+            toast('Moved ' + count + ' expenses to Family & Bills!');
+          } catch (err) {
+            toast('Moved ' + count + ' expenses before error: ' + (err.message || 'failed'));
+          } finally {
+            moveBtn.disabled = false;
+            moveBtn.textContent = '🏠 Move All to Family';
+            state.entries = await store.loadAll();
+            render();
+          }
+        }
       });
-    }
+    });
+  }
+
+  $('export-csv').addEventListener('click', function () {
+    var list = visibleEntries(state.sel);
     if (!list.length) { toast('No expenses to export for this view.'); return; }
-    var csv = ['Date,Time,Category,Description,Amount (INR)'];
+    var csv = ['Date,Time,Category,Description,Amount (INR),Paid via'];
     list.sort(byTimeDesc).forEach(function (e) {
       var d = new Date(e.ts);
       var dateStr = dayKey(e.ts);
       var timeStr = tFmt.format(d);
       var catStr = isFamilyEntry(e.desc) ? 'Family/Bill' : 'Personal';
       var descStr = '"' + e.desc.replace(/"/g, '""') + '"';
-      csv.push(dateStr + ',' + timeStr + ',' + catStr + ',' + descStr + ',' + e.amount);
+      csv.push(dateStr + ',' + timeStr + ',' + catStr + ',' + descStr + ',' + e.amount + ',"' + methodLabel(e).replace(/"/g, '""') + '"');
     });
+    var fileName = 'kharcha-' + state.scopeFilter + '-' + state.sel + '.csv';
+    // Inside the SpendTrack app there are no browser downloads; hand the file to Android's share sheet.
+    if (window.KharchaNative && typeof window.KharchaNative.shareFile === 'function') {
+      window.KharchaNative.shareFile(fileName, 'text/csv', csv.join('\n'));
+      toast('CSV ready for ' + monthLabel(state.sel) + ' — choose where to save it');
+      return;
+    }
     var blob = new Blob([csv.join('\n')], { type: 'text/csv;charset=utf-8;' });
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url;
-    a.download = 'kharcha-' + state.scopeFilter + '-' + state.sel + '.csv';
+    a.download = fileName;
     a.click();
     URL.revokeObjectURL(url);
     toast('Downloaded CSV for ' + monthLabel(state.sel));
@@ -261,6 +1547,129 @@
   }
 
   /* ---------- render ---------- */
+  // Expenses of one month after the scope tab and search box are applied.
+  function visibleEntries(key) {
+    var list = state.entries.filter(function (e) { return monthKey(e.ts) === key && isExpense(e); });
+    if (state.scopeFilter === 'personal') {
+      list = list.filter(function (e) { return !isFamilyEntry(e.desc); });
+    } else if (state.scopeFilter === 'family') {
+      list = list.filter(function (e) { return isFamilyEntry(e.desc); });
+    }
+    if (searchQuery) {
+      list = list.filter(function (e) {
+        return e.desc.toLowerCase().includes(searchQuery) || dFmt.format(new Date(e.ts)).toLowerCase().includes(searchQuery);
+      });
+    }
+    return list;
+  }
+
+  // Incomings of selected month
+  function visibleIncomings(key) {
+    var list = state.entries.filter(function (e) { return monthKey(e.ts) === key && isIncome(e); });
+    if (searchQuery) {
+      list = list.filter(function (e) {
+        return e.desc.toLowerCase().includes(searchQuery) || dFmt.format(new Date(e.ts)).toLowerCase().includes(searchQuery);
+      });
+    }
+    return list;
+  }
+
+  function renderForecast(nowKey) {
+    var card = $('forecast-card');
+    if (!card) return;
+    if (state.sel !== nowKey) { card.hidden = true; return; }
+    var fc = monthForecast(state.entries, nowKey, new Date());
+    var bills = recurringBills(state.entries, nowKey);
+    if (!fc.spent && !bills.length) { card.hidden = true; return; }
+    card.hidden = false;
+    $('fc-projected').textContent = money(fc.projected);
+    $('fc-sub').textContent = 'Spent ' + money(fc.spent) + ' so far' +
+      (fc.upcoming ? ' · ' + money(fc.upcoming) + ' in bills still due' : '') + ' · rest at your current daily pace';
+    var ul = $('fc-bills');
+    ul.textContent = '';
+    bills.forEach(function (b) {
+      var li = el('li', b.paidThisMonth ? 'fc-bill paid' : 'fc-bill');
+      li.appendChild(el('span', null, (b.paidThisMonth ? '✓ ' : '⏳ ') + b.label));
+      li.appendChild(el('span', null, money(b.amount) + ' · ~' + b.day + dayOrdinal(b.day)));
+      ul.appendChild(li);
+    });
+  }
+  // Inside the Android app: hand this month's numbers to the home-screen widget.
+  function reportNativeSummary(nowKey) {
+    var bridge = window.KharchaNative;
+    if (!bridge || !bridge.reportSummary) return;
+    try {
+      var fc = monthForecast(state.entries, nowKey, new Date());
+      // Recurring bills go to the phone, which reminds you a couple of days before each is due.
+      var bills = recurringBills(state.entries, nowKey).filter(function (b) { return b.isExpense; }).slice(0, 40)
+        .map(function (b) { return { key: b.key, label: b.label, amount: b.amount, day: b.day, paidThisMonth: b.paidThisMonth }; });
+      bridge.reportSummary(JSON.stringify({
+        month: monthLabel(nowKey),
+        spentLabel: money(fc.spent),
+        projectedLabel: money(fc.projected),
+        bills: bills
+      }));
+    } catch (e) { /* widget is best-effort */ }
+  }
+  function dayOrdinal(d) {
+    if (d % 100 >= 11 && d % 100 <= 13) return 'th';
+    return ['th', 'st', 'nd', 'rd'][d % 10] || 'th';
+  }
+
+  // Adds the "💵 Unaccounted cash" line for the month, except when it can't belong to the view
+  // (Family tab, or a search for something specific).
+  function withCashLine(list, key) {
+    if (state.scopeFilter === 'family' || searchQuery) return list;
+    var line = unaccountedCashEntry(state.entries, key);
+    return line ? list.concat([line]) : list;
+  }
+
+  /* ---------- Cash wallet card ---------- */
+  function renderCashWallet(c) {
+    var card = $('cash-wallet');
+    if (!card) return;
+    card.hidden = !(c.withdrawn > 0 || c.spent > 0);
+    if (card.hidden) return;
+    $('cw-withdrawn').textContent = money(c.withdrawn);
+    $('cw-spent').textContent = money(c.spent);
+    $('cw-unaccounted').textContent = money(c.unaccounted);
+    $('cw-note').textContent = c.unaccounted > 0
+      ? money(c.unaccounted) + ' of cash isn\'t itemised yet. It\'s counted as "Unaccounted cash"; log cash spends to move it into real categories.'
+      : 'All withdrawn cash is itemised. 👍';
+  }
+
+  /* ---------- By payment method ---------- */
+  function renderMethodBreakdown(list) {
+    var sec = $('method-sec');
+    var box = $('method-breakdown');
+    if (!sec || !box) return;
+    var rows = methodBreakdown(list);
+    // Nothing to show until rows carry a method (phone-synced, or picked when adding).
+    var known = rows.filter(function (r) { return r.method !== 'unknown'; });
+    sec.hidden = !known.length;
+    box.textContent = '';
+    if (sec.hidden) return;
+    rows.forEach(function (r) {
+      var row = el('div', 'cat-row method-row');
+      var head = el('div', 'cat-row-head');
+      head.appendChild(el('span', null, r.icon + ' ' + r.label + ' (' + r.count + ')'));
+      head.appendChild(el('span', null, money(r.total) + ' · ' + r.pct + '%'));
+      var track = el('div', 'cat-track');
+      var fill = el('div', 'cat-fill method-' + r.method);
+      fill.style.width = Math.min(100, Math.max(2, r.pct)) + '%';
+      track.appendChild(fill);
+      row.appendChild(head);
+      row.appendChild(track);
+      box.appendChild(row);
+    });
+    var cc = rows.filter(function (r) { return r.method === 'credit_card'; }).reduce(function (s, r) { return s + r.total; }, 0);
+    var note = $('method-note');
+    if (note) {
+      note.hidden = !cc;
+      if (cc) note.textContent = '💳 ' + money(cc) + ' on credit cards this month: that lands on your card bill, not your bank balance yet.';
+    }
+  }
+
   function render() {
     var nowKey = monthKey(Date.now());
     var months = monthTotals(state.entries);
@@ -270,41 +1679,1636 @@
     var idx = months.findIndex(function (m) { return m.key === state.sel; });
     var cur = months[idx];
 
-    var monthEntries = state.entries.filter(function (e) { return monthKey(e.ts) === state.sel; });
-    var list = monthEntries;
+    renderForecast(nowKey);
+    reportNativeSummary(nowKey);
 
-    if (state.scopeFilter === 'personal') {
-      list = list.filter(function (e) { return !isFamilyEntry(e.desc); });
-    } else if (state.scopeFilter === 'family') {
-      list = list.filter(function (e) { return isFamilyEntry(e.desc); });
-    }
+    var list = visibleEntries(state.sel);
+    var prevKey = prevMonthKey(state.sel);
+    var prevList = visibleEntries(prevKey);
+    // Totals/breakdowns include ATM cash not yet itemised; the day list shows only real rows.
+    var totalsList = withCashLine(list, state.sel);
+    var cmp = monthCompare(totalsList, withCashLine(prevList, prevKey));
 
-    if (searchQuery) {
-      list = list.filter(function (e) {
-        return e.desc.toLowerCase().includes(searchQuery) || dFmt.format(new Date(e.ts)).toLowerCase().includes(searchQuery);
-      });
-    }
-
-    var displayTotal = sumRupees(list);
+    var displayTotal = sumRupees(totalsList);
     var days = groupByDay(list);
 
     $('mlabel').textContent = monthLabel(state.sel);
     $('mtotal').textContent = money(displayTotal);
+    $('sticky-month-label').textContent = monthLabel(state.sel);
+    $('sticky-month-total').textContent = money(displayTotal);
+    var vs = $('vs-last');
+    if (vs) {
+      vs.hidden = cmp.pct == null;
+      if (cmp.pct != null) vs.textContent = (cmp.pct > 0 ? '▲ ' : cmp.pct < 0 ? '▼ ' : '') + Math.abs(cmp.pct) + '% vs ' + monthLabel(prevKey) + ' (' + money(cmp.prev) + ')';
+    }
     $('st-count').textContent = String(list.length);
     var top = days.slice().sort(function (a, b) { return b.total - a.total; })[0];
-    var byDesc = byDescription(list)[0];
+    var byDesc = byDescription(totalsList)[0];
     $('st-top').textContent = byDesc ? byDesc.label + ' · ' + money(byDesc.total) : '—';
     $('st-high').textContent = top ? money(top.total) + ' · ' + dFmt.format(new Date(top.ts)) : '—';
     $('prev').disabled = idx >= months.length - 1;
     $('next').disabled = idx <= 0;
 
+    // Cash Flow & Streams calculation for state.sel month
+    var allMonthEntries = state.entries.filter(function (e) { return monthKey(e.ts) === state.sel; });
+    var monthExpenses = allMonthEntries.filter(isExpense);
+    var monthIncomings = allMonthEntries.filter(isIncome);
+    var monthInvestments = allMonthEntries.filter(isInvestment);
+    var settlement = getFamilySettlement(allMonthEntries);
+    var cashFlow = getPersonalCashFlow(allMonthEntries);
+    var projSummary = getProjectSummary(allMonthEntries);
+    var curViewTrip = getSelectedViewTripName();
+    var curViewFriends = curViewTrip ? getTripFriends(curViewTrip) : ['Me'];
+    var tripSummary = getTripSummary(allMonthEntries, curViewTrip, curViewFriends);
+
+    renderCashFlow(cashFlow, settlement);
+    renderStreamSwitcher(monthExpenses.length, monthIncomings.length, projSummary.entries.length, monthInvestments.length, tripSummary.entries.length);
+
     renderBudget(cur.total);
     renderSuggestions();
-    renderBreakdown(list, displayTotal);
+    var paidViaField = $('paid-via-field');
+    if (paidViaField) paidViaField.hidden = !hasV5Cols;
+    renderCategoryBreakdown(totalsList, cmp, prevKey);
+    renderCashWallet(cashSummary(state.entries, state.sel));
+    renderMethodBreakdown(totalsList);
+    renderBreakdown(totalsList, displayTotal);
     renderDays(days);
     renderMonths(months);
+
+    // Stream Views Rendering
+    renderIncomingsView(monthIncomings);
+    renderSettlementView(settlement);
+    renderProjectView(projSummary);
+    renderInvestmentsView(monthInvestments);
+    renderTripsView(tripSummary, allMonthEntries);
+
     renderSync();
   }
+
+  /* ---------- Cash Flow Cards on Hero ---------- */
+  function renderCashFlow(cf, setl) {
+    var pSavings = $('cf-personal-savings');
+    var pSub = $('cf-personal-sub');
+    var famSpent = $('cf-family-spent');
+    var famCount = $('cf-family-count');
+    var mothStatus = $('cf-mother-status');
+    var mothSub = $('cf-mother-sub');
+
+    if (pSavings) {
+      pSavings.textContent = money(cf.personalSavings);
+      pSavings.style.color = '';
+      pSavings.className = 'cf-amount ' + (cf.personalSavings >= 0 ? (cf.salaries > 0 ? 'positive' : '') : 'danger-soft');
+    }
+    if (pSub) {
+      if (cf.salaries > 0) {
+        var invNote = cf.totalInvested > 0 ? (' · ' + money(cf.totalInvested) + ' invested') : '';
+        pSub.textContent = cf.savingsRate + '% saved' + invNote;
+      } else {
+        pSub.textContent = money(cf.personalSpent) + ' personal spent';
+      }
+    }
+
+    if (famSpent) famSpent.textContent = money(setl.familySpent);
+    if (famCount) famCount.textContent = setl.familyExpenses.length + (setl.familyExpenses.length === 1 ? ' item' : ' items');
+
+    if (mothStatus) {
+      mothStatus.style.color = '';
+      if (setl.pending > 0) {
+        mothStatus.textContent = money(setl.pending);
+        mothStatus.className = 'cf-amount pending-debt';
+      } else {
+        mothStatus.textContent = money(setl.motherWithdrawn);
+        mothStatus.className = 'cf-amount positive';
+      }
+    }
+    if (mothSub) {
+      mothSub.textContent = setl.pending > 0 ? 'Pending to withdraw' : 'Settled from Mother';
+    }
+  }
+
+  /* ---------- Stream Switcher Tabs ---------- */
+  function renderStreamSwitcher(spendsCount, incomingsCount, projCount, invCount, tripsCount) {
+    var spCountEl = $('spends-count');
+    var incCountEl = $('incomings-count');
+    var projCountEl = $('projects-count');
+    var invCountEl = $('investments-count');
+    var tripsCountEl = $('trips-count');
+    if (spCountEl) spCountEl.textContent = String(spendsCount);
+    if (incCountEl) incCountEl.textContent = String(incomingsCount);
+    if (projCountEl) projCountEl.textContent = String(projCount || 0);
+    if (invCountEl) invCountEl.textContent = String(invCount || 0);
+    if (tripsCountEl) tripsCountEl.textContent = String(tripsCount || 0);
+
+    var spendsView = $('spends-view');
+    var incomingsSec = $('incomings-sec');
+    var settlementSec = $('settlement-sec');
+    var projectSec = $('project-sec');
+    var investmentsSec = $('investments-sec');
+    var tripsSec = $('trips-sec');
+
+    var stream = state.activeStream || 'spends';
+    if (spendsView) spendsView.hidden = (stream !== 'spends');
+    if (incomingsSec) incomingsSec.hidden = (stream !== 'incomings');
+    if (settlementSec) settlementSec.hidden = (stream !== 'settlement');
+    if (projectSec) projectSec.hidden = (stream !== 'projects');
+    if (investmentsSec) investmentsSec.hidden = (stream !== 'investments');
+    if (tripsSec) tripsSec.hidden = (stream !== 'trips');
+
+    document.querySelectorAll('.streambtn').forEach(function (btn) {
+      btn.classList.toggle('active', btn.dataset.stream === stream);
+    });
+  }
+
+  document.querySelectorAll('.streambtn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      state.activeStream = btn.dataset.stream || 'spends';
+      render();
+    });
+  });
+
+  /* ---------- Incomings View Rendering ---------- */
+  function renderIncomingsView(monthIncomings) {
+    var totalInc = sumRupees(monthIncomings);
+    var salaries = monthIncomings.filter(isSalary).reduce(function (s, e) { return s + paise(e.amount); }, 0) / 100;
+    var motherInc = monthIncomings.filter(function (e) { return isMotherPension(e) || isMotherSettlement(e); }).reduce(function (s, e) { return s + paise(e.amount); }, 0) / 100;
+    var otherInc = monthIncomings.filter(function (e) { return !isSalary(e) && !isMotherPension(e) && !isMotherSettlement(e); }).reduce(function (s, e) { return s + paise(e.amount); }, 0) / 100;
+
+    var totalEl = $('inc-total-amt');
+    var salEl = $('inc-salaries-amt');
+    var mothEl = $('inc-mother-amt');
+    var othEl = $('inc-others-amt');
+
+    if (totalEl) totalEl.textContent = money(totalInc);
+    if (salEl) salEl.textContent = money(salaries);
+    if (mothEl) mothEl.textContent = money(motherInc);
+    if (othEl) othEl.textContent = money(otherInc);
+
+    var daysBox = $('income-days');
+    if (!daysBox) return;
+    daysBox.textContent = '';
+
+    if (!monthIncomings.length) {
+      var em = el('div', 'empty');
+      em.appendChild(el('p', null, 'No incomings logged for ' + monthLabel(state.sel) + '. Add salary, pension, or credits above!'));
+      daysBox.appendChild(em);
+      return;
+    }
+
+    var days = groupByDay(monthIncomings);
+    days.forEach(function (g, idx) {
+      var wrap = el('section', 'day');
+      var isExpanded = true;
+      var wrapper = el('div', 'entries-wrapper expanded');
+      var ul = el('ul', 'entries');
+      g.items.forEach(function (e) {
+        var li = el('li');
+        li.appendChild(state.editing === e.id && state.draft ? editRow(e) : entryRow(e));
+        ul.appendChild(li);
+      });
+      wrapper.appendChild(ul);
+
+      var head = dayHead(g, isExpanded, function () {
+        var nextExpanded = !wrapper.classList.contains('expanded');
+        head.classList.toggle('expanded', nextExpanded);
+        wrapper.classList.toggle('expanded', nextExpanded);
+      }, idx);
+
+      wrap.appendChild(head);
+      wrap.appendChild(wrapper);
+      daysBox.appendChild(wrap);
+    });
+  }
+
+  /* ---------- Family Settlement View Rendering ---------- */
+  function renderSettlementView(setl) {
+    var badge = $('settle-badge');
+    var title = $('settle-title');
+    var msg = $('settle-msg');
+    var settleBtn = $('settle-now-btn');
+    var spentVal = $('settle-spent-val');
+    var spentCount = $('settle-spent-count');
+    var withVal = $('settle-withdrawn-val');
+    var withCount = $('settle-withdrawn-count');
+    var entriesBox = $('settle-family-entries');
+
+    if (spentVal) spentVal.textContent = money(setl.familySpent);
+    if (spentCount) spentCount.textContent = setl.familyExpenses.length + (setl.familyExpenses.length === 1 ? ' family expense' : ' family expenses');
+    if (withVal) withVal.textContent = money(setl.motherWithdrawn);
+    if (withCount) withCount.textContent = setl.motherSettledEntries.length + ' reimbursement entries';
+
+    if (badge && title && msg && settleBtn) {
+      if (setl.pending > 0) {
+        badge.textContent = 'Action Required';
+        badge.className = 'settle-badge pending';
+        title.textContent = 'Pending Withdrawal: ' + money(setl.pending);
+        msg.textContent = 'You spent ' + money(setl.familySpent) + ' on family expenses this month. Withdraw ' + money(setl.pending) + ' from Mother’s account to settle.';
+        settleBtn.hidden = false;
+        settleBtn.textContent = '📥 Settle ' + money(setl.pending) + ' from Mother';
+      } else {
+        badge.textContent = 'All Clear';
+        badge.className = 'settle-badge settled';
+        title.textContent = 'Family Expenses Settled! 🎉';
+        msg.textContent = setl.familySpent > 0 ? ('All ' + money(setl.familySpent) + ' in family expenses have been reimbursed from Mother’s account.') : 'No family expenses recorded this month.';
+        settleBtn.hidden = true;
+      }
+    }
+
+    var askBtn = $('settle-ask-btn');
+    if (askBtn) {
+      askBtn.hidden = !(setl.pending > 0);
+      if (setl.pending > 0) {
+        askBtn.href = whatsappLink(settleMessage('Maa', setl.pending, 'family expenses in ' + monthLabel(state.sel), (kv.get('kharcha_my_upi') || '').trim()));
+      }
+    }
+
+    if (entriesBox) {
+      entriesBox.textContent = '';
+      if (!setl.familyExpenses.length) {
+        var em = el('div', 'empty');
+        em.appendChild(el('p', null, 'No family expenses logged for ' + monthLabel(state.sel) + '. Tap "🏠 Family / Bill" when adding an expense.'));
+        entriesBox.appendChild(em);
+        return;
+      }
+
+      var ul = el('ul', 'entries');
+      setl.familyExpenses.sort(byTimeDesc).forEach(function (e) {
+        var li = el('li');
+        li.appendChild(state.editing === e.id && state.draft ? editRow(e) : entryRow(e, true));
+        ul.appendChild(li);
+      });
+      entriesBox.appendChild(ul);
+    }
+  }
+
+  /* ---------- 1-Tap Settle Button Action ---------- */
+  var settleNowBtn = $('settle-now-btn');
+  if (settleNowBtn) {
+    settleNowBtn.addEventListener('click', function () {
+      var allMonthEntries = state.entries.filter(function (e) { return monthKey(e.ts) === state.sel; });
+      var setl = getFamilySettlement(allMonthEntries);
+      if (setl.pending <= 0) {
+        toast('Already fully settled for this month!');
+        return;
+      }
+      showConfirmModal({
+        title: '👵 Settle from Mother’s Account',
+        message: 'Record ' + money(setl.pending) + ' as withdrawn from Mother’s account to reimburse family expenses for ' + monthLabel(state.sel) + '?',
+        confirmText: 'Record Settlement',
+        onConfirm: function () {
+          settleNowBtn.disabled = true;
+          settleNowBtn.textContent = 'Recording…';
+          var desc = '👵 Withdrawn from Mother (Family Settlement)';
+          store.add({ amount: setl.pending, desc: desc, spent_at: new Date().toISOString() }).then(function () {
+            toast('Recorded settlement of ' + money(setl.pending) + '!');
+            render();
+          }).catch(function (err) {
+            toast('Failed to record settlement: ' + (err.message || 'error'));
+          }).finally(function () {
+            settleNowBtn.disabled = false;
+            settleNowBtn.textContent = '📥 Settle from Mother';
+          });
+        }
+      });
+    });
+  }
+
+  /* ---------- Add Income Form Handling ---------- */
+  function getSelectedIncomeSource() {
+    var checked = document.querySelector('input[name="income-source"]:checked');
+    return checked ? checked.value : 'salary1';
+  }
+  function setSelectedIncomeSource(val) {
+    var radios = document.querySelectorAll('input[name="income-source"]');
+    radios.forEach(function (r) {
+      r.checked = (r.value === val);
+      r.parentElement.classList.toggle('active', r.checked);
+    });
+  }
+  document.querySelectorAll('#income-source-chips .scope-pill').forEach(function (pill) {
+    pill.addEventListener('click', function () {
+      var input = pill.querySelector('input');
+      if (input) setSelectedIncomeSource(input.value);
+    });
+  });
+
+  var addIncomeForm = $('add-income');
+  var incomeAmtInput = $('income-amt');
+  var addIncomeBtn = $('add-income-btn');
+  var incomeErr = $('income-err');
+
+  if (incomeAmtInput && addIncomeBtn) {
+    incomeAmtInput.addEventListener('input', function () {
+      var a = parseAmount(incomeAmtInput.value);
+      addIncomeBtn.disabled = (a == null);
+    });
+  }
+
+  if (addIncomeForm) {
+    addIncomeForm.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      if (incomeErr) incomeErr.hidden = true;
+      var amt = parseAmount(incomeAmtInput.value);
+      if (amt == null) {
+        if (incomeErr) { incomeErr.textContent = 'Enter an amount greater than zero, like 50000 or 12000.'; incomeErr.hidden = false; }
+        incomeAmtInput.focus();
+        return;
+      }
+
+      var source = getSelectedIncomeSource();
+      var note = ($('income-note') ? $('income-note').value.trim() : '');
+      var prefix = '';
+      if (source === 'salary1') prefix = '💼 Salary 1';
+      else if (source === 'salary2') prefix = '💼 Salary 2';
+      else if (source === 'mother-pension') prefix = '👵 Mother’s Pension';
+      else if (source === 'mother-withdraw') prefix = '👵 Withdrawn from Mother';
+      else prefix = '💰 Other / UPI';
+
+      var desc = note ? (prefix + ' (' + note + ')') : prefix;
+
+      var spentVal = $('income-date') ? $('income-date').value : '';
+      var spentAt = spentVal ? new Date(spentVal).toISOString() : null;
+
+      // The phone logs bank credits on its own now: don't count the same salary twice.
+      var at = spentAt ? Date.parse(spentAt) : Date.now();
+      var twin = state.entries.find(function (x) {
+        return isIncome(x) && paise(x.amount) === paise(amt) && Math.abs(x.ts - at) <= 3 * 86400000;
+      });
+      if (twin && !addIncomeForm.dataset.confirmedTwin) {
+        showConfirmModal({
+          title: 'Already logged?',
+          message: money(amt) + ' "' + twin.desc + '" is already in Incomings (' + dFmt.format(new Date(twin.ts)) + '), probably added automatically from your bank SMS. Add it again anyway?',
+          confirmText: 'Add anyway',
+          onConfirm: function () {
+            addIncomeForm.dataset.confirmedTwin = '1';
+            if (addIncomeForm.requestSubmit) addIncomeForm.requestSubmit(); else addIncomeForm.dispatchEvent(new Event('submit', { cancelable: true }));
+          }
+        });
+        return;
+      }
+      delete addIncomeForm.dataset.confirmedTwin;
+
+      addIncomeBtn.disabled = true;
+      store.add({ amount: amt, desc: desc, spent_at: spentAt, kind: 'income' }).then(function () {
+        incomeAmtInput.value = '';
+        if ($('income-note')) $('income-note').value = '';
+        if ($('income-date')) $('income-date').value = '';
+        var ts = spentAt ? Date.parse(spentAt) : Date.now();
+        state.sel = monthKey(ts);
+        render();
+        toast('Logged income ' + money(amt) + ' (' + prefix + ')');
+        incomeAmtInput.focus();
+      }).catch(function (err) {
+        var msg = (err && (err.message || 'Check your connection.')) || 'Failed to save.';
+        if (incomeErr) { incomeErr.textContent = 'Could not save income: ' + msg; incomeErr.hidden = false; }
+      }).finally(function () {
+        addIncomeBtn.disabled = false;
+        renderSync();
+      });
+    });
+  }
+
+  /* ---------- Projects & Renovation View Rendering ---------- */
+  var PROJ_NAME_KEY = 'kharcha_active_project_name';
+  function getActiveProjectName() {
+    try { return kv.get(PROJ_NAME_KEY) || 'House Renovation'; } catch (e) { return 'House Renovation'; }
+  }
+  function setActiveProjectName(name) {
+    try { kv.set(PROJ_NAME_KEY, name || 'House Renovation'); } catch (e) {}
+  }
+
+  function renderProjectView(proj) {
+    var curName = getActiveProjectName();
+    var displayEl = $('project-display-name');
+    var changeBtn = $('project-change-btn');
+    if (displayEl) displayEl.textContent = '🔨 ' + curName;
+    if (changeBtn) changeBtn.textContent = '✏️ ' + curName;
+
+    var totSpentEl = $('proj-total-spent');
+    var meSpentEl = $('proj-me-spent');
+    var motherSpentEl = $('proj-mother-spent');
+
+    if (totSpentEl) totSpentEl.textContent = money(proj.totalSpent);
+    if (meSpentEl) meSpentEl.textContent = money(proj.meSpent);
+    if (motherSpentEl) motherSpentEl.textContent = money(proj.motherSpent);
+
+    var daysBox = $('project-days');
+    if (!daysBox) return;
+    daysBox.textContent = '';
+
+    if (!proj.entries.length) {
+      var em = el('div', 'empty');
+      em.appendChild(el('p', null, 'No ' + curName + ' expenses logged for ' + monthLabel(state.sel) + '. Add labour, mistri or materials above!'));
+      daysBox.appendChild(em);
+      return;
+    }
+
+    var days = groupByDay(proj.entries);
+    days.forEach(function (g, idx) {
+      var wrap = el('section', 'day');
+      var isExpanded = true;
+      var wrapper = el('div', 'entries-wrapper expanded');
+      var ul = el('ul', 'entries');
+      g.items.forEach(function (e) {
+        var li = el('li');
+        li.appendChild(state.editing === e.id && state.draft ? editRow(e) : entryRow(e));
+        ul.appendChild(li);
+      });
+      wrapper.appendChild(ul);
+
+      var head = dayHead(g, isExpanded, function () {
+        var nextExpanded = !wrapper.classList.contains('expanded');
+        head.classList.toggle('expanded', nextExpanded);
+        wrapper.classList.toggle('expanded', nextExpanded);
+      }, idx);
+
+      wrap.appendChild(head);
+      wrap.appendChild(wrapper);
+      daysBox.appendChild(wrap);
+    });
+  }
+
+  /* Project Payer Radio Pills */
+  function getSelectedProjectPayer() {
+    var checked = document.querySelector('input[name="proj-payer"]:checked');
+    return checked ? checked.value : 'me';
+  }
+  function setSelectedProjectPayer(val) {
+    var radios = document.querySelectorAll('input[name="proj-payer"]');
+    radios.forEach(function (r) {
+      r.checked = (r.value === val);
+      r.parentElement.classList.toggle('active', r.checked);
+    });
+  }
+  document.querySelectorAll('#proj-payer-chips .scope-pill').forEach(function (pill) {
+    pill.addEventListener('click', function () {
+      var input = pill.querySelector('input');
+      if (input) setSelectedProjectPayer(input.value);
+    });
+  });
+
+  /* Quick project item chips */
+  document.querySelectorAll('#quick-proj-chips .chip').forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      var item = chip.dataset.item || chip.textContent.trim();
+      var descInput = $('proj-desc');
+      if (descInput) {
+        descInput.value = item;
+        if (!$('proj-amt').value) $('proj-amt').focus(); else descInput.focus();
+      }
+    });
+  });
+
+  /* Project Rename Button */
+  var projChangeBtn = $('project-change-btn');
+  if (projChangeBtn) {
+    projChangeBtn.addEventListener('click', function () {
+      var cur = getActiveProjectName();
+      showInputModal({
+        title: '🔨 Project name',
+        fields: [{ value: cur, placeholder: 'e.g. House Renovation, Shop Setup' }],
+        onConfirm: function (v) {
+          var next = v[0];
+          if (next && next !== cur) {
+            setActiveProjectName(next);
+            render();
+            toast('Project set to ' + next);
+          }
+        }
+      });
+    });
+  }
+
+  /* Add Project Form Submission */
+  var addProjForm = $('add-project');
+  var projAmtInput = $('proj-amt');
+  var addProjBtn = $('add-proj-btn');
+  var projErr = $('proj-err');
+
+  if (projAmtInput && addProjBtn) {
+    projAmtInput.addEventListener('input', function () {
+      var a = parseAmount(projAmtInput.value);
+      addProjBtn.disabled = (a == null);
+    });
+  }
+
+  if (addProjForm) {
+    addProjForm.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      if (projErr) projErr.hidden = true;
+      var amt = parseAmount(projAmtInput.value);
+      if (amt == null) {
+        if (projErr) { projErr.textContent = 'Enter an amount greater than zero, like 800 or 1500.'; projErr.hidden = false; }
+        projAmtInput.focus();
+        return;
+      }
+
+      var payer = getSelectedProjectPayer(); // 'me' or 'mother'
+      var rawItem = $('proj-desc') ? $('proj-desc').value.trim() : '';
+      var item = rawItem || 'Labour / Work';
+      var projName = getActiveProjectName();
+
+      // Tag format:
+      // If paid by Me: 🔨 Renovation 👤 Labour daily wage - Ramesh
+      // If paid by Mother: 🔨 Renovation 👵 Cement & sand bags
+      var payerEmoji = payer === 'mother' ? '👵' : '👤';
+      var desc = '🔨 ' + projName + ' ' + payerEmoji + ' ' + item;
+
+      var spentVal = $('proj-date') ? $('proj-date').value : '';
+      var spentAt = spentVal ? new Date(spentVal).toISOString() : null;
+
+      addProjBtn.disabled = true;
+      store.add({ amount: amt, desc: desc, spent_at: spentAt }).then(function () {
+        projAmtInput.value = '';
+        if ($('proj-desc')) $('proj-desc').value = '';
+        if ($('proj-date')) $('proj-date').value = '';
+        var ts = spentAt ? Date.parse(spentAt) : Date.now();
+        state.sel = monthKey(ts);
+        render();
+        var payerLabel = payer === 'mother' ? "Paid from Mother's Account" : "Paid from My Account (added to Settlement)";
+        toast('Logged ' + money(amt) + ' (' + payerLabel + ')');
+        projAmtInput.focus();
+      }).catch(function (err) {
+        var msg = (err && (err.message || 'Check your connection.')) || 'Failed to save.';
+        if (projErr) { projErr.textContent = 'Could not save project spend: ' + msg; projErr.hidden = false; }
+      }).finally(function () {
+        addProjBtn.disabled = false;
+        renderSync();
+      });
+    });
+  }
+
+  /* ---------- Investments View Rendering ---------- */
+  function renderInvestmentsView(monthInvestments) {
+    var totalInv = sumRupees(monthInvestments);
+    var sipEntries = monthInvestments.filter(function (e) {
+      var d = e.desc.toLowerCase();
+      return d.includes('sip') || d.includes('mutual fund');
+    });
+    var sipAmt = sipEntries.reduce(function (s, e) { return s + paise(e.amount); }, 0) / 100;
+    var otherAmt = Math.max(0, (totalInv * 100 - sipAmt * 100) / 100);
+
+    var totalEl = $('inv-total-amt');
+    var sipEl = $('inv-sip-amt');
+    var othEl = $('inv-other-amt');
+    if (totalEl) totalEl.textContent = money(totalInv);
+    if (sipEl) sipEl.textContent = money(sipAmt);
+    if (othEl) othEl.textContent = money(otherAmt);
+
+    var daysBox = $('investment-days');
+    if (!daysBox) return;
+    daysBox.textContent = '';
+
+    if (!monthInvestments.length) {
+      var em = el('div', 'empty');
+      em.appendChild(el('p', null, 'No investments logged for ' + monthLabel(state.sel) + '. Add a SIP, mutual fund, or shares above!'));
+      daysBox.appendChild(em);
+      return;
+    }
+
+    var days = groupByDay(monthInvestments);
+    days.forEach(function (g, idx) {
+      var wrap = el('section', 'day');
+      var isExpanded = true;
+      var wrapper = el('div', 'entries-wrapper expanded');
+      var ul = el('ul', 'entries');
+      g.items.forEach(function (e) {
+        var li = el('li');
+        li.appendChild(state.editing === e.id && state.draft ? editRow(e) : entryRow(e));
+        ul.appendChild(li);
+      });
+      wrapper.appendChild(ul);
+
+      var head = dayHead(g, isExpanded, function () {
+        var nextExpanded = !wrapper.classList.contains('expanded');
+        head.classList.toggle('expanded', nextExpanded);
+        wrapper.classList.toggle('expanded', nextExpanded);
+      }, idx);
+
+      wrap.appendChild(head);
+      wrap.appendChild(wrapper);
+      daysBox.appendChild(wrap);
+    });
+  }
+
+  /* Investment Type Radio Pills */
+  function getSelectedInvType() {
+    var checked = document.querySelector('input[name="inv-type"]:checked');
+    return checked ? checked.value : 'sip';
+  }
+  function setSelectedInvType(val) {
+    var radios = document.querySelectorAll('input[name="inv-type"]');
+    radios.forEach(function (r) {
+      r.checked = (r.value === val);
+      r.parentElement.classList.toggle('active', r.checked);
+    });
+  }
+  document.querySelectorAll('#inv-type-chips .scope-pill').forEach(function (pill) {
+    pill.addEventListener('click', function () {
+      var input = pill.querySelector('input');
+      if (input) setSelectedInvType(input.value);
+    });
+  });
+
+  /* Add Investment Form Submission */
+  var addInvForm = $('add-investment');
+  var invAmtInput = $('inv-amt');
+  var addInvBtn = $('add-inv-btn');
+  var invErr = $('inv-err');
+
+  if (invAmtInput && addInvBtn) {
+    invAmtInput.addEventListener('input', function () {
+      var a = parseAmount(invAmtInput.value);
+      addInvBtn.disabled = (a == null);
+    });
+  }
+
+  if (addInvForm) {
+    addInvForm.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      if (invErr) invErr.hidden = true;
+      var amt = parseAmount(invAmtInput.value);
+      if (amt == null) {
+        if (invErr) { invErr.textContent = 'Enter an amount greater than zero, like 5000 or 10000.'; invErr.hidden = false; }
+        invAmtInput.focus();
+        return;
+      }
+
+      var invType = getSelectedInvType();
+      var rawNote = $('inv-desc') ? $('inv-desc').value.trim() : '';
+      var prefix = '📈 ';
+      var typeLabels = {
+        'sip': 'SIP Mutual Fund',
+        'stocks': 'Stocks / Shares',
+        'ppf': 'PPF / EPF',
+        'fd': 'Fixed Deposit',
+        'other': 'Investment'
+      };
+      var desc = prefix + (rawNote ? rawNote : (typeLabels[invType] || 'Investment'));
+
+      var spentVal = $('inv-date') ? $('inv-date').value : '';
+      var spentAt = spentVal ? new Date(spentVal).toISOString() : null;
+
+      addInvBtn.disabled = true;
+      store.add({ amount: amt, desc: desc, spent_at: spentAt }).then(function () {
+        invAmtInput.value = '';
+        if ($('inv-desc')) $('inv-desc').value = '';
+        if ($('inv-date')) $('inv-date').value = '';
+        var ts = spentAt ? Date.parse(spentAt) : Date.now();
+        state.sel = monthKey(ts);
+        render();
+        toast('Logged ' + money(amt) + ' as ' + desc);
+        invAmtInput.focus();
+      }).catch(function (err) {
+        var msg = (err && (err.message || 'Check your connection.')) || 'Failed to save.';
+        if (invErr) { invErr.textContent = 'Could not save investment: ' + msg; invErr.hidden = false; }
+      }).finally(function () {
+        addInvBtn.disabled = false;
+        renderSync();
+      });
+    });
+  }
+
+  /* ---------- Trips & Events View Rendering & State ---------- */
+  var ACTIVE_TRIP_KEY = 'kharcha_active_trip_name';
+  var SELECTED_VIEW_TRIP_KEY = 'kharcha_selected_view_trip';
+  var ALL_TRIPS_KEY = 'kharcha_all_trips_list';
+
+  function getAllTrips() {
+    var tripSet = new Set();
+    // 1. Scan from existing entries
+    (state.entries || []).forEach(function (e) {
+      if (e && e.desc) {
+        var m = e.desc.match(/^[✈\u{2708}\u{FE0F}\u{1F6EB}\u{1F6EC}]+\s*([^:\[]+):/u);
+        if (m && m[1] && m[1].trim()) tripSet.add(m[1].trim());
+      }
+    });
+    // 2. Add from local storage saved trips
+    try {
+      var saved = JSON.parse(kv.get(ALL_TRIPS_KEY)) || [];
+      saved.forEach(function (t) { if (t && t.trim()) tripSet.add(t.trim()); });
+    } catch (e) {}
+    // 3. Active trip if set
+    var active = getActiveTripName();
+    if (active) tripSet.add(active);
+
+    return Array.from(tripSet);
+  }
+
+  function saveTripToList(name) {
+    if (!name || !name.trim()) return;
+    var trips = getAllTrips();
+    if (!trips.includes(name.trim())) {
+      trips.push(name.trim());
+      try { kv.set(ALL_TRIPS_KEY, JSON.stringify(trips)); } catch (e) {}
+    }
+  }
+
+  function getActiveTripName() {
+    try { return kv.get(ACTIVE_TRIP_KEY) || ''; } catch (e) { return ''; }
+  }
+  function setActiveTripName(name) {
+    try {
+      if (name && name.trim()) {
+        kv.set(ACTIVE_TRIP_KEY, name.trim());
+        saveTripToList(name.trim());
+        setSelectedViewTripName(name.trim());
+      } else {
+        kv.remove(ACTIVE_TRIP_KEY);
+      }
+    } catch (e) {}
+  }
+
+  function getSelectedViewTripName() {
+    try {
+      var sel = localStorage.getItem(SELECTED_VIEW_TRIP_KEY);
+      if (sel && sel.trim()) return sel.trim();
+    } catch (e) {}
+    var active = getActiveTripName();
+    if (active) return active;
+    var all = getAllTrips();
+    return all.length ? all[0] : '';
+  }
+  function setSelectedViewTripName(name) {
+    try {
+      if (name && name.trim()) localStorage.setItem(SELECTED_VIEW_TRIP_KEY, name.trim());
+      else localStorage.removeItem(SELECTED_VIEW_TRIP_KEY);
+    } catch (e) {}
+  }
+
+  // Friends management per trip
+  var TRIP_FRIENDS_PREFIX = 'kharcha_trip_friends_';
+  function getTripFriends(tripName) {
+    if (!tripName) return ['Me'];
+    try {
+      var saved = JSON.parse(kv.get(TRIP_FRIENDS_PREFIX + tripName.trim()));
+      if (Array.isArray(saved) && saved.length) {
+        var set = new Set();
+        set.add('Me');
+        saved.forEach(function (f) { if (f && f.trim()) set.add(f.trim()); });
+        return Array.from(set);
+      }
+    } catch (e) {}
+    return ['Me'];
+  }
+  function setTripFriends(tripName, friendsList) {
+    if (!tripName) return;
+    try {
+      var clean = Array.from(new Set(friendsList)).filter(function (f) { return f && f.trim(); });
+      kv.set(TRIP_FRIENDS_PREFIX + tripName.trim(), JSON.stringify(clean));
+    } catch (e) {}
+  }
+  function addTripFriend(tripName, friendName) {
+    if (!tripName || !friendName || !friendName.trim()) return;
+    var list = getTripFriends(tripName);
+    var norm = friendName.trim();
+    if (!list.includes(norm)) {
+      list.push(norm);
+      setTripFriends(tripName, list);
+    }
+  }
+  function removeTripFriend(tripName, friendName) {
+    if (!tripName || !friendName || friendName === 'Me') return;
+    var list = getTripFriends(tripName).filter(function (f) { return f !== friendName; });
+    setTripFriends(tripName, list);
+  }
+
+  var TRIP_BUDGET_KEY_PREFIX = 'kharcha_trip_budget_';
+  function getTripBudget(tripName) {
+    if (!tripName) return 0;
+    try { return Number(kv.get(TRIP_BUDGET_KEY_PREFIX + tripName.trim())) || 0; } catch (e) { return 0; }
+  }
+  function setTripBudget(tripName, val) {
+    if (!tripName) return;
+    try {
+      if (val > 0) kv.set(TRIP_BUDGET_KEY_PREFIX + tripName.trim(), String(val));
+      else kv.remove(TRIP_BUDGET_KEY_PREFIX + tripName.trim());
+    } catch (e) {}
+  }
+
+  var selectedTripPayer = 'Me';
+
+  function renderTripsView(tripSummary, monthEntries) {
+    var activeTrip = getActiveTripName();
+    var viewTrip = getSelectedViewTripName();
+    var hasActiveTrip = !!(activeTrip && activeTrip.trim());
+    var isViewingActive = hasActiveTrip && (viewTrip === activeTrip);
+
+    // Update banner on Spends View
+    var banner = $('active-trip-banner');
+    var atbName = $('atb-trip-name');
+    var atbSpent = $('atb-trip-spent');
+    if (banner) {
+      banner.hidden = !hasActiveTrip;
+      if (atbName) atbName.textContent = activeTrip;
+      if (atbSpent) {
+        var activeSummary = getTripSummary(monthEntries, activeTrip, getTripFriends(activeTrip));
+        atbSpent.textContent = money(activeSummary.totalSpent);
+      }
+    }
+
+    // Populate Trip Selector Dropdown
+    var tripSelect = $('trip-select');
+    var allTrips = getAllTrips();
+    if (tripSelect) {
+      tripSelect.innerHTML = '';
+      if (!allTrips.length) {
+        var opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = 'No Trips Created (Tap + New Trip)';
+        tripSelect.appendChild(opt);
+      } else {
+        allTrips.forEach(function (t) {
+          var opt = document.createElement('option');
+          opt.value = t;
+          var tag = (t === activeTrip) ? ' (Active ✈️)' : '';
+          opt.textContent = '✈️ ' + t + tag;
+          if (t === viewTrip) opt.selected = true;
+          tripSelect.appendChild(opt);
+        });
+      }
+    }
+
+    // Update Trips Section Status Badge and Action Buttons
+    var statusBadge = $('trip-badge-status');
+    var toggleBtn = $('trip-toggle-btn');
+    var totSpentEl = $('trip-total-spent');
+    var countEl = $('trip-items-count');
+    var avgEl = $('trip-daily-avg');
+
+    if (statusBadge) {
+      if (viewTrip && viewTrip === activeTrip) {
+        statusBadge.textContent = '✈️ Active Trip';
+        statusBadge.className = 'trip-badge';
+      } else if (viewTrip) {
+        statusBadge.textContent = '🏖️ Past / Archived Trip';
+        statusBadge.className = 'trip-badge closed';
+      } else {
+        statusBadge.textContent = '🏖️ No Trips';
+        statusBadge.className = 'trip-badge closed';
+      }
+    }
+    if (toggleBtn) {
+      if (viewTrip && viewTrip === activeTrip) {
+        toggleBtn.textContent = 'Close Trip';
+        toggleBtn.style.display = '';
+      } else if (viewTrip) {
+        toggleBtn.textContent = 'Set as Active';
+        toggleBtn.style.display = '';
+      } else {
+        toggleBtn.style.display = 'none';
+      }
+    }
+
+    if (totSpentEl) totSpentEl.textContent = money(tripSummary.totalSpent);
+    if (countEl) countEl.textContent = String(tripSummary.itemsCount);
+    if (avgEl) avgEl.textContent = money(tripSummary.dailyAvg) + '/day';
+
+    // Trip Budget & Burn Pace Meter
+    var tripBudget = viewTrip ? getTripBudget(viewTrip) : 0;
+    var budgetStatus = $('trip-budget-status');
+    var budgetFill = $('trip-budget-fill');
+    var budgetBtn = $('trip-budget-edit-btn');
+    var burnPace = $('trip-burn-pace');
+
+    if (budgetStatus && budgetFill) {
+      if (tripBudget > 0) {
+        var pct = Math.round((tripSummary.totalSpent / tripBudget) * 100);
+        budgetStatus.textContent = 'Trip Budget: ' + money(tripSummary.totalSpent) + ' of ' + money(tripBudget) + ' (' + pct + '%)';
+        budgetFill.style.width = Math.min(100, pct) + '%';
+        budgetFill.className = 'budget-progress-fill' + (pct >= 100 ? ' danger' : (pct >= 80 ? ' warning' : ''));
+        if (budgetBtn) budgetBtn.textContent = 'Edit Budget';
+
+        // Calculate Remaining / Burn Pace
+        var rem = tripBudget - tripSummary.totalSpent;
+        if (burnPace) {
+          if (rem > 0) {
+            burnPace.textContent = money(rem) + ' left (' + money(tripSummary.dailyAvg) + '/day pace)';
+            burnPace.style.color = '#10B981';
+          } else {
+            burnPace.textContent = 'Exceeded by ' + money(Math.abs(rem));
+            burnPace.style.color = 'var(--danger)';
+          }
+        }
+      } else {
+        budgetStatus.textContent = 'Trip Budget: Not set';
+        budgetFill.style.width = '0%';
+        budgetFill.className = 'budget-progress-fill';
+        if (budgetBtn) budgetBtn.textContent = 'Set Trip Budget';
+        if (burnPace) {
+          burnPace.textContent = tripSummary.dailyAvg > 0 ? (money(tripSummary.dailyAvg) + '/day spent') : 'No spend yet';
+          burnPace.style.color = '';
+        }
+      }
+    }
+
+    // Render Friends Chips Section
+    var friendsSec = $('trip-friends-sec');
+    var friendsChips = $('trip-friends-chips');
+    var tripFriends = viewTrip ? getTripFriends(viewTrip) : ['Me'];
+
+    if (friendsChips) {
+      friendsChips.innerHTML = '';
+      tripFriends.forEach(function (friend) {
+        var chip = el('span', 'friend-chip' + (friend === 'Me' ? ' is-me' : ''));
+        chip.textContent = (friend === 'Me' ? '👤 Me' : '🧑 ' + friend);
+        if (friend !== 'Me') {
+          var del = el('button', 'friend-chip-del', '×');
+          del.type = 'button';
+          del.title = 'Remove ' + friend;
+          del.addEventListener('click', function (ev) {
+            ev.stopPropagation();
+            removeTripFriend(viewTrip, friend);
+            render();
+            toast('Removed ' + friend);
+          });
+          chip.appendChild(del);
+        }
+        friendsChips.appendChild(chip);
+      });
+    }
+
+    // Render Multi-Friend Split & Balance Breakdown
+    var splitCountEl = $('trip-split-count');
+    var perHeadEl = $('trip-per-head-amt');
+    var balancesList = $('trip-balances-list');
+
+    var numPpl = tripSummary.participants ? tripSummary.participants.length : 1;
+    if (splitCountEl) splitCountEl.textContent = numPpl + (numPpl === 1 ? ' Person' : ' Friends Split');
+    if (perHeadEl) perHeadEl.textContent = money(tripSummary.perPersonShare) + ' / person';
+
+    if (balancesList) {
+      balancesList.innerHTML = '';
+      if (!tripSummary.balances || !tripSummary.balances.length) {
+        var row = el('div', 'friend-bal-row');
+        row.textContent = 'Add expenses to see who paid and who owes.';
+        balancesList.appendChild(row);
+      } else {
+        // What each friend owes *me*: my "gets back" amount shared out across those who owe.
+        var askFrom = {};
+        var meBal = tripSummary.balances.filter(function (b) { return b.name === 'Me'; })[0];
+        var stillOwedToMe = meBal && meBal.net > 0 ? meBal.net : 0;
+        tripSummary.balances.forEach(function (b) {
+          if (b.name === 'Me' || b.net >= 0 || stillOwedToMe < 1) return;
+          var amt = Math.min(Math.abs(b.net), stillOwedToMe);
+          askFrom[b.name] = Math.round(amt);
+          stillOwedToMe -= amt;
+        });
+        var myUpi = (kv.get('kharcha_my_upi') || '').trim();
+        tripSummary.balances.forEach(function (b) {
+          var row = el('div', 'friend-bal-row');
+          var personCol = el('div', 'fbr-person');
+          var nameSpan = el('span', 'fbr-name', (b.name === 'Me' ? '👤 Me (You)' : '🧑 ' + b.name));
+          var paidSpan = el('span', 'fbr-paid', 'Paid ' + money(b.paid) + ' (Share: ' + money(b.share) + ')');
+          personCol.appendChild(nameSpan);
+          personCol.appendChild(paidSpan);
+
+          var netCol = el('div', 'fbr-net');
+          if (Math.abs(b.net) < 1) {
+            netCol.className = 'fbr-net settled';
+            netCol.textContent = 'Settled 🎉';
+          } else if (b.net > 0) {
+            netCol.className = 'fbr-net gets-back';
+            netCol.textContent = 'Gets back ' + money(b.net);
+          } else {
+            netCol.className = 'fbr-net owes';
+            netCol.textContent = 'Owes ' + money(Math.abs(b.net));
+          }
+
+          row.appendChild(personCol);
+          row.appendChild(netCol);
+          if (askFrom[b.name] > 0) {
+            var ask = el('a', 'fbr-ask', '📲 Ask ' + money(askFrom[b.name]));
+            ask.href = whatsappLink(settleMessage(b.name, askFrom[b.name], (viewTrip || 'the') + ' trip', myUpi));
+            ask.target = '_blank';
+            ask.rel = 'noopener';
+            if (!myUpi) ask.title = 'Add your UPI ID in Insights → Your details to include a pay link';
+            row.appendChild(ask);
+          }
+          balancesList.appendChild(row);
+        });
+      }
+    }
+
+    // Render Who Paid dynamic radio pills in Add Form
+    var payerChips = $('trip-payer-chips');
+    if (payerChips) {
+      payerChips.innerHTML = '';
+      if (!tripFriends.includes(selectedTripPayer)) selectedTripPayer = 'Me';
+
+      tripFriends.forEach(function (friend) {
+        var label = el('label', 'scope-pill' + (selectedTripPayer === friend ? ' active' : ''));
+        var radio = document.createElement('input');
+        radio.type = 'radio';
+        radio.name = 'trip-payer';
+        radio.value = friend;
+        if (selectedTripPayer === friend) radio.checked = true;
+        label.appendChild(radio);
+        label.appendChild(el('span', null, ' ' + (friend === 'Me' ? '👤 Me' : '🧑 ' + friend)));
+
+        label.addEventListener('click', function () {
+          selectedTripPayer = friend;
+          payerChips.querySelectorAll('.scope-pill').forEach(function (p) {
+            var inp = p.querySelector('input');
+            p.classList.toggle('active', inp && inp.value === selectedTripPayer);
+          });
+        });
+        payerChips.appendChild(label);
+      });
+    }
+
+    // Timeline entries
+    var daysBox = $('trip-days');
+    if (!daysBox) return;
+    daysBox.textContent = '';
+
+    if (!tripSummary.entries.length) {
+      var em = el('div', 'empty');
+      em.appendChild(el('p', null, viewTrip
+        ? ('No expenses logged yet for ' + viewTrip + ' in ' + monthLabel(state.sel) + '. Add hotel, food, or travel above!')
+        : ('No trips created yet. Tap "+ New Trip" to start tracking!')));
+      daysBox.appendChild(em);
+      return;
+    }
+
+    var days = groupByDay(tripSummary.entries);
+    days.forEach(function (g, idx) {
+      var wrap = el('section', 'day');
+      var isExpanded = true;
+      var wrapper = el('div', 'entries-wrapper expanded');
+      var ul = el('ul', 'entries');
+      g.items.forEach(function (e) {
+        var li = el('li');
+        li.appendChild(state.editing === e.id && state.draft ? editRow(e) : entryRow(e));
+        ul.appendChild(li);
+      });
+      wrapper.appendChild(ul);
+
+      var head = dayHead(g, isExpanded, function () {
+        var nextExpanded = !wrapper.classList.contains('expanded');
+        head.classList.toggle('expanded', nextExpanded);
+        wrapper.classList.toggle('expanded', nextExpanded);
+      }, idx);
+
+      wrap.appendChild(head);
+      wrap.appendChild(wrapper);
+      daysBox.appendChild(wrap);
+    });
+  }
+
+  // Trip Toggle & Switcher Event Listeners
+  var tripSelectEl = $('trip-select');
+  if (tripSelectEl) {
+    tripSelectEl.addEventListener('change', function () {
+      var val = tripSelectEl.value;
+      if (val) {
+        setSelectedViewTripName(val);
+        render();
+      }
+    });
+  }
+
+  var tripNewBtn = $('trip-new-btn');
+  if (tripNewBtn) {
+    tripNewBtn.addEventListener('click', function () {
+      showInputModal({
+        title: '✈️ New trip',
+        fields: [{ placeholder: 'e.g. Goa 2026, Manali Trip' }],
+        confirmText: 'Start trip',
+        onConfirm: function (v) {
+          var clean = v[0];
+          if (!clean) return;
+          saveTripToList(clean);
+          setActiveTripName(clean);
+          setSelectedViewTripName(clean);
+          render();
+          toast('Started & switched to ' + clean + '!');
+          offerTripBackfill(clean);
+        }
+      });
+    });
+  }
+
+  var tripRenameBtn = $('trip-rename-btn');
+  if (tripRenameBtn) {
+    tripRenameBtn.addEventListener('click', function () {
+      var cur = getSelectedViewTripName();
+      if (!cur) return;
+      showInputModal({
+        title: 'Rename trip',
+        fields: [{ value: cur }],
+        confirmText: 'Rename',
+        onConfirm: function (v) {
+          var newName = v[0];
+          if (!newName || newName === cur) return;
+          saveTripToList(newName);
+          if (getActiveTripName() === cur) setActiveTripName(newName);
+          setSelectedViewTripName(newName);
+          // Carry over the friends list and budget
+          setTripFriends(newName, getTripFriends(cur));
+          var b = getTripBudget(cur);
+          if (b > 0) setTripBudget(newName, b);
+          render();
+          toast('Renamed trip to ' + newName);
+        }
+      });
+    });
+  }
+
+  var tripAddFriendBtn = $('trip-add-friend-btn');
+  if (tripAddFriendBtn) {
+    tripAddFriendBtn.addEventListener('click', function () {
+      var viewTrip = getSelectedViewTripName();
+      if (!viewTrip) {
+        toast('Select or create a trip first!');
+        return;
+      }
+      showInputModal({
+        title: '👥 Add friend to ' + viewTrip,
+        fields: [{ placeholder: 'e.g. Rohit' }],
+        confirmText: 'Add',
+        onConfirm: function (v) {
+          if (!v[0]) return;
+          addTripFriend(viewTrip, v[0]);
+          render();
+          toast('Added ' + v[0] + ' to ' + viewTrip);
+        }
+      });
+    });
+  }
+
+  /* Trip just started: offer to move spends from the last 12 hours into it -- the fuel filled in
+     your own city before leaving, the cab to the airport -- which trip mode could not have caught. */
+  function offerTripBackfill(tripName) {
+    var picks = recentSpendsForTrip(state.entries, Date.now(), 12);
+    if (!picks.length) return;
+    var back = el('div', 'modal-backdrop');
+    var card = el('div', 'modal-card');
+    var head = el('div', 'modal-head');
+    head.appendChild(el('h3', null, '✈️ Add earlier spends to ' + tripName + '?'));
+    card.appendChild(head);
+    card.appendChild(el('p', 'modal-intro', 'These were logged in the last 12 hours, before the trip started. Tick the ones that belong to it.'));
+    var boxes = [];
+    picks.forEach(function (e) {
+      var row = el('label', 'backfill-row');
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = true;
+      boxes.push({ cb: cb, e: e });
+      row.appendChild(cb);
+      var txt = el('span', 'backfill-txt', cleanScopePrefix(e.desc));
+      txt.appendChild(el('small', null, ' ' + dFmt.format(new Date(e.ts)) + ', ' + tFmt.format(new Date(e.ts))));
+      row.appendChild(txt);
+      row.appendChild(el('strong', null, money(e.amount)));
+      card.appendChild(row);
+    });
+    var foot = el('div', 'modal-foot');
+    var skip = el('button', 'ghost', 'Not now'); skip.type = 'button';
+    var go = el('button', 'primary', 'Move to ' + tripName); go.type = 'button';
+    foot.appendChild(skip); foot.appendChild(go);
+    card.appendChild(foot);
+    back.appendChild(card);
+    document.body.appendChild(back);
+    function close() { back.remove(); }
+    skip.addEventListener('click', close);
+    back.addEventListener('click', function (ev) { if (ev.target === back) close(); });
+    go.addEventListener('click', function () {
+      var chosen = boxes.filter(function (b) { return b.cb.checked; }).map(function (b) { return b.e; });
+      if (!chosen.length) { close(); return; }
+      go.disabled = true;
+      go.textContent = 'Moving…';
+      Promise.all(chosen.map(function (e) {
+        return store.update(e.id, { amount: e.amount, desc: shiftScopeDesc(e.desc, 'trip', tripName), spent_at: new Date(e.ts).toISOString() });
+      })).then(function () {
+        toast('Moved ' + chosen.length + (chosen.length === 1 ? ' spend' : ' spends') + ' to ' + tripName);
+      }).catch(function (err) {
+        toast('Could not move: ' + ((err && err.message) || 'check your connection'));
+      }).then(function () { close(); refreshData(); });
+    });
+  }
+
+  // Name + UPI IDs: lets the phone treat payments to yourself as transfers, and puts your UPI ID
+  // on "Ask" settle-up messages. Shared with the phone through the settings row.
+  var yourDetailsBtn = $('your-details-btn');
+  if (yourDetailsBtn) {
+    yourDetailsBtn.addEventListener('click', function () {
+      showInputModal({
+        title: '⚙️ Your details',
+        message: 'Payments to your own name or UPI IDs count as transfers between your accounts, not spending. Your UPI ID goes on settle-up requests.',
+        fields: [
+          { label: 'Your full name and UPI IDs (comma separated)', value: kv.get('kharcha_owner_identity') || '', placeholder: 'e.g. Sanjeev Yadav, sanjeev@okhdfcbank' },
+          { label: 'UPI ID for receiving money', value: kv.get('kharcha_my_upi') || '', placeholder: 'e.g. sanjeev@okhdfcbank', inputmode: 'email' },
+          { label: 'Family who reimburse you: names or UPI IDs (money from them settles family expenses)', value: kv.get('kharcha_family_payers') || '', placeholder: 'e.g. Mamta Kasyap, mamta@oksbi' }
+        ],
+        onConfirm: function (v) {
+          kv.set('kharcha_owner_identity', v[0]);
+          kv.set('kharcha_my_upi', v[1]);
+          if (v.length > 2) kv.set('kharcha_family_payers', v[2]);
+          render();
+          toast('Saved your details');
+        }
+      });
+    });
+  }
+
+  function promptTripToggle() {
+    var viewTrip = getSelectedViewTripName();
+    var curActive = getActiveTripName();
+
+    if (viewTrip && viewTrip === curActive) {
+      showConfirmModal({
+        title: '✈️ Close Active Trip?',
+        message: 'Close "' + viewTrip + '"? Payment notifications will stop offering it first. You can still view ' + viewTrip + ' anytime from the trip switcher.',
+        confirmText: 'Close Trip',
+        onConfirm: function () {
+          setActiveTripName('');
+          render();
+          toast('Closed ' + viewTrip);
+        }
+      });
+    } else if (viewTrip) {
+      setActiveTripName(viewTrip);
+      render();
+      toast('Trip Mode active: ' + viewTrip);
+      offerTripBackfill(viewTrip);
+    } else {
+      showInputModal({
+        title: '✈️ Start a trip',
+        fields: [{ placeholder: 'e.g. Goa 2026, Manali Trip' }],
+        confirmText: 'Start trip',
+        onConfirm: function (v) {
+          var name = v[0];
+          if (!name) return;
+          saveTripToList(name);
+          setActiveTripName(name);
+          setSelectedViewTripName(name);
+          render();
+          toast('Trip Mode active: ' + name);
+          offerTripBackfill(name);
+        }
+      });
+    }
+  }
+
+  var tripToggleBtn = $('trip-toggle-btn');
+  if (tripToggleBtn) {
+    tripToggleBtn.addEventListener('click', promptTripToggle);
+  }
+
+  var tripBudgetEditBtn = $('trip-budget-edit-btn');
+  if (tripBudgetEditBtn) {
+    tripBudgetEditBtn.addEventListener('click', function () {
+      var curTrip = getSelectedViewTripName();
+      if (!curTrip) {
+        toast('Select or start a trip first to set its budget!');
+        return;
+      }
+      var cur = getTripBudget(curTrip);
+      openBudgetModal({
+        title: '✈️ ' + curTrip + ' Budget',
+        intro: 'Set your total spending budget for ' + curTrip + '. We will track your daily burn rate against this limit.',
+        currentValue: cur || 0,
+        presets: [10000, 25000, 50000, 100000],
+        onSave: function (n) {
+          setTripBudget(curTrip, n);
+          render();
+          toast('Trip budget set to ' + money(n));
+        },
+        onClear: function () {
+          setTripBudget(curTrip, 0);
+          render();
+          toast('Trip budget cleared');
+        }
+      });
+    });
+  }
+
+  var atbCloseBtn = $('atb-close-btn');
+  if (atbCloseBtn) {
+    atbCloseBtn.addEventListener('click', function () {
+      var cur = getActiveTripName();
+      showConfirmModal({
+        title: '✈️ Close Active Trip?',
+        message: 'Close "' + (cur || 'active trip') + '"? New expenses will resume logging to Personal/Family normally.',
+        confirmText: 'Close Trip',
+        onConfirm: function () {
+          setActiveTripName('');
+          render();
+          toast('Closed ' + (cur || 'trip'));
+        }
+      });
+    });
+  }
+
+  // Add Trip Expense Form
+  var addTripForm = $('add-trip-expense');
+  var tripExpAmtInput = $('trip-exp-amt');
+  var addTripExpBtn = $('add-trip-exp-btn');
+  var tripExpErr = $('trip-exp-err');
+
+  if (tripExpAmtInput && addTripExpBtn) {
+    tripExpAmtInput.addEventListener('input', function () {
+      var a = parseAmount(tripExpAmtInput.value);
+      addTripExpBtn.disabled = (a == null);
+    });
+  }
+
+  if (addTripForm) {
+    addTripForm.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      if (tripExpErr) tripExpErr.hidden = true;
+      var amt = parseAmount(tripExpAmtInput.value);
+      if (amt == null) {
+        if (tripExpErr) { tripExpErr.textContent = 'Enter an amount greater than zero, like 1200 or 450.'; tripExpErr.hidden = false; }
+        tripExpAmtInput.focus();
+        return;
+      }
+
+      var tripName = getSelectedViewTripName() || getActiveTripName() || 'Trip';
+      var rawDesc = $('trip-exp-desc') ? $('trip-exp-desc').value.trim() : '';
+      var clean = cleanScopePrefix(rawDesc) || 'Expense';
+      var payer = selectedTripPayer || 'Me';
+      var payerTag = (payer && payer !== 'Me') ? (' [Paid by ' + payer + ']') : '';
+      var desc = '✈️ ' + tripName + ': ' + clean + payerTag;
+
+      var spentVal = $('trip-exp-date') ? $('trip-exp-date').value : '';
+      var spentAt = spentVal ? new Date(spentVal).toISOString() : null;
+
+      addTripExpBtn.disabled = true;
+      store.add({ amount: amt, desc: desc, spent_at: spentAt }).then(function () {
+        tripExpAmtInput.value = '';
+        if ($('trip-exp-desc')) $('trip-exp-desc').value = '';
+        if ($('trip-exp-date')) $('trip-exp-date').value = '';
+        var ts = spentAt ? Date.parse(spentAt) : Date.now();
+        state.sel = monthKey(ts);
+        saveTripToList(tripName);
+        render();
+        var payerLabel = (payer && payer !== 'Me') ? (' (Paid by ' + payer + ')') : '';
+        toast('Logged ' + money(amt) + ' to ' + tripName + payerLabel);
+        tripExpAmtInput.focus();
+      }).catch(function (err) {
+        var msg = (err && (err.message || 'Check your connection.')) || 'Failed to save.';
+        if (tripExpErr) { tripExpErr.textContent = 'Could not save trip expense: ' + msg; tripExpErr.hidden = false; }
+      }).finally(function () {
+        addTripExpBtn.disabled = false;
+        renderSync();
+      });
+    });
+  }
+
+  /* Sticky month-total bar: only shown once the hero banner (same number) has scrolled out
+     of view, so the two never compete for attention at once. */
+  (function initStickyBarVisibility() {
+    var hero = document.querySelector('.hero');
+    var bar = $('sticky-month-bar');
+    if (!hero || !bar || !('IntersectionObserver' in window)) return;
+    var observer = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        bar.classList.toggle('visible', !entry.isIntersecting);
+      });
+    }, { threshold: 0 });
+    observer.observe(hero);
+  })();
+
+  var CAT_BUDGET_KEY = 'kharcha_category_budgets';
+  function categoryBudgets() { try { return JSON.parse(kv.get(CAT_BUDGET_KEY)) || {}; } catch (e) { return {}; } }
+  function setCategoryBudget(name, val) {
+    var b = categoryBudgets();
+    if (val > 0) b[name] = val; else delete b[name];
+    try { kv.set(CAT_BUDGET_KEY, JSON.stringify(b)); } catch (e) {}
+  }
+
+  function renderCategoryBreakdown(list, cmp, prevKey) {
+    var sec = $('category-sec');
+    var container = $('cat-breakdown');
+    if (!sec || !container) return;
+    container.textContent = '';
+    if (!list.length) { sec.hidden = true; return; }
+
+    var res = categoryBreakdown(list);
+    if (!res.categories.length) { sec.hidden = true; return; }
+    sec.hidden = false;
+
+    var budgets = categoryBudgets();
+    var prevName = monthLabel(prevKey).split(' ')[0].slice(0, 3);
+    res.categories.slice(0, 6).forEach(function (c) {
+      var row = el('button', 'cat-row');
+      row.type = 'button';
+      row.title = 'Tap to set a monthly budget for ' + c.name;
+      var head = el('div', 'cat-row-head');
+      var nameSpan = el('span', null, c.name + ' (' + c.count + ')');
+      var amtSpan = el('span', null, money(c.total) + ' · ' + c.pct + '%');
+      head.appendChild(nameSpan);
+      head.appendChild(amtSpan);
+
+      var budget = budgets[c.name];
+      var used = budget ? Math.round((c.total / budget) * 100) : c.pct;
+      var track = el('div', 'cat-track');
+      var fill = el('div', 'cat-fill' + (budget && used >= 100 ? ' danger' : budget && used >= 80 ? ' warning' : ''));
+      fill.style.width = Math.min(100, Math.max(2, used)) + '%';
+      track.appendChild(fill);
+
+      var notes = [];
+      if (budget) notes.push(used + '% of ' + money(budget) + ' budget');
+      var prev = cmp.prevCats[c.name];
+      if (prev) {
+        var diff = c.total - prev;
+        notes.push((diff > 0 ? '▲ ' : diff < 0 ? '▼ ' : '') + money(Math.abs(diff)) + ' vs ' + prevName);
+      } else if (cmp.prev > 0) {
+        notes.push('New vs ' + prevName);
+      }
+
+      row.appendChild(head);
+      row.appendChild(track);
+      if (notes.length) row.appendChild(el('div', 'cat-note', notes.join(' · ')));
+      row.addEventListener('click', function () {
+        var curBudget = budgets[c.name] || 0;
+        openBudgetModal({
+          title: c.name + ' Budget',
+          intro: 'Set a monthly spending limit for ' + c.name + '. You will get warned when spending approaches this limit.',
+          spentText: money(c.total) + ' (' + c.pct + '% of month total)',
+          currentValue: curBudget,
+          presets: [500, 1000, 2500, 5000],
+          onSave: function (n) {
+            setCategoryBudget(c.name, n);
+            render();
+            toast('Budget for ' + c.name + ' set to ' + money(n));
+          },
+          onClear: function () {
+            setCategoryBudget(c.name, 0);
+            render();
+            toast('Budget for ' + c.name + ' cleared');
+          }
+        });
+      });
+      container.appendChild(row);
+    });
+  }
+
+  /* ---------- Bank SMS Parser Modal & Auto-Detection ---------- */
+  var parsedSMSDraft = null;
+
+  /* Merchant memory: when you change the description of a parsed SMS, the next SMS from that payee uses it. */
+  var MERCHANT_KEY = 'kharcha_merchant_memory';
+  function merchantMemory() { try { return JSON.parse(kv.get(MERCHANT_KEY)) || {}; } catch (e) { return {}; } }
+  function rememberMerchant(payee, desc) {
+    if (!payee) return;
+    var mem = merchantMemory();
+    mem[payee.toLowerCase()] = desc;
+    try { kv.set(MERCHANT_KEY, JSON.stringify(mem)); } catch (e) {}
+  }
+
+  function smsField(labelText, input) {
+    var f = el('label', 'sms-field');
+    f.appendChild(el('span', null, labelText));
+    f.appendChild(input);
+    return f;
+  }
+
+  function triggerSMSParse(txt) {
+    var result = parseBankSMS(txt);
+    var container = $('sms-result');
+    if (!container) return;
+    container.textContent = '';
+    container.hidden = false;
+    var saveBtn = $('save-sms-entry');
+    saveBtn.textContent = '1-Tap Add Expense';
+
+    if (!result.valid) {
+      container.className = 'sms-preview-card invalid';
+      container.appendChild(el('div', 'sms-badge-title', '❌ Not added: not a real spend'));
+      container.appendChild(el('div', null, result.error || 'Only debit SMS messages from recognized banks are parsed.'));
+      saveBtn.disabled = true;
+      parsedSMSDraft = null;
+      return;
+    }
+
+    var remembered = result.rawPayee && merchantMemory()[result.rawPayee.toLowerCase()];
+    if (remembered) result.desc = remembered;
+    var dup = findDuplicate(result, state.entries);
+
+    container.className = 'sms-preview-card valid' + (result.confidence === 'high' && !dup ? '' : ' check');
+    container.appendChild(el('div', 'sms-badge-title', result.confidence === 'high'
+      ? '✓ Verified debit (' + result.bank + ')'
+      : '⚠️ Check before adding (' + result.bank + ')'));
+
+    var meta = [];
+    if (result.account) meta.push('A/c ··' + result.account);
+    if (result.refNo) meta.push('Ref ' + result.refNo);
+    if (meta.length) container.appendChild(el('div', 'sms-meta', meta.join(' · ')));
+
+    if (dup) {
+      var when = dFmt.format(new Date(dup.entry.ts));
+      container.appendChild(el('div', 'sms-dup', dup.kind === 'exact'
+        ? '⛔ Already added on ' + when + ' (same reference number).'
+        : '⚠️ Possible duplicate: ' + money(dup.entry.amount) + ' "' + dup.entry.desc + '" is already logged on ' + when + '.'));
+    }
+    if (result.warnings.length) {
+      var ul = el('ul', 'sms-warn');
+      result.warnings.forEach(function (w) { ul.appendChild(el('li', null, w)); });
+      container.appendChild(ul);
+    }
+    if (remembered) container.appendChild(el('div', 'sms-meta', 'Using your saved description for ' + result.rawPayee + '.'));
+
+    var grid = el('div', 'sms-details-grid sms-edit');
+    var amtIn = el('input', 'input'); amtIn.id = 'sms-amt'; amtIn.inputMode = 'decimal'; amtIn.value = String(result.amount);
+    var descIn = el('input', 'input'); descIn.id = 'sms-desc'; descIn.maxLength = 50; descIn.value = result.desc;
+    var dateIn = el('input', 'input'); dateIn.id = 'sms-date'; dateIn.type = 'datetime-local'; dateIn.value = toLocalISOString(result.ts || Date.now());
+    grid.appendChild(smsField('Amount (₹)', amtIn));
+    grid.appendChild(smsField('Date & time', dateIn));
+    var descField = smsField('Description', descIn); descField.classList.add('wide');
+    grid.appendChild(descField);
+    container.appendChild(grid);
+
+    parsedSMSDraft = result;
+    saveBtn.disabled = dup && dup.kind === 'exact';
+    if (dup && dup.kind === 'likely') saveBtn.textContent = 'Add anyway';
+  }
+
+  function openSMSModal(initialText) {
+    var modal = $('sms-modal');
+    if (!modal) return;
+    modal.hidden = false;
+    $('sms-input').value = (typeof initialText === 'string') ? initialText : '';
+    var res = $('sms-result');
+    if (res) res.hidden = true;
+    $('save-sms-entry').disabled = true;
+
+    if (typeof initialText === 'string' && initialText.trim()) {
+      triggerSMSParse(initialText);
+    } else if (navigator.clipboard && navigator.clipboard.readText) {
+      navigator.clipboard.readText().then(function (clipText) {
+        if (clipText && clipText.trim()) {
+          var parsed = parseBankSMS(clipText);
+          if (parsed.valid) {
+            $('sms-input').value = clipText;
+            triggerSMSParse(clipText);
+            toast('Auto-detected Bank SMS from clipboard!');
+          }
+        }
+      }).catch(function () {});
+    }
+    $('sms-input').focus();
+  }
+
+  function closeSMSModal() {
+    var modal = $('sms-modal');
+    if (modal) modal.hidden = true;
+    parsedSMSDraft = null;
+  }
+
+  if ($('open-sms-modal')) $('open-sms-modal').addEventListener('click', function () { openSMSModal(); });
+  if ($('close-sms-modal')) $('close-sms-modal').addEventListener('click', closeSMSModal);
+  if ($('cancel-sms-modal')) $('cancel-sms-modal').addEventListener('click', closeSMSModal);
+
+  if ($('sms-modal')) {
+    $('sms-modal').addEventListener('click', function (ev) {
+      if (ev.target === $('sms-modal')) closeSMSModal();
+    });
+  }
+
+  if ($('sms-parse-btn')) {
+    $('sms-parse-btn').addEventListener('click', function () {
+      triggerSMSParse($('sms-input').value);
+    });
+  }
+
+  if ($('save-sms-entry')) {
+    $('save-sms-entry').addEventListener('click', function () {
+      var draft = parsedSMSDraft;
+      if (!draft || !draft.valid) return;
+      var amt = parseAmount($('sms-amt').value);
+      if (!amt) { toast('Please enter a valid amount.'); return; }
+      var desc = normDesc($('sms-desc').value);
+      if (!desc) { toast('Please enter a description.'); return; }
+      var dateVal = $('sms-date').value;
+      var spentAt = dateVal ? new Date(dateVal).toISOString() : null;
+      if (desc !== draft.desc) rememberMerchant(draft.rawPayee, desc);
+
+      var saveBtn = $('save-sms-entry');
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+      store.add({ amount: amt, desc: desc, spent_at: spentAt, ref_no: draft.refNo, raw_sms: draft.rawSMS }).then(function () {
+        closeSMSModal();
+        render();
+        toast('Added ' + money(amt) + ' from ' + draft.bank + ' SMS!');
+      }).catch(function (err) {
+        toast('Could not save SMS entry: ' + (err.message || 'Error'));
+      }).then(function () {
+        saveBtn.disabled = false;
+        saveBtn.textContent = '1-Tap Add Expense';
+      });
+    });
+  }
+
+  // Web Share Target: Auto-detect shared SMS text from Android Share menu
+  try {
+    var queryParams = new URLSearchParams(window.location.search);
+    var sharedSMS = queryParams.get('sms_text') || queryParams.get('text') || queryParams.get('title');
+    if (sharedSMS && sharedSMS.trim()) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+      openSMSModal(sharedSMS);
+    }
+  } catch (e) {}
 
   function renderSuggestions() {
     var box = $('chips');
@@ -313,7 +3317,7 @@
       var b = el('button', 'chip', c.emoji + ' ' + c.label);
       b.type = 'button';
       b.addEventListener('click', function () {
-        setSelectedScope(c.scope);
+        // Populates description WITHOUT altering the user's selected scope radio pill!
         $('desc').value = c.emoji + ' ' + c.label;
         if (!$('amt').value) $('amt').focus(); else $('desc').focus();
       });
@@ -347,8 +3351,13 @@
     });
   }
 
-  function dayHead(g) {
-    var head = el('div', 'day-head');
+  var DAY_COLOR_COUNT = 6;
+  function dayHead(g, isExpanded, toggleFn, colorIdx) {
+    var head = el('button', 'day-head' + (isExpanded ? ' expanded' : ''));
+    head.type = 'button';
+    head.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+    head.setAttribute('aria-label', (isExpanded ? 'Collapse ' : 'Expand ') + dFmt.format(keyToDate(g.key)) + ' expenses');
+
     var l = el('div', 'l');
     var today = dayKey(Date.now());
     var yest = dayKey(Date.now() - 86400000);
@@ -356,25 +3365,110 @@
     if (g.key === today) { l.appendChild(el('span', 'dname', 'Today')); l.appendChild(el('span', 'ddate', date)); }
     else if (g.key === yest) { l.appendChild(el('span', 'dname', 'Yesterday')); l.appendChild(el('span', 'ddate', date)); }
     else l.appendChild(el('span', 'dname', date));
+
+    var r = el('div', 'r-head');
+    r.appendChild(el('span', 'dtotal day-color-' + (colorIdx % DAY_COLOR_COUNT), money(g.total)));
+    r.appendChild(el('span', 'chevron', '▼'));
+
     head.appendChild(l);
-    head.appendChild(el('span', 'dtotal', money(g.total)));
+    head.appendChild(r);
+    head.addEventListener('click', toggleFn);
     return head;
   }
 
-  function entryRow(e) {
+  // Lists grouped under a day header show the time; flat month-long lists (settlement) show the date.
+  var rowDateFmt = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short' });
+  function entryRow(e, showDate) {
+    var wrap = el('div', 'entry-swipe-wrap');
+
     var b = el('button', 'row');
     b.type = 'button';
     b.setAttribute('aria-label', 'Edit ' + e.desc + ', ' + money(e.amount));
-    b.appendChild(el('span', 't', tFmt.format(new Date(e.ts))));
-    b.appendChild(el('span', 'd', e.desc));
+    b.appendChild(el('span', 't', (showDate ? rowDateFmt : tFmt).format(new Date(e.ts))));
+    var dSpan = el('span', 'd', e.desc);
+    var how = methodLabel(e);
+    if (how) dSpan.appendChild(el('small', 'method-badge method-' + e.method, (METHOD_ICONS[e.method] || '') + ' ' + how));
+    b.appendChild(dSpan);
     b.appendChild(el('span', 'a', money(e.amount)));
+
+    // Actions revealed on swipe
+    var actionsLeft = el('div', 'entry-swipe-actions', null);
+    actionsLeft.hidden = true;
+    var curScope = getEntryScope(e);
+
+    function makeQuickShiftPill(targetScope, icon, label) {
+      var pill = el('button', 'quick-shift-pill' + (curScope === targetScope ? ' active' : ''), icon + ' ' + label);
+      pill.type = 'button';
+      pill.addEventListener('click', function (ev) {
+        ev.stopPropagation();
+        var newDesc = shiftScopeDesc(e.desc, targetScope);
+        rememberMerchantScope(e.desc, targetScope);
+        store.update(e.id, { amount: e.amount, desc: newDesc, spent_at: new Date(e.ts).toISOString() }).then(function () {
+          render();
+          toast('Moved to ' + label);
+        }).catch(function (err) {
+          toast('Could not move: ' + (err.message || 'error'));
+        });
+      });
+      return pill;
+    }
+
+    if (curScope !== 'personal') actionsLeft.appendChild(makeQuickShiftPill('personal', '👤', 'Personal'));
+    if (curScope !== 'family') actionsLeft.appendChild(makeQuickShiftPill('family', '🏠', 'Family'));
+    if (curScope !== 'investment') actionsLeft.appendChild(makeQuickShiftPill('investment', '📈', 'Invest'));
+    var curTrip = getActiveTripName();
+    if (curScope !== 'trip') actionsLeft.appendChild(makeQuickShiftPill('trip', '✈️', curTrip || 'Trip'));
+
+    // Touch Swipe Gestures
+    var touchStartX = 0, touchStartY = 0, swiped = false;
+    b.addEventListener('touchstart', function (ev) {
+      if (ev.touches && ev.touches[0]) {
+        touchStartX = ev.touches[0].clientX;
+        touchStartY = ev.touches[0].clientY;
+      }
+    }, { passive: true });
+
+    b.addEventListener('touchmove', function (ev) {
+      if (!ev.touches || !ev.touches[0]) return;
+      var dx = ev.touches[0].clientX - touchStartX;
+      var dy = ev.touches[0].clientY - touchStartY;
+      if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 35) {
+        swiped = true;
+      }
+    }, { passive: true });
+
+    b.addEventListener('touchend', function (ev) {
+      if (swiped) {
+        actionsLeft.hidden = !actionsLeft.hidden;
+        swiped = false;
+      }
+    });
+
     b.addEventListener('click', function () {
+      if (actionsLeft && !actionsLeft.hidden) {
+        actionsLeft.hidden = true;
+        return;
+      }
       state.editing = e.id;
-      state.draft = { amount: String(e.amount), desc: e.desc, spent_at: toLocalISOString(e.ts) };
+      state.draft = { amount: String(e.amount), desc: e.desc, spent_at: toLocalISOString(e.ts), method: e.method || '' };
       render();
       var f = $('edit-amt'); if (f) f.focus();
     });
-    return b;
+
+    wrap.appendChild(actionsLeft);
+    wrap.appendChild(b);
+    return wrap;
+  }
+
+  function methodSelect(id, value) {
+    var s = el('select', 'input method-select'); s.id = id;
+    [['', '— not set —'], ['upi', '📲 UPI'], ['credit_card', '💳 Credit card'], ['debit_card', '🏦 Debit card'],
+      ['cash', '💵 Cash'], ['netbanking', '🏛️ Net banking'], ['wallet', '👛 Wallet']].forEach(function (o) {
+      var opt = el('option', null, o[1]); opt.value = o[0];
+      if (o[0] === value) opt.selected = true;
+      s.appendChild(opt);
+    });
+    return s;
   }
 
   function editRow(e) {
@@ -398,14 +3492,86 @@
     dt.addEventListener('input', function () { state.draft.spent_at = dt.value; });
     f3.appendChild(l3); f3.appendChild(dt);
     row2.appendChild(f3);
+    // How it was paid (needs the v5 columns; hidden until they exist).
+    if (hasV5Cols) {
+      var f4 = el('div', 'field'), l4 = el('label', null, 'Paid via'); l4.htmlFor = 'edit-method';
+      var ms = methodSelect('edit-method', state.draft.method || '');
+      ms.addEventListener('change', function () { state.draft.method = ms.value; });
+      f4.appendChild(l4); f4.appendChild(ms);
+      row2.appendChild(f4);
+    }
 
     var msg = el('p', 'err'); msg.hidden = true; msg.setAttribute('role', 'alert');
+
+    // 1-Tap Quick Shift Scope Buttons
+    var curScope = getEntryScope(e);
+    var shiftRow = el('div', 'edit-shift-row');
+    var shiftLabel = el('span', 'edit-shift-label', 'Move to:');
+    shiftRow.appendChild(shiftLabel);
+
+    function doShift(targetScope, label, tripName) {
+      var newDesc = shiftScopeDesc(state.draft.desc || e.desc, targetScope, tripName);
+      state.draft.desc = newDesc;
+      d.value = newDesc;
+      // Auto-save immediately on shift click for seamless 1-tap workflow
+      var amt = parseAmount(state.draft.amount);
+      if (amt == null) { msg.textContent = 'Enter an amount greater than zero.'; msg.hidden = false; return; }
+      save.disabled = true;
+      var newTs = state.draft.spent_at ? new Date(state.draft.spent_at).toISOString() : null;
+      rememberMerchantScope(e.desc, targetScope);
+      store.update(e.id, { amount: amt, desc: newDesc, spent_at: newTs }).then(function () {
+        state.editing = null;
+        render();
+        toast('Moved to ' + label);
+      }).catch(function (err) {
+        save.disabled = false;
+        msg.textContent = 'Could not move: ' + (err && err.message ? err.message : 'try again');
+        msg.hidden = false;
+      });
+    }
+
+    function createShiftBtn(targetScope, label, icon, tripName) {
+      var btn = el('button', 'btn-shift' + (curScope === targetScope ? ' active' : ''), icon + ' ' + label);
+      btn.type = 'button';
+      btn.addEventListener('click', function () { doShift(targetScope, label, tripName); });
+      return btn;
+    }
+
+    if (curScope !== 'personal') shiftRow.appendChild(createShiftBtn('personal', 'Personal', '👤'));
+    if (curScope !== 'family') shiftRow.appendChild(createShiftBtn('family', 'Family', '🏠'));
+    if (curScope !== 'investment') shiftRow.appendChild(createShiftBtn('investment', 'Investment', '📈'));
+    if (curScope !== 'trip') {
+      var activeTrip = getActiveTripName();
+      // One button per existing trip (not just the active one), so a hotel/flight booking for a
+      // trip that hasn't started yet can be filed under that trip without activating it.
+      getAllTrips().forEach(function (t) {
+        shiftRow.appendChild(createShiftBtn('trip', t + (t === activeTrip ? ' (active)' : ''), '✈️', t));
+      });
+      var newTripShiftBtn = el('button', 'btn-shift', '✈️ + New trip');
+      newTripShiftBtn.type = 'button';
+      newTripShiftBtn.addEventListener('click', function () {
+        showInputModal({
+          title: '✈️ New trip',
+          message: "Name it and move this expense into it -- it won't become your active trip until you switch to it later.",
+          fields: [{ label: 'Trip name', placeholder: 'e.g. Goa Dec' }],
+          confirmText: 'Create & move',
+          onConfirm: function (values) {
+            var name = (values[0] || '').trim();
+            if (!name) return;
+            saveTripToList(name);
+            doShift('trip', name, name);
+          }
+        });
+      });
+      shiftRow.appendChild(newTripShiftBtn);
+    }
+
     var btns = el('div', 'edit-btns');
     var save = el('button', 'primary small', 'Save'); save.type = 'submit';
     var cancel = el('button', 'ghost', 'Cancel'); cancel.type = 'button';
     var del = el('button', 'danger', 'Delete'); del.type = 'button';
     btns.appendChild(save); btns.appendChild(cancel); btns.appendChild(del);
-    f.appendChild(row1); f.appendChild(row2); f.appendChild(msg); f.appendChild(btns);
+    f.appendChild(row1); f.appendChild(row2); f.appendChild(shiftRow); f.appendChild(msg); f.appendChild(btns);
 
     cancel.addEventListener('click', function () { state.editing = null; render(); });
     f.addEventListener('submit', function (ev) {
@@ -415,7 +3581,9 @@
       if (!desc) { msg.textContent = 'Add a short description, like Grocery.'; msg.hidden = false; return; }
       save.disabled = true;
       var newTs = state.draft.spent_at ? new Date(state.draft.spent_at).toISOString() : null;
-      store.update(e.id, { amount: amt, desc: desc, spent_at: newTs }).then(function () {
+      var patch = { amount: amt, desc: desc, spent_at: newTs };
+      if (hasV5Cols && (state.draft.method || '') !== (e.method || '')) patch.method = state.draft.method || null;
+      store.update(e.id, patch).then(function () {
         state.editing = null; render(); toast('Changes saved');
       }).catch(function () {
         save.disabled = false; msg.textContent = 'Could not save the change. Try again.'; msg.hidden = false;
@@ -439,6 +3607,8 @@
   function renderDays(days) {
     var box = $('days');
     box.textContent = '';
+    if (!state.expandedDays) state.expandedDays = {};
+
     if (!state.entries.length) {
       var em = el('div', 'empty');
       var p1 = el('p'); p1.appendChild(el('strong', null, 'No expenses yet.'));
@@ -454,16 +3624,38 @@
       box.appendChild(e2);
       return;
     }
-    days.forEach(function (g) {
+
+    days.forEach(function (g, idx) {
       var wrap = el('section', 'day');
-      wrap.appendChild(dayHead(g));
+      var hasEditing = g.items.some(function (e) { return e.id === state.editing; });
+      if (hasEditing) state.expandedDays[g.key] = true;
+
+      // Default expand today or first day if no expanded state stored for this month
+      if (state.expandedDays[g.key] === undefined) {
+        state.expandedDays[g.key] = (idx === 0 || g.key === dayKey(Date.now()));
+      }
+
+      var isExpanded = !!state.expandedDays[g.key];
+      var wrapper = el('div', 'entries-wrapper' + (isExpanded ? ' expanded' : ''));
       var ul = el('ul', 'entries');
       g.items.forEach(function (e) {
         var li = el('li');
         li.appendChild(state.editing === e.id && state.draft ? editRow(e) : entryRow(e));
         ul.appendChild(li);
       });
-      wrap.appendChild(ul);
+      wrapper.appendChild(ul);
+
+      var head = dayHead(g, isExpanded, function () {
+        var nextExpanded = !wrapper.classList.contains('expanded');
+        state.expandedDays[g.key] = nextExpanded;
+        head.classList.toggle('expanded', nextExpanded);
+        head.setAttribute('aria-expanded', nextExpanded ? 'true' : 'false');
+        head.setAttribute('aria-label', (nextExpanded ? 'Collapse ' : 'Expand ') + dFmt.format(keyToDate(g.key)) + ' expenses');
+        wrapper.classList.toggle('expanded', nextExpanded);
+      }, idx);
+
+      wrap.appendChild(head);
+      wrap.appendChild(wrapper);
       box.appendChild(wrap);
     });
   }
@@ -518,6 +3710,17 @@
     if (i >= 0 && i < keys.length) { state.sel = keys[i]; state.editing = null; render(); }
   }
 
+  // Cash wallet → "Log a cash spend": the add form, preset to Cash.
+  if ($('cw-log-btn')) {
+    $('cw-log-btn').addEventListener('click', function () {
+      if ($('paid-via')) $('paid-via').value = 'cash';
+      var form = $('add');
+      if (form && form.scrollIntoView) form.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      $('amt').focus();
+      if (!hasV5Cols) toast('Run supabase/kharcha_v5_money_types.sql to mark spends as cash.');
+    });
+  }
+
   $('add').addEventListener('submit', function (ev) {
     ev.preventDefault();
     showErr('');
@@ -527,12 +3730,14 @@
     if (!rawDesc) { showErr('Add a description, e.g. Grocery, Milk, Electricity Bill.'); $('desc').focus(); return; }
 
     var scope = getSelectedScope();
-    var desc = rawDesc;
-    if (scope === 'family' && !isFamilyEntry(desc)) {
-      desc = '🏠 ' + desc;
-    } else if (scope === 'personal' && !desc.startsWith('👤') && !isFamilyEntry(desc)) {
-      var hasEmoji = /^\p{Extended_Pictographic}/u.test(desc);
-      if (!hasEmoji) desc = '👤 ' + desc;
+    var cleanDesc = rawDesc.replace(/^[🏠👤]\s*/, '');
+    var desc;
+    if (scope === 'trip') {
+      var tripName = ($('trip-pick') && $('trip-pick').value || '').trim();
+      if (!tripName) { showErr('Choose a trip, or add a new one first.'); return; }
+      desc = shiftScopeDesc(cleanDesc, 'trip', tripName);
+    } else {
+      desc = (scope === 'family') ? ('🏠 ' + cleanDesc) : cleanDesc;
     }
 
     var spentVal = $('spent-date').value;
@@ -540,15 +3745,18 @@
 
     var btn = $('addbtn');
     btn.disabled = true;
-    store.add({ amount: amt, desc: desc, spent_at: spentAt }).then(function () {
+    var paidVia = $('paid-via') ? $('paid-via').value : '';
+    store.add({ amount: amt, desc: desc, spent_at: spentAt, method: paidVia || null }).then(function () {
       $('amt').value = ''; $('desc').value = ''; $('spent-date').value = '';
       var ts = spentAt ? Date.parse(spentAt) : Date.now();
       state.sel = monthKey(ts);
       render();
       toast('Added ' + money(amt) + ' for ' + desc);
       $('amt').focus();
-    }).catch(function () {
-      showErr('Could not save that entry. Check your connection and try again.');
+    }).catch(function (err) {
+      console.error('Save entry failed:', err);
+      var msg = (err && (err.message || err.details || err.hint || (typeof err === 'object' ? JSON.stringify(err) : String(err)))) || 'Check your connection and try again.';
+      showErr('Could not save entry: ' + msg);
     }).then(function () { renderSync(); });
   });
 
@@ -565,11 +3773,6 @@
     if (!window.PublicKeyCredential || !window.isSecureContext || !PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable) return Promise.resolve();
     return PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable().then(function (ok) { lockSupported = !!ok; }).catch(function () {});
   }
-  function renderLockToggle() {
-    var b = $('locktoggle');
-    b.hidden = $('main').hidden || !lockSupported;
-    b.textContent = lockCred() ? 'Turn off lock' : 'Turn on fingerprint / PIN lock';
-  }
   function rand(n) { var a = new Uint8Array(n); crypto.getRandomValues(a); return a; }
   async function enableLock() {
     try {
@@ -577,16 +3780,16 @@
       var cred = await navigator.credentials.create({ publicKey: {
         challenge: rand(32),
         rp: { name: 'Kharcha Book' },
-        user: { id: rand(16), name: (who && (who.email || who.phone)) || 'kharcha', displayName: 'Kharcha Book' },
+        user: { id: rand(16), name: (who && who.email) || 'kharcha', displayName: 'Kharcha Book' },
         pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
         authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'discouraged' },
         timeout: 60000
       } });
       setLockCred(b64u(cred.rawId));
-      renderLockToggle(); renderLockOffer();
-      toast('Lock is on. It asks for your fingerprint or PIN next time.');
+      renderLockOffer();
+      toast('Lock enabled! Fingerprint or phone PIN will be required next time.');
     } catch (err) {
-      toast('Could not turn on the lock. Make sure your phone has a screen lock set up.');
+      toast('Could not enable lock. Ensure your device has a fingerprint or phone PIN set up.');
     }
   }
   async function unlock() {
@@ -601,7 +3804,7 @@
         timeout: 60000
       } });
     } catch (err) {
-      $('lock-err').textContent = 'Could not unlock. Try again, or sign in with password.';
+      $('lock-err').textContent = 'Could not unlock. Try again, or verify with your phone PIN / password.';
       $('lock-err').hidden = false;
       return;
     }
@@ -611,121 +3814,112 @@
     state.editing = null;
     showScreen('lock');
   }
-  $('locktoggle').addEventListener('click', function () {
-    if (lockCred()) { setLockCred(null); renderLockToggle(); toast('Lock turned off'); }
-    else enableLock();
-  });
   $('lock-btn').addEventListener('click', unlock);
   $('lock-pass').addEventListener('click', async function () {
     setLockCred(null);
-    await sb.auth.signOut();
+    await sb.auth.signOut({ scope: 'local' }); // this device only; 'global' would also log SpendTrack out
     state.entries = []; state.editing = null;
     showScreen('auth');
   });
   document.addEventListener('visibilitychange', function () {
-    if (document.hidden) { hiddenAt = Date.now(); return; }
-    if (hiddenAt && Date.now() - hiddenAt > LOCK_AFTER_MS && lockCred() && !$('main').hidden) lockNow();
+    if (document.hidden) {
+      hiddenAt = Date.now();
+      return;
+    }
+    if (hiddenAt && Date.now() - hiddenAt > LOCK_AFTER_MS && lockCred() && !$('main').hidden) {
+      lockNow();
+      hiddenAt = 0;
+      return;
+    }
     hiddenAt = 0;
+    // Auto-refresh when app becomes visible again so new synced payments show immediately
+    if (!$('main').hidden && !isLoadingApp && state.mode === 'db') {
+      refreshData();
+    }
   });
+
+  window.addEventListener('focus', function () {
+    if (!$('main').hidden && !isLoadingApp && state.mode === 'db') {
+      refreshData();
+    }
+  });
+
+  async function refreshData() {
+    try {
+      var latest = await store.loadAll();
+      state.entries = latest;
+      // Pick up trips/budgets changed on the phone -- unless a local change is still waiting to save.
+      if (!kv.timer) await kv.load();
+      render();
+    } catch (e) {
+      console.warn('Kharcha: background refresh failed', e);
+    }
+  }
 
   var OFFER_KEY = 'kharcha_lock_declined';
   function offerDeclined() { try { return !!localStorage.getItem(OFFER_KEY); } catch (e) { return false; } }
-  function renderLockOffer() { $('lock-offer').hidden = !(lockSupported && !lockCred() && !offerDeclined() && !$('main').hidden); }
+  function renderLockOffer() {
+    var offerSec = $('lock-offer');
+    if (offerSec) offerSec.hidden = !(lockSupported && !lockCred() && !offerDeclined() && !$('main').hidden);
+  }
   $('offer-no').addEventListener('click', function () { try { localStorage.setItem(OFFER_KEY, '1'); } catch (e) {} renderLockOffer(); });
   $('offer-yes').addEventListener('click', async function () { await enableLock(); renderLockOffer(); });
 
-  /* ---------- Sign In ---------- */
+  /* ---------- sign in ---------- */
   function showAuthErr(msg) { var e = $('auth-err'); e.textContent = msg; e.hidden = !msg; }
+  var authMode = 'otp', otpSent = false;
   function showAuthInfo(msg) { var i = $('auth-info'); i.textContent = msg; i.hidden = !msg; }
-
-  var authTab = 'phone';
-  var otpSent = false;
-
-  function renderAuthTabs() {
-    $('tab-phone').classList.toggle('active', authTab === 'phone');
-    $('tab-email').classList.toggle('active', authTab === 'email');
-    $('tab-pass').classList.toggle('active', authTab === 'pass');
-
-    $('phone-field').hidden = authTab !== 'phone';
-    $('email-field').hidden = authTab !== 'email';
-    $('pass-field').hidden = authTab !== 'pass';
-    $('code-field').hidden = !otpSent || authTab === 'pass';
-
-    if (authTab === 'phone') {
-      $('auth-title').textContent = otpSent ? 'Enter SMS Code' : 'Sign in with Phone OTP';
-      $('auth-intro').textContent = 'Enter your phone number with country code (e.g. +919876543210) to receive a one-time SMS code.';
-      $('auth-btn').textContent = otpSent ? 'Verify SMS Code' : 'Send SMS Code';
-    } else if (authTab === 'email') {
-      $('auth-title').textContent = otpSent ? 'Enter Email Code' : 'Sign in with Email OTP';
-      $('auth-intro').textContent = 'Enter your email address to receive a one-time code.';
-      $('auth-btn').textContent = otpSent ? 'Verify Email Code' : 'Send Email Code';
-    } else {
-      $('auth-title').textContent = 'Sign in with Password';
-      $('auth-intro').textContent = 'Enter your email and password to sign in.';
-      $('auth-btn').textContent = 'Sign in';
-    }
+  function renderAuth() {
+    var otp = authMode === 'otp';
+    $('auth-title').textContent = otp ? 'Sign in with an email link or code' : 'Sign in with a password';
+    $('auth-intro').hidden = !otp || otpSent;
+    $('code-field').hidden = !(otp && otpSent);
+    $('pass-field').hidden = otp;
+    $('auth-email').readOnly = otp && otpSent;
+    $('auth-btn').textContent = otp ? (otpSent ? 'Verify code' : 'Send link / code') : 'Sign in';
+    $('auth-toggle').textContent = otp ? 'Use a password instead' : 'Use an email link instead';
     showAuthErr(''); showAuthInfo('');
   }
-
-  $('tab-phone').addEventListener('click', function () { authTab = 'phone'; otpSent = false; renderAuthTabs(); });
-  $('tab-email').addEventListener('click', function () { authTab = 'email'; otpSent = false; renderAuthTabs(); });
-  $('tab-pass').addEventListener('click', function () { authTab = 'pass'; otpSent = false; renderAuthTabs(); });
-
+  $('auth-toggle').addEventListener('click', function () {
+    authMode = authMode === 'otp' ? 'pass' : 'otp'; otpSent = false; $('auth-code').value = ''; renderAuth();
+  });
   $('auth').addEventListener('submit', async function (ev) {
     ev.preventDefault();
-    showAuthErr(''); showAuthInfo('');
-    $('auth-btn').disabled = true;
+    var email = $('auth-email').value.trim();
+    if (!email) { showAuthErr('Enter your email address.'); return; }
+    $('auth-btn').disabled = true; showAuthErr('');
     var res;
     try {
-      if (authTab === 'pass') {
-        var email = $('auth-email').value.trim();
+      if (authMode === 'pass') {
         var pass = $('auth-pass').value;
-        if (!email || pass.length < 6) { showAuthErr('Enter your email and password.'); $('auth-btn').disabled = false; return; }
+        if (pass.length < 6) { showAuthErr('Enter your password.'); $('auth-btn').disabled = false; return; }
         res = await sb.auth.signInWithPassword({ email: email, password: pass });
-      } else if (authTab === 'phone') {
-        var phone = $('auth-phone').value.trim();
-        if (!phone) { showAuthErr('Enter your phone number with country code (e.g. +919876543210).'); $('auth-btn').disabled = false; return; }
-        if (!otpSent) {
-          res = await sb.auth.signInWithOtp({ phone: phone });
-          if (!res.error) {
-            otpSent = true; renderAuthTabs();
-            showAuthInfo('SMS code sent to ' + phone + '. Enter the 6-digit code below.');
-            $('auth-code').focus(); $('auth-btn').disabled = false; return;
-          }
-        } else {
-          var code = $('auth-code').value.replace(/\s/g, '');
-          if (code.length < 6) { showAuthErr('Enter the 6-digit SMS code.'); $('auth-btn').disabled = false; return; }
-          res = await sb.auth.verifyOtp({ phone: phone, token: code, type: 'sms' });
+      } else if (!otpSent) {
+        res = await sb.auth.signInWithOtp({ email: email, options: { shouldCreateUser: false } });
+        if (!res.error) {
+          otpSent = true; renderAuth();
+          showAuthInfo('We sent a sign-in link to ' + email + '. Click the link in your email to log in automatically.');
+          $('auth-code').focus();
+          $('auth-btn').disabled = false; return;
         }
-      } else if (authTab === 'email') {
-        var email = $('auth-email').value.trim();
-        if (!email) { showAuthErr('Enter your email address.'); $('auth-btn').disabled = false; return; }
-        if (!otpSent) {
-          res = await sb.auth.signInWithOtp({ email: email, options: { shouldCreateUser: false } });
-          if (!res.error) {
-            otpSent = true; renderAuthTabs();
-            showAuthInfo('We sent a code to ' + email + '. Enter it below.');
-            $('auth-code').focus(); $('auth-btn').disabled = false; return;
-          }
-        } else {
-          var code = $('auth-code').value.replace(/\s/g, '');
-          if (code.length < 6) { showAuthErr('Enter the code from your email.'); $('auth-btn').disabled = false; return; }
-          res = await sb.auth.verifyOtp({ email: email, token: code, type: 'email' });
-        }
+      } else {
+        var code = $('auth-code').value.replace(/\s/g, '');
+        if (code.length < 6) { showAuthErr('Enter the code from your email.'); $('auth-btn').disabled = false; return; }
+        res = await sb.auth.verifyOtp({ email: email, token: code, type: 'email' });
       }
     } catch (err) {
-      res = { error: { message: err.message || 'Could not reach Supabase. Check connection.' } };
+      res = { error: { message: 'Could not reach Supabase. Check your connection.' } };
     }
     $('auth-btn').disabled = false;
     if (res.error) { showAuthErr(res.error.message); return; }
-    otpSent = false;
+    otpSent = false; renderAuth();
     await enterApp();
   });
 
   $('signout').addEventListener('click', async function () {
     setLockCred(null);
     try { localStorage.removeItem(OFFER_KEY); } catch (e) {}
-    await sb.auth.signOut();
+    await sb.auth.signOut({ scope: 'local' }); // this device only; 'global' would also log SpendTrack out
     state.entries = []; state.editing = null; state.mode = 'signedout';
     showScreen('auth');
   });
@@ -736,24 +3930,35 @@
     $('lock').hidden = which !== 'lock';
     $('main').hidden = which !== 'main';
     $('signout').hidden = which !== 'main';
-    if (which === 'auth') renderAuthTabs();
-    renderLockToggle(); renderLockOffer();
+    if (which === 'auth') renderAuth();
+    renderLockOffer();
     if (which !== 'main') { state.mode = which === 'auth' ? 'signedout' : which === 'lock' ? 'locked' : 'setup'; renderSync(); }
   }
 
+  var isLoadingApp = false;
   async function enterApp() {
+    console.log('Kharcha: enterApp called, isLoading=' + isLoadingApp);
+    if (isLoadingApp) return;
+    isLoadingApp = true;
     showScreen('main');
     state.mode = 'pending'; renderSync();
     try {
+      console.log('Kharcha: calling store.loadAll()');
       state.entries = await store.loadAll();
+      console.log('Kharcha: store.loadAll completed with ' + state.entries.length + ' entries');
       state.mode = 'db';
+      await kv.load();
     } catch (err) {
+      console.error('Kharcha: store.loadAll failed:', err);
       state.mode = 'error';
       render();
       showErr('Could not load your expenses: ' + (err.message || 'check the Supabase table and policies') + '. Run supabase/daily_expenses.sql in the Supabase SQL editor if you have not yet.');
+      isLoadingApp = false;
       return;
     }
+    isLoadingApp = false;
     render();
+    console.log('Kharcha: render completed successfully, total entries=' + state.entries.length);
   }
 
   /* ---------- start ---------- */
@@ -762,12 +3967,144 @@
   render();
 
   (async function init() {
-    if (!CFG.SUPABASE_URL || !CFG.SUPABASE_ANON_KEY || !window.supabase) { showScreen('setup'); return; }
-    sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
+    console.log('Kharcha: init starting');
+    if (!CFG.SUPABASE_URL || !CFG.SUPABASE_ANON_KEY || !window.supabase) {
+      console.warn('Kharcha: Supabase config or script missing');
+      showScreen('setup'); return;
+    }
+    sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, {
+      auth: {
+        lock: async function (name, acquireTimeout, fn) {
+          return await fn();
+        }
+      }
+    });
+    console.log('Kharcha: Supabase client created');
     await detectLock();
+    console.log('Kharcha: detectLock done, lockSupported=' + lockSupported);
+
+    sb.auth.onAuthStateChange(function (event, session) {
+      console.log('Kharcha: auth state changed: ' + event + ', session=' + !!session);
+      if (event === 'INITIAL_SESSION') return;
+      if (session && ($('main').hidden || state.mode === 'signedout')) {
+        setTimeout(function () {
+          if (lockCred() && lockSupported) { showScreen('lock'); unlock(); }
+          else enterApp();
+        }, 0);
+      } else if (!session && event === 'SIGNED_OUT') {
+        state.entries = []; state.editing = null; state.mode = 'signedout';
+        showScreen('auth');
+      }
+    });
+
     var got = await sb.auth.getSession();
+    console.log('Kharcha: getSession returned session=' + !!got.data?.session);
     if (got.data && got.data.session) {
       if (lockCred() && lockSupported) { showScreen('lock'); unlock(); } else await enterApp();
-    } else showScreen('auth');
+      // Subscribe to real-time changes on daily_expenses for instant sync from phone detection
+      try {
+        sb.channel('realtime-expenses')
+          .on('postgres_changes', { event: '*', schema: 'public', table: TABLE }, function () {
+            console.log('Kharcha: realtime update received, refreshing');
+            refreshData();
+          })
+          .subscribe();
+      } catch (rtErr) {
+        console.warn('Kharcha: Realtime subscription failed', rtErr);
+      }
+    } else {
+      showScreen('auth');
+    }
   })();
+
+  /* ---------- PWA Installation Handler ---------- */
+  var deferredPrompt = null;
+  window.addEventListener('beforeinstallprompt', function (ev) {
+    ev.preventDefault();
+    deferredPrompt = ev;
+    var btn = $('install-btn');
+    if (btn) btn.hidden = false;
+  });
+
+  var installBtn = $('install-btn');
+  if (installBtn) {
+    installBtn.addEventListener('click', function () {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.then(function (choice) {
+        if (choice.outcome === 'accepted') {
+          installBtn.hidden = true;
+          toast('Kharcha Book app installed!');
+        }
+        deferredPrompt = null;
+      });
+    });
+  }
+  /* ---------- Demo Mode & Force Update Handlers ---------- */
+  var isDemoMode = false;
+  var demoBtn = $('demo-mode-btn');
+  if (demoBtn) {
+    demoBtn.addEventListener('click', function () {
+      isDemoMode = true;
+      state.entries = [
+        { id: 'd1', amount: 450, desc: '🍔 Food & Dining (Swiggy)', ts: Date.now() - 3600000, refNo: '42781923' },
+        { id: 'd2', amount: 1250, desc: '🏠 ⚡ Electricity Bill', ts: Date.now() - 86400000, refNo: 'BESCOM98' },
+        { id: 'd3', amount: 1500, desc: '🏠 🛒 General Grocery', ts: Date.now() - 172800000, refNo: 'DMART44' },
+        { id: 'd4', amount: 600, desc: '⛽ Petrol / Fuel', ts: Date.now() - 259200000, refNo: 'HPCL712' }
+      ];
+      showScreen('main');
+      state.mode = 'db';
+      renderSync();
+      render();
+      toast('Demo Mode activated! You can test SMS parser, category budgets, & dark mode.');
+    });
+  }
+
+  // Phone-app settings (detection, cloud sync, trips) live natively; this button replaces the
+  // floating gear that used to cover the tabs.
+  var appSettingsBtn = $('app-settings-btn');
+  if (appSettingsBtn && window.KharchaNative && window.KharchaNative.openSettings) {
+    appSettingsBtn.hidden = false;
+    appSettingsBtn.addEventListener('click', function () { window.KharchaNative.openSettings(); });
+  }
+
+  // The running version, read from this script's own ?v= so the label can't drift from the real build.
+  var APP_VERSION = (function () {
+    var s = document.querySelector('script[src*="app.js"]');
+    var src = (s && typeof s.getAttribute === 'function' && s.getAttribute('src')) || '';
+    var m = /[?&]v=(\d+)/.exec(src);
+    return m ? 'v' + m[1] : '';
+  })();
+  var updateBtn = $('force-update-btn');
+  if (updateBtn) {
+    if (APP_VERSION) {
+      updateBtn.textContent = APP_VERSION + ' 🔄';
+      updateBtn.title = 'Force clear cache & reload (running ' + APP_VERSION + ')';
+    }
+    updateBtn.addEventListener('click', function () {
+      showConfirmModal({
+        title: '🔄 Force Clear Cache & Reload',
+        message: 'Clear cached app data and reload to the latest version? (now running ' + (APP_VERSION || 'unknown') + ')',
+        confirmText: 'Clear & Reload',
+        onConfirm: function () {
+          if ('caches' in window) {
+            caches.keys().then(function(keys) {
+              return Promise.all(keys.map(function(k) { return caches.delete(k); }));
+            }).then(function() {
+              if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.getRegistrations().then(function(regs) {
+                  regs.forEach(function(r) { r.unregister(); });
+                  window.location.reload(true);
+                });
+              } else {
+                window.location.reload(true);
+              }
+            });
+          } else {
+            window.location.reload(true);
+          }
+        }
+      });
+    });
+  }
 })();

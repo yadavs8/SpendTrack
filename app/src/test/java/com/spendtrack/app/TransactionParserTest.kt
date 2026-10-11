@@ -4,6 +4,7 @@ import com.spendtrack.app.core.model.PaymentMethod
 import com.spendtrack.app.core.model.TransactionType
 import com.spendtrack.app.core.parser.TransactionParser
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -123,11 +124,110 @@ class TransactionParserTest {
         assertEquals("9999", result.accountLast4)
     }
 
+    // Real ICICI SMS: the payee is "credited", but it is our debit.
+    @Test
+    fun parse_iciciUpiDebitWithPayeeCredited_isExpense() {
+        val text = "ICICI Bank Acct XX602 debited for Rs 90.00 on 05-Oct-26; Piyush Yadav credited. UPI:664408525138. Call 18002662 for dispute. SMS BLOCK 602 to 9215676766."
+        val result = TransactionParser.parse("ICICI Bank", text, "com.android.mms")
+
+        assertNotNull(result)
+        assertEquals(TransactionType.EXPENSE, result!!.transactionType)
+        assertEquals(90.0, result.amount, 0.01)
+        assertEquals("602", result.accountLast4)
+        assertEquals("664408525138", result.upiReference)
+        assertEquals("Piyush Yadav", result.merchantRaw)
+    }
+
+    @Test
+    fun parse_fourDigitAmountWithoutComma_isNotTruncated() {
+        val text = "ICICI Bank Acct XX602 debited for Rs 2250.00 on 05-Oct-26; MAMTA KASYAP credited. UPI:664413510229."
+        val result = TransactionParser.parse("ICICI Bank", text)
+
+        assertNotNull(result)
+        assertEquals(2250.0, result!!.amount, 0.01)
+    }
+
+    // Real CRED ad that was logged as a ₹1 expense.
+    @Test
+    fun parse_paymentAppPromo_isIgnored() {
+        val result = TransactionParser.parse(
+            "leaving in 6 hours: The Coin Rush",
+            "unlocked for Sanjeev: roadside assistance at ₹1. tap to claim it now.",
+            "com.dreamplug.androidapp"
+        )
+        assertNull("Ads from payment apps must not become expenses", result)
+        assertNull(TransactionParser.parse("Myntra", "Get it for ₹998", "net.one97.paytm"))
+    }
+
+    @Test
+    fun parse_balanceBeforeAmount_usesDebitAmount() {
+        val result = TransactionParser.parse("HDFCBK", "Avl Bal Rs 25,000.00. Rs 300 debited from a/c XX1234 to zepto@ybl")
+        assertNotNull(result)
+        assertEquals(300.0, result!!.amount, 0.01)
+    }
+
+    @Test
+    fun parse_upcomingMandateDebit_isNotRecordedYet() {
+        val result = TransactionParser.parse(
+            "HDFC Bank",
+            "Rs 999.00 will be debited from A/c XX1234 on 10-Oct-26 towards Netflix as per your mandate."
+        )
+        assertNull("A scheduled future debit has not happened yet", result)
+    }
+
+    @Test
+    fun parse_paymentRequest_isNotRecorded() {
+        val result = TransactionParser.parse(
+            "Google Pay",
+            "Rahul has requested ₹500 from you for dinner. Pay now or decline.",
+            "com.google.android.apps.nbu.paisa.user"
+        )
+        assertNull("A payment request awaiting approval is not a completed spend", result)
+    }
+
+    @Test
+    fun parse_collectRequest_isNotRecorded() {
+        val result = TransactionParser.parse(
+            "PhonePe",
+            "Collect request for ₹1,200 from Landlord. Approve the payment to pay.",
+            "com.phonepe.app"
+        )
+        assertNull("A collect request is not money that has left the account", result)
+    }
+
+    @Test
+    fun parse_pinApprovalPrompt_isNotRecorded() {
+        val result = TransactionParser.parse(
+            "Google Pay",
+            "Enter your UPI PIN to complete payment of ₹300 to Zomato.",
+            "com.google.android.apps.nbu.paisa.user"
+        )
+        assertNull("The PIN prompt fires before the payment is actually made", result)
+    }
+
+    @Test
+    fun parse_processingStatus_isNotRecorded() {
+        val result = TransactionParser.parse(
+            "PhonePe",
+            "Your payment of Rs 450 to Swiggy is processing. We'll notify you once it's done.",
+            "com.phonepe.app"
+        )
+        assertNull("A payment still processing has not completed", result)
+    }
+
+    @Test
+    fun looksLikeBankSms_rejectsChatsThatMentionPaying() {
+        assertTrue(TransactionParser.looksLikeBankSms("ICICI Bank Acct XX602 debited for Rs 90.00 on 05-Oct-26"))
+        assertFalse(TransactionParser.looksLikeBankSms("Bhai I paid Rs 500 for the tickets, send me your share"))
+    }
+
     @Test
     fun extractAmount_handlesVariousIndianFormats() {
         assertEquals(450.0, TransactionParser.extractAmount("Paid Rs 450 at Swiggy")!!, 0.01)
         assertEquals(1299.50, TransactionParser.extractAmount("Debited with Rs. 1,299.50")!!, 0.01)
         assertEquals(50000.0, TransactionParser.extractAmount("Spent INR 50,000 on purchase")!!, 0.01)
         assertEquals(40.0, TransactionParser.extractAmount("Paid ₹40 to Chaiwala")!!, 0.01)
+        assertEquals(1299.0, TransactionParser.extractAmount("Rs 1299 debited")!!, 0.01)
+        assertEquals(90.0, TransactionParser.extractAmount("Paid ₹ 90 to Rahul")!!, 0.01)
     }
 }

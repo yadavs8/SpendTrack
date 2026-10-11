@@ -7,22 +7,42 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="styles.css?v=44">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0B5D75">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Kharcha">
-<link rel="apple-touch-icon" href="apple-touch-icon.png">
-<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=44">
+<link rel="icon" href="icon-192.png?v=44" type="image/png">
+<script>
+  (function() {
+    var V = '44';
+    if (localStorage.getItem('kharcha_app_v') !== V) {
+      localStorage.setItem('kharcha_app_v', V);
+      if ('caches' in window) {
+        caches.keys().then(function(keys) {
+          keys.forEach(function(k) { caches.delete(k); });
+        });
+      }
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistrations().then(function(regs) {
+          regs.forEach(function(r) { r.unregister(); });
+        });
+      }
+    }
+  })();
+</script>
 </head>
 <body>
 <main class="app">
   <header class="top">
-    <h1><img class="logo" src="icon-192.png" width="36" height="36" alt="">Kharcha Book</h1>
+    <h1><img class="logo" src="icon-192.png?v=44" width="36" height="36" alt="">Kharcha Book</h1>
     <div class="top-r">
       <span class="sync" id="sync" data-state="pending">Loading…</span>
-      <button type="button" class="signout" id="locktoggle" hidden></button>
+      <button type="button" class="installbtn" id="force-update-btn" title="Force clear cache & reload latest version">v43 🔄</button>
+      <button type="button" class="installbtn" id="app-settings-btn" title="Phone app settings" aria-label="Phone app settings" hidden>⚙️</button>
+      <button type="button" class="installbtn" id="install-btn" hidden>📲 Install App</button>
       <button type="button" class="signout" id="signout" hidden>Sign out</button>
     </div>
   </header>
@@ -32,27 +52,25 @@
   </div>
 
   <form class="auth" id="auth" hidden novalidate>
-    <h2 id="auth-title">Sign in with OTP code</h2>
-    <p id="auth-intro">Enter your phone number or email to receive a one-time verification code. After signing in, you can unlock with your fingerprint or phone PIN.</p>
-    <div class="auth-tabs" id="auth-tabs">
-      <button type="button" class="tabbtn active" id="tab-phone">Phone OTP</button>
-      <button type="button" class="tabbtn" id="tab-email">Email OTP</button>
-      <button type="button" class="tabbtn" id="tab-pass">Password</button>
-    </div>
-    <div class="field" id="phone-field"><label for="auth-phone">Phone number (with +91)</label><input class="input" id="auth-phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="+919876543210"></div>
-    <div class="field" id="email-field" hidden><label for="auth-email">Email address</label><input class="input" id="auth-email" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com"></div>
-    <div class="field" id="code-field" hidden><label for="auth-code">6-Digit verification code</label><input class="input" id="auth-code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456"></div>
+    <h2 id="auth-title">Sign in with an email link or code</h2>
+    <p id="auth-intro">Enter your email address and we will send you a sign-in link. Click the link in your email to open Kharcha Book instantly.</p>
+    <div class="field" id="email-field"><label for="auth-email">Email address</label><input class="input" id="auth-email" type="email" autocomplete="email" inputmode="email" placeholder="you@example.com"></div>
+    <div class="field" id="code-field" hidden><label for="auth-code">6-Digit Code (if provided in email)</label><input class="input" id="auth-code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456"></div>
     <div class="field" id="pass-field" hidden><label for="auth-pass">Password</label><input class="input" id="auth-pass" type="password" autocomplete="current-password"></div>
     <p class="err" id="auth-err" role="alert" hidden></p>
     <p id="auth-info" role="status" hidden></p>
     <div class="add-foot">
-      <button class="primary" type="submit" id="auth-btn">Send OTP Code</button>
+      <button class="linkbtn" type="button" id="auth-toggle">Use a password instead</button>
+      <button class="primary" type="submit" id="auth-btn">Send link / code</button>
+    </div>
+    <div style="margin-top: 14px; text-align: center;">
+      <button class="secondary" type="button" id="demo-mode-btn" style="width: 100%; border-radius: 10px; padding: 10px; font-weight: 600;">👀 Try Demo Mode & Test SMS Parser</button>
     </div>
   </form>
 
   <section class="auth" id="lock" hidden>
     <h2>Kharcha Book is locked</h2>
-    <p>Use your fingerprint or your phone's PIN, pattern or password to open it.</p>
+    <p>Use your fingerprint or your phone's PIN/password to open it.</p>
     <p class="err" id="lock-err" role="alert" hidden></p>
     <div class="add-foot">
       <button class="linkbtn" type="button" id="lock-pass">Sign in with password instead</button>
@@ -61,12 +79,12 @@
   </section>
 
   <div id="main" class="app" hidden>
-  <section class="auth" id="lock-offer" hidden>
-    <h2>Open faster and keep it private</h2>
-    <p>Use your fingerprint or phone PIN to open Kharcha Book next time, instead of signing in again.</p>
+  <section class="auth lock-offer-banner" id="lock-offer" hidden>
+    <h2>Enable Fingerprint / Phone PIN Lock</h2>
+    <p>Open Kharcha Book next time using your fingerprint or phone PIN instead of signing in again.</p>
     <div class="add-foot">
       <button class="linkbtn" type="button" id="offer-no">Not now</button>
-      <button class="primary" type="button" id="offer-yes">Turn on</button>
+      <button class="primary" type="button" id="offer-yes">Enable Lock</button>
     </div>
   </section>
   <section class="hero" aria-label="Month total">
@@ -82,9 +100,15 @@
     <div class="scope-tabs" id="scope-filter">
       <button type="button" class="scopetab active" data-scope="all">All Spends</button>
       <button type="button" class="scopetab" data-scope="personal">👤 Personal</button>
-      <button type="button" class="scopetab" data-scope="family">🏠 Family & Bills</button>
+      <button type="button" class="scopetab" data-scope="family">🏠 Family</button>
     </div>
-    <p class="total" id="mtotal">₹0</p>
+    <div class="hero-amount-block">
+      <p class="total" id="mtotal">₹0</p>
+      <button type="button" class="hero-insights-toggle" id="hero-insights-toggle" aria-expanded="false" title="Toggle detailed cashflow & stats">
+        <span>Insights & Stats</span> <span class="insights-arrow">▾</span>
+      </button>
+    </div>
+    <p class="vs-last" id="vs-last" hidden></p>
     <div class="budget-bar-wrap" id="budget-wrap">
       <div class="budget-head">
         <span id="budget-status">Monthly budget: Not set</span>
@@ -92,75 +116,588 @@
       </div>
       <div class="budget-progress-track"><div class="budget-progress-fill" id="budget-fill" style="width: 0%"></div></div>
     </div>
-    <dl class="stats">
-      <div><dt>Entries</dt><dd id="st-count">0</dd></div>
-      <div><dt>Spent most on</dt><dd id="st-top">—</dd></div>
-      <div><dt>Highest day</dt><dd id="st-high">—</dd></div>
-    </dl>
+    <div class="hero-collapsible" id="hero-insights-panel" hidden>
+      <div class="forecast-card" id="forecast-card" hidden>
+        <div class="fc-row"><span>📅 Month-end forecast</span><strong id="fc-projected">₹0</strong></div>
+        <p class="fc-sub" id="fc-sub"></p>
+        <ul class="fc-bills" id="fc-bills"></ul>
+      </div>
+      <dl class="stats">
+        <div><dt>Entries</dt><dd id="st-count">0</dd></div>
+        <div><dt>Top Spend</dt><dd id="st-top">—</dd></div>
+        <div><dt>Highest Day</dt><dd id="st-high">—</dd></div>
+      </dl>
+      <div class="cashflow-grid" id="cashflow-grid">
+        <div class="cashflow-card cf-personal">
+          <span class="cf-title">👤 My Savings</span>
+          <span class="cf-amount" id="cf-personal-savings">₹0</span>
+          <span class="cf-sub" id="cf-personal-sub">0% saved</span>
+        </div>
+        <div class="cashflow-card cf-family">
+          <span class="cf-title">🏠 Family Spends</span>
+          <span class="cf-amount" id="cf-family-spent">₹0</span>
+          <span class="cf-sub" id="cf-family-count">0 items</span>
+        </div>
+        <div class="cashflow-card cf-mother">
+          <span class="cf-title">👵 Mother Settle</span>
+          <span class="cf-amount" id="cf-mother-status">₹0</span>
+          <span class="cf-sub" id="cf-mother-sub">Settled</span>
+        </div>
+      </div>
+      <button type="button" class="budget-btn your-details-btn" id="your-details-btn">⚙️ Your details (name &amp; UPI)</button>
+    </div>
   </section>
 
-  <form class="add" id="add" autocomplete="off" novalidate>
-    <div class="scope-picker">
-      <span class="scope-label">Category / Type:</span>
-      <label class="scope-pill active"><input type="radio" name="scope" value="personal" checked> 👤 Personal</label>
-      <label class="scope-pill"><input type="radio" name="scope" value="family"> 🏠 Family / Bill</label>
-    </div>
-    <div class="add-row">
-      <div class="field">
-        <label for="amt">Amount</label>
-        <div class="amt-wrap"><span aria-hidden="true">₹</span><input class="input" id="amt" inputmode="decimal" placeholder="0" aria-describedby="err"></div>
-      </div>
-      <div class="field">
-        <label for="desc">Description</label>
-        <input class="input" id="desc" list="descs" maxlength="60" placeholder="Grocery, milk, electricity bill…" aria-describedby="err">
-      </div>
-    </div>
-    <div class="add-row add-row-extra">
-      <div class="field">
-        <label for="spent-date">Date & Time (Optional)</label>
-        <input class="input" id="spent-date" type="datetime-local">
-      </div>
-    </div>
-    <div class="chips" id="chips" aria-label="Quick descriptions"></div>
-    <div class="add-foot">
-      <p class="stamp">Recorded at <time id="stamp"></time></p>
-      <button class="primary" type="submit" id="addbtn" disabled>Add expense</button>
-    </div>
-    <p class="err" id="err" role="alert" hidden></p>
-  </form>
-  <datalist id="descs"></datalist>
-
-  <div class="actions-bar">
-    <div class="search-wrap">
-      <input class="input search-input" id="search" type="search" placeholder="Search expenses…">
-    </div>
-    <button type="button" class="ghost csv-btn" id="export-csv">
-      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-      Export CSV
-    </button>
+  <div class="stream-switcher" id="stream-switcher">
+    <button type="button" class="streambtn active" id="stream-spends-btn" data-stream="spends">💳 Spends (<span id="spends-count">0</span>)</button>
+    <button type="button" class="streambtn" id="stream-incomings-btn" data-stream="incomings">💰 Income (<span id="incomings-count">0</span>)</button>
+    <button type="button" class="streambtn" id="stream-settlement-btn" data-stream="settlement">👵 Settle</button>
+    <button type="button" class="streambtn" id="stream-investments-btn" data-stream="investments">📈 Invest (<span id="investments-count">0</span>)</button>
+    <button type="button" class="streambtn" id="stream-trips-btn" data-stream="trips">✈️ Trips (<span id="trips-count">0</span>)</button>
+    <button type="button" class="streambtn" id="stream-projects-btn" data-stream="projects">🔨 Projects (<span id="projects-count">0</span>)</button>
   </div>
 
-  <section id="breakdown-sec" hidden>
-    <h2 class="sec-title">Where it went, biggest first</h2>
-    <ul class="bars" id="breakdown"></ul>
+  <div id="spends-view">
+    <!-- Active Trip Banner -->
+    <div class="active-trip-banner" id="active-trip-banner" hidden>
+      <div class="atb-left">
+        <span class="atb-badge">✈️ Active Trip</span>
+        <strong class="atb-name" id="atb-trip-name">Goa Trip</strong>
+      </div>
+      <div class="atb-right">
+        <span class="atb-spent" id="atb-trip-spent">₹0</span>
+        <button type="button" class="atb-close-btn" id="atb-close-btn" title="End / Close trip mode">Close Trip ✕</button>
+      </div>
+    </div>
+
+    <form class="add" id="add" autocomplete="off" novalidate>
+      <div class="scope-picker">
+        <span class="scope-label">Category / Type:</span>
+        <label class="scope-pill active"><input type="radio" name="scope" value="personal" checked> 👤 Personal</label>
+        <label class="scope-pill"><input type="radio" name="scope" value="family"> 🏠 Family / Bill</label>
+        <label class="scope-pill"><input type="radio" name="scope" value="trip"> ✈️ Trip</label>
+      </div>
+      <div class="add-row" id="trip-pick-row" hidden>
+        <div class="field">
+          <label for="trip-pick">Which trip? (booking ahead is fine — this won't make it your active trip)</label>
+          <select class="input" id="trip-pick">
+            <option value="">+ New trip…</option>
+          </select>
+        </div>
+      </div>
+      <div class="add-row">
+        <div class="field">
+          <label for="amt">Amount</label>
+          <div class="amt-wrap"><span aria-hidden="true">₹</span><input class="input" id="amt" inputmode="decimal" placeholder="0" aria-describedby="err"></div>
+        </div>
+        <div class="field">
+          <label for="desc">Description</label>
+          <input class="input" id="desc" list="descs" maxlength="60" placeholder="General grocery, daily vegetables, milk…" aria-describedby="err">
+        </div>
+      </div>
+      <div class="add-row add-row-extra">
+        <div class="field">
+          <label for="spent-date">Date & Time (Optional)</label>
+          <input class="input" id="spent-date" type="datetime-local">
+        </div>
+        <div class="field" id="paid-via-field" hidden>
+          <label for="paid-via">Paid via (optional)</label>
+          <select class="input method-select" id="paid-via">
+            <option value="">— not set —</option>
+            <option value="upi">📲 UPI</option>
+            <option value="credit_card">💳 Credit card</option>
+            <option value="debit_card">🏦 Debit card</option>
+            <option value="cash">💵 Cash</option>
+            <option value="netbanking">🏛️ Net banking</option>
+            <option value="wallet">👛 Wallet</option>
+          </select>
+        </div>
+      </div>
+      <div class="chips" id="chips" aria-label="Quick descriptions"></div>
+      <div class="add-foot">
+        <p class="stamp">Recorded at <time id="stamp"></time></p>
+        <button class="primary" type="submit" id="addbtn" disabled>Add expense</button>
+      </div>
+      <p class="err" id="err" role="alert" hidden></p>
+    </form>
+    <datalist id="descs"></datalist>
+
+    <div class="actions-bar">
+      <div class="search-wrap">
+        <input class="input search-input" id="search" type="search" placeholder="Search expenses…">
+      </div>
+      <button type="button" class="ghost csv-btn" id="move-all-family">
+        🏠 Move All to Family
+      </button>
+      <button type="button" class="ghost csv-btn" id="export-csv">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Export CSV
+      </button>
+    </div>
+
+    <section id="category-sec" hidden>
+      <h2 class="sec-title">Monthly Category Breakdown <small>(tap a category to set its budget)</small></h2>
+      <div class="cat-card" id="cat-breakdown"></div>
+    </section>
+
+    <section id="cash-wallet" class="cash-wallet" hidden>
+      <h2 class="sec-title">💵 Cash wallet</h2>
+      <div class="cat-card">
+        <dl class="cw-stats">
+          <div><dt>Withdrawn</dt><dd id="cw-withdrawn">₹0</dd></div>
+          <div><dt>Logged as spends</dt><dd id="cw-spent">₹0</dd></div>
+          <div><dt>Unaccounted</dt><dd id="cw-unaccounted">₹0</dd></div>
+        </dl>
+        <p class="cw-note" id="cw-note"></p>
+        <button type="button" class="ghost csv-btn" id="cw-log-btn">💵 Log a cash spend</button>
+      </div>
+    </section>
+
+    <section id="method-sec" hidden>
+      <h2 class="sec-title">By payment method</h2>
+      <div class="cat-card" id="method-breakdown"></div>
+      <p class="cw-note" id="method-note" hidden></p>
+    </section>
+
+    <section id="breakdown-sec" hidden>
+      <h2 class="sec-title">Where it went, biggest first</h2>
+      <ul class="bars" id="breakdown"></ul>
+    </section>
+
+    <section id="days-sec">
+      <h2 class="sec-title">Day by day</h2>
+      <div id="days" aria-live="polite"></div>
+    </section>
+
+    <section id="months-sec" hidden>
+      <h2 class="sec-title">All months</h2>
+      <ul class="months" id="months"></ul>
+    </section>
+  </div>
+
+  <!-- Incomings Stream View -->
+  <section class="incomings-sec" id="incomings-sec" hidden>
+    <form class="add add-income" id="add-income" autocomplete="off" novalidate>
+      <div class="income-source-picker">
+        <span class="scope-label">Income Source:</span>
+        <div class="income-chips" id="income-source-chips">
+          <label class="scope-pill active"><input type="radio" name="income-source" value="salary1" checked> 💼 Salary 1</label>
+          <label class="scope-pill"><input type="radio" name="income-source" value="salary2"> 💼 Salary 2</label>
+          <label class="scope-pill"><input type="radio" name="income-source" value="mother-pension"> 👵 Mother's Pension</label>
+          <label class="scope-pill"><input type="radio" name="income-source" value="mother-withdraw"> 👵 Mother Withdrawal</label>
+          <label class="scope-pill"><input type="radio" name="income-source" value="other"> 💰 Other / UPI</label>
+        </div>
+      </div>
+      <div class="add-row">
+        <div class="field">
+          <label for="income-amt">Amount</label>
+          <div class="amt-wrap"><span aria-hidden="true">₹</span><input class="input" id="income-amt" inputmode="decimal" placeholder="0"></div>
+        </div>
+        <div class="field">
+          <label for="income-note">Description (Optional)</label>
+          <input class="input" id="income-note" maxlength="60" placeholder="e.g. October Primary Salary">
+        </div>
+      </div>
+      <div class="add-row add-row-extra">
+        <div class="field">
+          <label for="income-date">Date & Time (Optional)</label>
+          <input class="input" id="income-date" type="datetime-local">
+        </div>
+      </div>
+      <div class="add-foot">
+        <p class="stamp" id="income-stamp-note">Recorded at <time id="income-stamp"></time></p>
+        <button class="primary income-btn" type="submit" id="add-income-btn" disabled>+ Add Income</button>
+      </div>
+      <p class="err" id="income-err" role="alert" hidden></p>
+    </form>
+
+    <div class="incomings-summary" id="incomings-summary-card">
+      <div class="inc-sum-head">
+        <h3>💰 Total Incomings</h3>
+        <span class="inc-sum-total" id="inc-total-amt">₹0</span>
+      </div>
+      <div class="inc-sum-grid">
+        <div class="inc-pill"><span>💼 Salaries:</span> <strong id="inc-salaries-amt">₹0</strong></div>
+        <div class="inc-pill"><span>👵 Mother Incomings:</span> <strong id="inc-mother-amt">₹0</strong></div>
+        <div class="inc-pill"><span>💰 Others / Refunds:</span> <strong id="inc-others-amt">₹0</strong></div>
+      </div>
+    </div>
+
+    <h2 class="sec-title" style="margin-top:16px;">Income History</h2>
+    <div id="income-days" aria-live="polite"></div>
   </section>
 
-  <section>
-    <h2 class="sec-title">Day by day</h2>
-    <div id="days" aria-live="polite"></div>
+  <!-- Family Settlement View -->
+  <section class="settlement-sec" id="settlement-sec" hidden>
+    <div class="settle-banner" id="settle-banner">
+      <div class="settle-badge" id="settle-badge">Status</div>
+      <h3 class="settle-title" id="settle-title">Family Settlement</h3>
+      <p class="settle-msg" id="settle-msg">Calculating settlement balance…</p>
+      <button type="button" class="primary settle-action-btn" id="settle-now-btn" hidden>📥 Settle from Mother's Account</button>
+      <a class="settle-ask-btn" id="settle-ask-btn" target="_blank" rel="noopener" hidden>📲 Ask on WhatsApp</a>
+    </div>
+
+    <div class="settle-cards-grid">
+      <div class="settle-stat-card">
+        <span class="settle-stat-label">Total Spent on Family</span>
+        <span class="settle-stat-num danger" id="settle-spent-val">₹0</span>
+        <span class="settle-stat-hint" id="settle-spent-count">0 family expenses</span>
+      </div>
+      <div class="settle-stat-card">
+        <span class="settle-stat-label">Withdrawn from Mother</span>
+        <span class="settle-stat-num success" id="settle-withdrawn-val">₹0</span>
+        <span class="settle-stat-hint" id="settle-withdrawn-count">0 withdrawals / pension</span>
+      </div>
+    </div>
+
+    <h2 class="sec-title">Family Expenses Included in Settlement</h2>
+    <div id="settle-family-entries"></div>
   </section>
 
-  <section id="months-sec" hidden>
-    <h2 class="sec-title">All months</h2>
-    <ul class="months" id="months"></ul>
+  <!-- Projects & Renovation Tracking View -->
+  <section class="project-sec" id="project-sec" hidden>
+    <div class="project-hero-card">
+      <div class="project-card-top">
+        <div class="proj-badge" id="project-active-badge">Active Project</div>
+        <button type="button" class="project-rename-btn" id="project-change-btn" title="Change Project Name">✏️ Renovation</button>
+      </div>
+      <h3 class="project-title" id="project-display-name">🔨 House Renovation</h3>
+      <p class="project-subtitle">Track labour wages, materials & contractor payments</p>
+      <div class="project-total-banner">
+        <span class="proj-tot-lbl">Total Spent This Month</span>
+        <span class="proj-tot-amt" id="proj-total-spent">₹0</span>
+      </div>
+      <div class="project-payer-grid">
+        <div class="proj-payer-box payer-me">
+          <span class="ppb-title">👤 Paid by Me</span>
+          <span class="ppb-amt" id="proj-me-spent">₹0</span>
+          <span class="ppb-sub">Reimbursed via Settlement</span>
+        </div>
+        <div class="proj-payer-box payer-mother">
+          <span class="ppb-title">👵 Paid by Mother</span>
+          <span class="ppb-amt" id="proj-mother-spent">₹0</span>
+          <span class="ppb-sub">Directly from Mother cash/a/c</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick Project Entry Form -->
+    <form class="add add-project" id="add-project" autocomplete="off" novalidate>
+      <div class="payer-picker-wrap">
+        <span class="scope-label">Who Paid?</span>
+        <div class="payer-chips" id="proj-payer-chips">
+          <label class="scope-pill active"><input type="radio" name="proj-payer" value="me" checked> 👤 My Account</label>
+          <label class="scope-pill"><input type="radio" name="proj-payer" value="mother"> 👵 Mother's Account / Cash</label>
+        </div>
+      </div>
+      <div class="add-row">
+        <div class="field">
+          <label for="proj-amt">Amount</label>
+          <div class="amt-wrap"><span aria-hidden="true">₹</span><input class="input" id="proj-amt" inputmode="decimal" placeholder="0"></div>
+        </div>
+        <div class="field">
+          <label for="proj-desc">Work / Worker / Item</label>
+          <input class="input" id="proj-desc" list="proj-presets" maxlength="60" placeholder="e.g. Ramesh Labour wage, Tiles, Cement…">
+          <datalist id="proj-presets">
+            <option value="Labour daily wage">
+            <option value="Mason / Mistri wage">
+            <option value="Cement bags">
+            <option value="Sand & Bricks">
+            <option value="Tiles & Granite">
+            <option value="Plumbing labour & pipes">
+            <option value="Electrical fittings & wire">
+            <option value="Paint & Putty">
+            <option value="Carpenter & Woodwork">
+          </datalist>
+        </div>
+      </div>
+      <div class="quick-proj-chips" id="quick-proj-chips">
+        <button type="button" class="chip" data-item="Labour daily wage">👷 Labour wage</button>
+        <button type="button" class="chip" data-item="Mason / Mistri wage">🧱 Mistri wage</button>
+        <button type="button" class="chip" data-item="Cement & Sand">🏗️ Cement/Sand</button>
+        <button type="button" class="chip" data-item="Plumbing work">🚰 Plumbing</button>
+        <button type="button" class="chip" data-item="Electrical fittings">⚡ Electricals</button>
+      </div>
+      <div class="add-row add-row-extra">
+        <div class="field">
+          <label for="proj-date">Date & Time (Optional)</label>
+          <input class="input" id="proj-date" type="datetime-local">
+        </div>
+      </div>
+      <div class="add-foot">
+        <p class="stamp" id="proj-stamp-note">Auto-syncs to cloud</p>
+        <button class="primary proj-add-btn" type="submit" id="add-proj-btn" disabled>+ Add Renovation Spend</button>
+      </div>
+      <p class="err" id="proj-err" role="alert" hidden></p>
+    </form>
+
+    <div class="proj-history-head">
+      <h2 class="sec-title" style="margin: 16px 0 8px;">Project Expenses Timeline</h2>
+    </div>
+    <div id="project-days" aria-live="polite"></div>
   </section>
+
+  <!-- Investments Tracking View -->
+  <section class="investments-sec" id="investments-sec" hidden>
+    <!-- Add Investment Form -->
+    <form class="add add-investment" id="add-investment" autocomplete="off" novalidate>
+      <div class="inv-type-picker">
+        <span class="scope-label">Investment Type:</span>
+        <div class="inv-chips" id="inv-type-chips">
+          <label class="scope-pill active"><input type="radio" name="inv-type" value="sip" checked> 📈 SIP / Mutual Fund</label>
+          <label class="scope-pill"><input type="radio" name="inv-type" value="stocks"> 📊 Stocks / Shares</label>
+          <label class="scope-pill"><input type="radio" name="inv-type" value="ppf"> 🏛️ PPF / EPF</label>
+          <label class="scope-pill"><input type="radio" name="inv-type" value="fd"> 🏦 Fixed Deposit</label>
+          <label class="scope-pill"><input type="radio" name="inv-type" value="other"> 💰 Other Invest</label>
+        </div>
+      </div>
+      <div class="add-row">
+        <div class="field">
+          <label for="inv-amt">Amount</label>
+          <div class="amt-wrap"><span aria-hidden="true">₹</span><input class="input" id="inv-amt" inputmode="decimal" placeholder="0"></div>
+        </div>
+        <div class="field">
+          <label for="inv-desc">Fund / Scheme / Stock Name</label>
+          <input class="input" id="inv-desc" maxlength="60" placeholder="e.g. Parag Parikh Flexi Cap, HDFC Nifty 50, Reliance…">
+        </div>
+      </div>
+      <div class="add-row add-row-extra">
+        <div class="field">
+          <label for="inv-date">Date & Time (Optional)</label>
+          <input class="input" id="inv-date" type="datetime-local">
+        </div>
+      </div>
+      <div class="add-foot">
+        <p class="stamp" id="inv-stamp-note">Auto-syncs to cloud</p>
+        <button class="primary inv-btn" type="submit" id="add-inv-btn" disabled>+ Add Investment</button>
+      </div>
+      <p class="err" id="inv-err" role="alert" hidden></p>
+    </form>
+
+    <div class="inv-summary" id="inv-summary-card">
+      <div class="inv-sum-head">
+        <h3>📈 Total Invested This Month</h3>
+        <span class="inv-sum-total" id="inv-total-amt">₹0</span>
+      </div>
+      <div class="inv-sum-grid">
+        <div class="inv-pill"><span>📈 SIP / Mutual Funds:</span> <strong id="inv-sip-amt">₹0</strong></div>
+        <div class="inv-pill"><span>📊 Other Investments:</span> <strong id="inv-other-amt">₹0</strong></div>
+      </div>
+    </div>
+
+    <h2 class="sec-title" style="margin-top:16px;">Investment History</h2>
+    <div id="investment-days" aria-live="polite"></div>
+  </section>
+
+  <!-- Trips / Events Tracking View -->
+  <section class="trips-sec" id="trips-sec" hidden>
+    <div class="trip-hero-card">
+      <div class="trip-card-top">
+        <span class="trip-badge" id="trip-badge-status">✈️ In Progress</span>
+        <div class="trip-actions-row">
+          <button type="button" class="trip-manage-btn" id="trip-new-btn">+ New Trip</button>
+          <button type="button" class="trip-manage-btn" id="trip-toggle-btn">Close Trip</button>
+        </div>
+      </div>
+
+      <!-- Dynamic Trip Selector Dropdown & Switcher -->
+      <div class="trip-select-wrap">
+        <label for="trip-select" class="trip-select-label">Current Trip:</label>
+        <div class="trip-select-row">
+          <select id="trip-select" class="trip-select" aria-label="Select Trip to View or Manage">
+            <option value="">No Trips Created</option>
+          </select>
+          <button type="button" class="trip-icon-btn" id="trip-rename-btn" title="Rename Trip">✏️</button>
+        </div>
+      </div>
+
+      <p class="trip-subtitle" id="trip-dates-sub">All expenses during this trip are tracked together</p>
+
+      <div class="trip-total-banner">
+        <span class="trip-tot-lbl">Total Spent on Trip</span>
+        <span class="trip-tot-amt" id="trip-total-spent">₹0</span>
+      </div>
+
+      <!-- Trip Budget & Daily Burn Rate Meter -->
+      <div class="trip-budget-wrap" id="trip-budget-wrap">
+        <div class="trip-budget-head">
+          <span id="trip-budget-status">Trip Budget: ₹0</span>
+          <button type="button" class="trip-budget-btn" id="trip-budget-edit-btn">Set Trip Budget</button>
+        </div>
+        <div class="budget-progress-track">
+          <div class="budget-progress-fill" id="trip-budget-fill" style="width: 0%"></div>
+        </div>
+        <div class="trip-burn-rate-row" id="trip-burn-rate-row">
+          <span class="tbr-label">Daily Burn Pace:</span>
+          <span class="tbr-val" id="trip-burn-pace">—</span>
+        </div>
+      </div>
+
+      <div class="trip-stats-grid">
+        <div class="trip-stat-box">
+          <span class="tsb-title">Items Logged</span>
+          <span class="tsb-amt" id="trip-items-count">0</span>
+        </div>
+        <div class="trip-stat-box">
+          <span class="tsb-title">Daily Average</span>
+          <span class="tsb-amt" id="trip-daily-avg">₹0</span>
+        </div>
+      </div>
+
+      <!-- Multi-Friend Participants & Manager -->
+      <div class="trip-friends-sec" id="trip-friends-sec">
+        <div class="tfs-head">
+          <span class="tfs-lbl">👥 Friends in Trip:</span>
+          <button type="button" class="trip-add-friend-btn" id="trip-add-friend-btn">+ Add Friend</button>
+        </div>
+        <div class="trip-friends-chips" id="trip-friends-chips">
+          <!-- Dynamic friend pills inserted here -->
+        </div>
+      </div>
+
+      <!-- Multi-Friend Split & Balance Breakdown Ledger -->
+      <div class="trip-split-card" id="trip-split-card">
+        <div class="tsc-header">
+          <span class="tsc-title">⚖️ Split Balances (<span id="trip-split-count">Equal Split</span>)</span>
+          <span class="tsc-per-head" id="trip-per-head-amt">₹0 / person</span>
+        </div>
+        <div class="trip-balances-list" id="trip-balances-list">
+          <!-- Per friend balance rows rendered here -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Quick Add Trip Expense Form -->
+    <form class="add trip-add-form" id="add-trip-expense" autocomplete="off" novalidate>
+      <div class="scope-picker">
+        <span class="scope-label">Who Paid:</span>
+        <div class="trip-payer-chips" id="trip-payer-chips">
+          <!-- Dynamic payer radio pills (Me, Friend 1, Friend 2...) rendered here -->
+        </div>
+      </div>
+      <div class="add-row">
+        <div class="field">
+          <label for="trip-exp-amt">Amount</label>
+          <div class="amt-wrap"><span aria-hidden="true">₹</span><input class="input" id="trip-exp-amt" inputmode="decimal" placeholder="0"></div>
+        </div>
+        <div class="field">
+          <label for="trip-exp-desc">Description</label>
+          <input class="input" id="trip-exp-desc" maxlength="60" placeholder="e.g. Flight, Hotel, Dinner, Taxi, Drinks…">
+        </div>
+      </div>
+      <div class="add-row add-row-extra">
+        <div class="field">
+          <label for="trip-exp-date">Date & Time (Optional)</label>
+          <input class="input" id="trip-exp-date" type="datetime-local">
+        </div>
+      </div>
+      <div class="add-foot">
+        <p class="stamp" id="trip-payer-note">Auto-tags with selected trip</p>
+        <button class="primary trip-btn" type="submit" id="add-trip-exp-btn" disabled>+ Add Trip Expense</button>
+      </div>
+      <p class="err" id="trip-exp-err" role="alert" hidden></p>
+    </form>
+
+    <h2 class="sec-title" style="margin-top:16px;">Trip Expenses Timeline</h2>
+    <div id="trip-days" aria-live="polite"></div>
+  </section>
+
+  <!-- Sticky bottom bar: the current month's total, always visible while scrolling. -->
+  <div class="sticky-month-bar" id="sticky-month-bar">
+    <div class="sticky-inner">
+      <span class="sticky-label" id="sticky-month-label">This Month</span>
+      <span class="sticky-total" id="sticky-month-total">₹0</span>
+    </div>
+  </div>
   </div>
 </main>
 <div class="toast" id="toast" role="status" hidden></div>
 
+<!-- Bank SMS Parser Modal -->
+<div class="modal-backdrop" id="sms-modal" hidden>
+  <div class="modal-card">
+    <div class="modal-head">
+      <h3>📱 Paste Bank / UPI SMS</h3>
+      <button type="button" class="close-btn" id="close-sms-modal" aria-label="Close">&times;</button>
+    </div>
+    <p class="modal-intro">Paste your bank transaction SMS below. Only real debits are added. Failed payments, refunds, reminders, card bill payments, payment requests and scam messages are rejected. You can correct the amount, description and date before adding.</p>
+    <textarea class="input sms-textarea" id="sms-input" rows="4" placeholder="Paste SMS here, e.g.:&#10;AD-HDFCBK: Rs.450.00 debited from A/C **1234 on 04-Oct-26 to SWIGGY via UPI Ref 42781923."></textarea>
+    <div class="modal-row">
+      <button type="button" class="secondary" id="sms-parse-btn">🔍 Verify & Parse SMS</button>
+    </div>
+    <div class="sms-preview-card" id="sms-result" hidden></div>
+    <div class="modal-foot">
+      <button type="button" class="ghost" id="cancel-sms-modal">Cancel</button>
+      <button type="button" class="primary" id="save-sms-entry" disabled>1-Tap Add Expense</button>
+    </div>
+  </div>
+</div>
+
+<!-- In-App Budget Setter Modal -->
+<div class="modal-backdrop" id="budget-modal" hidden>
+  <div class="modal-card">
+    <div class="modal-head">
+      <h3 id="budget-modal-title">🎯 Set Monthly Budget</h3>
+      <button type="button" class="close-btn" id="close-budget-modal" aria-label="Close">&times;</button>
+    </div>
+    <p class="modal-intro" id="budget-modal-intro">Set your spending limit in ₹. Leave blank or enter 0 to remove.</p>
+    <div class="budget-stat-box" id="budget-modal-spent-wrap">
+      <span class="budget-stat-label">Current Spend:</span>
+      <span class="budget-stat-val" id="budget-modal-spent">₹0</span>
+    </div>
+    <div class="field budget-input-field">
+      <label for="budget-modal-input">Budget Limit (₹)</label>
+      <div class="budget-input-wrap">
+        <span class="budget-symbol">₹</span>
+        <input class="input budget-input" id="budget-modal-input" type="number" step="any" min="0" inputmode="decimal" placeholder="0">
+      </div>
+      <p class="budget-err" id="budget-modal-err" role="alert" hidden></p>
+    </div>
+    <div class="budget-presets" id="budget-modal-presets"></div>
+    <div class="modal-foot">
+      <button type="button" class="ghost" id="cancel-budget-modal-btn">Cancel</button>
+      <button type="button" class="ghost" id="clear-budget-modal-btn" style="color:var(--danger)">Clear</button>
+      <button type="button" class="primary" id="save-budget-modal-btn">Save Budget</button>
+    </div>
+  </div>
+</div>
+
+<!-- In-App Confirmation Modal -->
+<div class="modal-backdrop" id="confirm-modal" hidden>
+  <div class="modal-card modal-confirm">
+    <div class="modal-head">
+      <h3 id="confirm-modal-title">Confirm Action</h3>
+      <button type="button" class="close-btn" id="close-confirm-modal" aria-label="Close">&times;</button>
+    </div>
+    <p class="modal-intro" id="confirm-modal-msg">Are you sure you want to proceed?</p>
+    <div class="modal-foot">
+      <button type="button" class="ghost" id="cancel-confirm-modal-btn">Cancel</button>
+      <button type="button" class="primary" id="ok-confirm-modal-btn">Confirm</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js" onerror="void 0"></script>
-<script src="app.js"></script>
-<script>if ('serviceWorker' in navigator) { window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); }); }</script>
+<script src="config.js?v=44" onerror="void 0"></script>
+<script src="app.js?v=44"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('sw.js?v=44').then(function (reg) {
+        reg.update();
+        reg.addEventListener('updatefound', function () {
+          var newWorker = reg.installing;
+          if (newWorker) {
+            newWorker.addEventListener('statechange', function () {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                window.location.reload();
+              }
+            });
+          }
+        });
+      }).catch(function () {});
+    });
+  }
+</script>
 </body>
 </html>

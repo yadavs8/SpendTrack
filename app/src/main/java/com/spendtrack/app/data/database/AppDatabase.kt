@@ -5,6 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.spendtrack.app.data.database.converters.Converters
 import com.spendtrack.app.data.database.dao.CategoryDao
@@ -29,7 +30,7 @@ import kotlinx.coroutines.launch
         UserAccountEntity::class,
         TemplateRuleEntity::class
     ],
-    version = 1,
+    version = 5,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -53,6 +54,7 @@ abstract class AppDatabase : RoomDatabase() {
                     "spendtrack_database"
                 )
                     .addCallback(DatabaseCallback())
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .fallbackToDestructiveMigration(false)
                     .build()
                 INSTANCE = instance
@@ -150,6 +152,36 @@ abstract class AppDatabase : RoomDatabase() {
                 displayOrder = 11
             )
         )
+
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE transactions ADD COLUMN syncedToCloud INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE merchant_rules ADD COLUMN scope TEXT DEFAULT NULL")
+            }
+        }
+
+        // How many times in a row the user gave the same Personal/Family/... answer for a merchant.
+        // Existing rules start at 1, so they need one more matching answer before auto-filing.
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE merchant_rules ADD COLUMN scopeConfirmations INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE merchant_rules SET scopeConfirmations = 1 WHERE scope IS NOT NULL")
+            }
+        }
+
+        // Card/account bank, and the refund -> original expense link.
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE transactions ADD COLUMN bankName TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE transactions ADD COLUMN linkedTransactionId TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE transactions ADD COLUMN needsCloudDelete INTEGER NOT NULL DEFAULT 0")
+            }
+        }
 
         private class DatabaseCallback : Callback() {
             override fun onCreate(db: SupportSQLiteDatabase) {

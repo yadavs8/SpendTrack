@@ -14,6 +14,9 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
     object Settings : Screen("settings", "Settings", Icons.Default.Settings)
 
     companion object {
-        val items = listOf(Home, Transactions, Analytics, Settings)
+        // Lazy: avoids a JVM/ART class-initialization-order crash where this list, built eagerly
+        // at class-load time, could reference a sibling singleton (Home, Transactions, ...)
+        // before its own <clinit> had run, yielding a null entry (NPE on screen.icon).
+        val items: List<Screen> by lazy { listOf(Home, Transactions, Analytics, Settings) }
     }
 }

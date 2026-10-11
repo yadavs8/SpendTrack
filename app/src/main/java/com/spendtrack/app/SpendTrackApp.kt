@@ -12,6 +12,11 @@ class SpendTrackApp : Application() {
     override fun onCreate() {
         super.onCreate()
         ServiceLocator.init(this)
+        // Morning/evening automations (bills, settle-up, cash, weekly summary, budgets).
+        runCatching { com.spendtrack.app.core.automation.AutomationWorker.schedule(this) }
+        // Watchdog: re-binds the notification listener and runs a safety-net SMS backfill every
+        // ~30 min, independent of the app being open, so an OS-killed listener self-heals.
+        runCatching { com.spendtrack.app.core.automation.ListenerWatchdogWorker.schedule(this) }
 
         // Pre-heat database to initialize default categories
         CoroutineScope(Dispatchers.IO).launch {
@@ -21,6 +26,8 @@ class SpendTrackApp : Application() {
             } catch (e: Exception) {
                 SafeLogger.e("Error warming database", e)
             }
+            // Trips / owner identity edited on the web since the app last ran.
+            runCatching { ServiceLocator.cloudSyncRepository.refreshSharedSettings() }
         }
     }
 }

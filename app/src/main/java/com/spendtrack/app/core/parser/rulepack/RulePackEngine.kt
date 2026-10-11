@@ -45,6 +45,18 @@ class RulePackEngine(
         val fullText = "${title ?: ""} ${text ?: ""}".trim()
         if (fullText.isBlank()) return null
 
+        // Ads / offers / OTPs never count, even if a rule below would match their amount.
+        if (TransactionParser.isNonTransaction(fullText)) return null
+
+        // Scheduled/future debits, payment & collect requests, pending status, PIN-approval
+        // prompts -> nothing has actually moved yet. Checked before any rule below runs, since a
+        // GPay/PhonePe/Paytm rule's own regex has no way to tell a request from a completed debit.
+        if (TransactionParser.isNotYetCompleted(fullText)) return null
+
+        // From an SMS app, only bank-shaped debit or credit messages (not chats that mention "paid").
+        if (sourcePackage != null && sourcePackage in TransactionParser.MESSAGING_PACKAGES &&
+            !TransactionParser.looksLikeBankSms(fullText) && !TransactionParser.looksLikeBankCreditSms(fullText)) return null
+
         val senderOrPkg = sourcePackage ?: title ?: ""
 
         // 1. Check user-taught custom templates first
@@ -82,8 +94,8 @@ class RulePackEngine(
 
         // 2. Check JSON Rule Pack
         for (rule in loadedRules) {
-            // Match package if specified
-            if (rule.appPackage != null && sourcePackage != null && rule.appPackage != sourcePackage) {
+            // Match package if specified (an app's rule never applies to SMS or to other apps)
+            if (rule.appPackage != null && rule.appPackage != sourcePackage) {
                 continue
             }
             // Match sender regex if specified
@@ -101,12 +113,18 @@ class RulePackEngine(
                 val vpa = if (rule.vpaGroup != null) match.groupValues.getOrNull(rule.vpaGroup) else null
 
                 if (amount != null && amount > 0) {
+                    // Card rules can't tell credit from debit card by regex alone; the classifier can.
+                    val instrument = com.spendtrack.app.core.parser.PaymentInstrumentClassifier.classify(text ?: fullText, title, sourcePackage)
+                    val method = if (rule.paymentMethod == PaymentMethod.CREDIT_CARD || rule.paymentMethod == PaymentMethod.DEBIT_CARD) {
+                        instrument.method.takeIf { it == PaymentMethod.CREDIT_CARD || it == PaymentMethod.DEBIT_CARD } ?: rule.paymentMethod
+                    } else rule.paymentMethod
                     return ParsedTransaction(
                         amount = amount,
                         currency = "INR",
                         merchantRaw = merchant,
                         merchantVpa = vpa,
-                        paymentMethod = rule.paymentMethod,
+                        bankName = instrument.bank,
+                        paymentMethod = method,
                         transactionType = rule.transactionType,
                         upiReference = ref,
                         bankReference = ref,
@@ -121,8 +139,8 @@ class RulePackEngine(
             }
         }
 
-        // 3. Fallback to heuristic parser
-        return TransactionParser.parse(
+        // 3. Fallback to heuristic parser (debits first, then income credits)
+        return TransactionParser.parseAny(
             title = title,
             text = text,
             sourcePackage = sourcePackage,

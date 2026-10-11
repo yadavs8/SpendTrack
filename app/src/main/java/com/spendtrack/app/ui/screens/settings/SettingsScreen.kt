@@ -23,8 +23,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.FlightTakeoff
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Science
@@ -59,6 +61,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.spendtrack.app.ui.theme.CoralRed
@@ -79,6 +82,8 @@ fun SettingsScreen(
     var showDailyLimitDialog by remember { mutableStateOf(false) }
     var showAccountsDialog by remember { mutableStateOf(false) }
     var showOemHelpDialog by remember { mutableStateOf(false) }
+    var showCloudSignInDialog by remember { mutableStateOf(false) }
+    var showTripDialog by remember { mutableStateOf(false) }
 
     val oemGuidance = remember { com.spendtrack.app.core.utils.OemBatteryHelper.getGuidance(context) }
 
@@ -90,6 +95,21 @@ fun SettingsScreen(
         "com.dreamplug.androidapp" to "CRED",
         "com.naviapp" to "Navi UPI"
     )
+
+    // Turning the switch on only ever does something once Android has actually granted the SMS
+    // permission; the preference alone (viewModel.toggleSms) does not trigger the OS prompt.
+    val smsPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { granted ->
+        val allGranted = granted[android.Manifest.permission.READ_SMS] == true &&
+            granted[android.Manifest.permission.RECEIVE_SMS] == true
+        viewModel.toggleSms(allGranted)
+        if (!allGranted) {
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar("SMS permission was not granted, so this stays off")
+            }
+        }
+    }
 
     // File launcher for CSV import
     val importFileLauncher = rememberLauncherForActivityResult(
@@ -192,7 +212,15 @@ fun SettingsScreen(
                             }
                             Switch(
                                 checked = uiState.isSmsEnabled,
-                                onCheckedChange = { viewModel.toggleSms(it) }
+                                onCheckedChange = { turnOn ->
+                                    if (turnOn) {
+                                        smsPermissionLauncher.launch(
+                                            arrayOf(android.Manifest.permission.READ_SMS, android.Manifest.permission.RECEIVE_SMS)
+                                        )
+                                    } else {
+                                        viewModel.toggleSms(false)
+                                    }
+                                }
                             )
                         }
 
@@ -216,6 +244,99 @@ fun SettingsScreen(
                                 checked = uiState.confirmationNotifs,
                                 onCheckedChange = { viewModel.toggleConfirmationNotifs(it) }
                             )
+                        }
+                    }
+                }
+            }
+
+            // 1.2 Self-transfer detection: the user's own name and UPI IDs
+            item {
+                var ownerInput by remember(uiState.ownerIdentity) { mutableStateOf(uiState.ownerIdentity) }
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Your accounts", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            "Your full name and UPI IDs, comma separated. Payments to these are treated as moving money between your own accounts, not spending.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                        OutlinedTextField(
+                            value = ownerInput,
+                            onValueChange = { ownerInput = it },
+                            placeholder = { Text("e.g. Sanjeev Yadav, sanjeev@okhdfcbank") },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Button(
+                            onClick = { viewModel.setOwnerIdentity(ownerInput) },
+                            enabled = ownerInput.trim() != uiState.ownerIdentity.trim(),
+                            modifier = Modifier.align(Alignment.End)
+                        ) { Text("Save") }
+                    }
+                }
+            }
+
+            // 1.2b Automations (income, budgets, bills, cash, settle-up, weekly)
+            item { AutomationsCard() }
+
+            // 1.25 Active Trip / Event Mode
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (uiState.activeTripName != null) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surface
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.FlightTakeoff, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text("✈️ Trip / Event Mode", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        if (uiState.activeTripName != null) "Active: ${uiState.activeTripName}" else "Currently Inactive (Standard)",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (uiState.activeTripName != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                                    )
+                                }
+                            }
+                            Switch(
+                                checked = uiState.activeTripName != null,
+                                onCheckedChange = { isChecked ->
+                                    if (isChecked) {
+                                        showTripDialog = true
+                                    } else {
+                                        viewModel.setActiveTrip(null)
+                                        coroutineScope.launch {
+                                            snackbarHostState.showSnackbar("Trip mode closed. Resumed normal logging.")
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            "While Trip Mode is active, all payments (cabs, food, flights, hotels) automatically log into your trip until you turn it off.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                        if (uiState.activeTripName != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedButton(
+                                onClick = { showTripDialog = true },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Rename or Change Trip")
+                            }
                         }
                     }
                 }
@@ -574,7 +695,90 @@ fun SettingsScreen(
                 }
             }
 
-            // 7. Privacy & Local-first Guarantee Card
+            // 7. Cloud Sync -- one-time link to your Kharcha Book account, then fully invisible
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.CloudSync, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Cloud Sync to Kharcha Book", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            "Sign in once with your Kharcha Book account. After that, every expense this app detects and resolves is pushed there automatically -- you'll only ever need to open Kharcha Book.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        val cloudSyncEmail = uiState.cloudSyncEmail
+                        if (cloudSyncEmail == null) {
+                            Button(
+                                onClick = { showCloudSignInDialog = true },
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = !uiState.isCloudSyncBusy
+                            ) {
+                                Text("Sign in to enable Cloud Sync")
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(cloudSyncEmail, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        uiState.cloudSyncLastError
+                                            ?: uiState.cloudSyncLastSuccessAt?.let {
+                                                "Last synced " + java.text.SimpleDateFormat("d MMM, h:mm a", java.util.Locale.getDefault()).format(java.util.Date(it))
+                                            }
+                                            ?: "Not synced yet",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (uiState.cloudSyncLastError != null) CoralRed else MaterialTheme.colorScheme.outline
+                                    )
+                                }
+                                Switch(
+                                    checked = uiState.isCloudSyncEnabled,
+                                    onCheckedChange = { viewModel.setCloudSyncEnabled(it) }
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        viewModel.syncCloudNow {
+                                            coroutineScope.launch { snackbarHostState.showSnackbar("Sync complete") }
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                    enabled = uiState.isCloudSyncEnabled && !uiState.isCloudSyncBusy
+                                ) {
+                                    Text("Sync Now")
+                                }
+                                OutlinedButton(
+                                    onClick = { viewModel.signOutOfCloudSync() },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Sign Out")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 8. Privacy Card
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -587,11 +791,11 @@ fun SettingsScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Security, contentDescription = null, tint = EmeraldGreen)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("100% Local-First & Private", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = EmeraldGreen)
+                            Text("Local-First & Private", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = EmeraldGreen)
                         }
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            "SpendTrack processes notifications entirely on your device. Your bank details, SMS messages, and expense data are NEVER uploaded to any cloud server or third-party service.",
+                            "Kharcha Book processes notifications entirely on your device and stores them locally by default. Nothing leaves your phone unless you sign in and turn on Cloud Sync above.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -599,6 +803,51 @@ fun SettingsScreen(
                 }
             }
         }
+    }
+
+    // Active Trip / Event Dialog
+    if (showTripDialog) {
+        var tripInput by remember { mutableStateOf(uiState.activeTripName ?: "Goa Trip") }
+        AlertDialog(
+            onDismissRequest = { showTripDialog = false },
+            title = { Text("✈️ Start Trip / Event") },
+            text = {
+                Column {
+                    Text(
+                        "Give this trip or event a name. All incoming transactions will automatically be tagged to it until you turn Trip Mode off.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = tripInput,
+                        onValueChange = { tripInput = it },
+                        label = { Text("Trip Name") },
+                        placeholder = { Text("e.g. Goa Trip, Manali, Offsite") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val name = tripInput.trim().ifBlank { "Trip" }
+                    viewModel.setActiveTrip(name)
+                    showTripDialog = false
+                    coroutineScope.launch {
+                        snackbarHostState.showSnackbar("✈️ Trip Mode active: $name")
+                    }
+                }) {
+                    Text("Start Trip")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTripDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 
     // Monthly Budget Dialog
@@ -687,6 +936,68 @@ fun SettingsScreen(
                 viewModel.addAccount(bank, last4, type, nick)
             },
             onDeleteAccount = { viewModel.deleteAccount(it) }
+        )
+    }
+
+    if (showCloudSignInDialog) {
+        var email by remember { mutableStateOf("") }
+        var password by remember { mutableStateOf("") }
+        var errorText by remember { mutableStateOf<String?>(null) }
+
+        AlertDialog(
+            onDismissRequest = { showCloudSignInDialog = false },
+            title = { Text("Sign in to Cloud Sync") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Use the same email and password as your Kharcha Book web account.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                    OutlinedTextField(
+                        value = email,
+                        onValueChange = { email = it; errorText = null },
+                        label = { Text("Email") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { password = it; errorText = null },
+                        label = { Text("Password") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    if (errorText != null) {
+                        Text(errorText!!, style = MaterialTheme.typography.bodySmall, color = CoralRed)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.signInToCloudSync(email.trim(), password) { success, message ->
+                            if (success) {
+                                showCloudSignInDialog = false
+                                coroutineScope.launch { snackbarHostState.showSnackbar("Signed in. Cloud Sync is on.") }
+                            } else {
+                                errorText = message ?: "Sign-in failed"
+                            }
+                        }
+                    },
+                    enabled = email.isNotBlank() && password.isNotBlank() && !uiState.isCloudSyncBusy
+                ) {
+                    Text(if (uiState.isCloudSyncBusy) "Signing in..." else "Sign In")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCloudSignInDialog = false }) {
+                    Text("Cancel")
+                }
+            }
         )
     }
 
