@@ -207,3 +207,10 @@ button.row .method-badge { display: inline-block; margin-left: 6px; font-weight:
 .udh-x { min-width: 36px; min-height: 36px; }
 .edit-btns .danger { margin-left: auto; }
 .err.note { color: var(--muted); }
+
+/* v57: due-today card, rules */
+.due-box { display: grid; gap: 10px; margin: 12px 0; }
+.due-card { display: grid; grid-template-columns: 1fr auto; gap: 8px 10px; align-items: center; padding: 12px 14px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
+.due-card .due-txt { grid-column: 1 / -1; display: grid; gap: 2px; }
+.due-card .due-txt span { font-size: 0.82rem; color: var(--muted); }
+.due-card .ghost { justify-self: end; }
