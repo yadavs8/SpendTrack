@@ -2598,7 +2598,8 @@
       renderBank(); render();
     }
     var box = el('div', 'wal-form');
-    var heldEntries = state.entries.filter(function (e) { return isIncome(e) && !e.synthetic && held.indexOf(e.id) >= 0; });
+    var depRefs = (a.deposits || []).map(function (d) { return d.ref; });
+    var heldEntries = state.entries.filter(function (e) { return isIncome(e) && !e.synthetic && held.indexOf(e.id) >= 0 && depRefs.indexOf(e.id) < 0; });
     var cands = state.entries.filter(function (e) { return isBankIn(e) && !e.synthetic && e.ts > snapTs && held.indexOf(e.id) < 0; })
       .sort(function (x, y) { return y.ts - x.ts; }).slice(0, 6);
     var total = heldEntries.reduce(function (n, e) { return n + paise(e.amount); }, 0) / 100;
@@ -2612,8 +2613,8 @@
     heldEntries.forEach(function (e) {
       row(e, 'Deposited ✓', 'primary small', function () {
         save(function (x) {
-          return { id: x.id, name: x.name, snapshots: x.snapshots, held: (x.held || []).filter(function (i) { return i !== e.id; }),
-            deposits: (x.deposits || []).concat([{ ts: Date.now(), amount: e.amount, label: 'Cash deposited: ' + String(e.desc || '').replace(/^[^\wऀ-ॿ]+/, '').slice(0, 24) }]) };
+          return { id: x.id, name: x.name, snapshots: x.snapshots, held: x.held,
+            deposits: (x.deposits || []).concat([{ ts: Date.now(), amount: e.amount, ref: e.id, label: 'Cash deposited: ' + String(e.desc || '').replace(/^[^\wऀ-ॿ]+/, '').slice(0, 24) }]) };
         });
         toast(money(e.amount) + ' added to the bank. Not counted as income again.');
       });

@@ -199,7 +199,7 @@ t('cash income kept at home stays out of the bank until deposited, and deposit i
   const held = Object.assign({}, bank, { held: ['1'], deposits: [] });
   const e = L.bankEstimate(rows, held, isIn, isOut);
   assert.strictEqual(e.balance, 100000); assert.strictEqual(e.cashHeld, 38000);
-  const dep = Object.assign({}, held, { held: [], deposits: [{ ts: D(2026, 10, 12), amount: 38000 }] });
+  const dep = Object.assign({}, held, { deposits: [{ ts: D(2026, 10, 12), amount: 38000, ref: '1' }] });
   const e2 = L.bankEstimate(rows, dep, isIn, isOut);
   assert.strictEqual(e2.balance, 138000); assert.strictEqual(e2.cashHeld, 0);
   assert.strictEqual(e2.items.length, 1);

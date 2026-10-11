@@ -251,7 +251,7 @@
           id: a.id, name: cleanName(a.name),
           held: Array.isArray(a.held) ? a.held.filter(function (x) { return typeof x === 'string'; }) : [],
           deposits: Array.isArray(a.deposits) ? a.deposits.filter(function (d) { return d && isFinite(d.ts) && isFinite(d.amount) && d.amount > 0; })
-            .map(function (d) { return { ts: Number(d.ts), amount: Number(d.amount), label: String(d.label || '') }; }) : [],
+            .map(function (d) { return { ts: Number(d.ts), amount: Number(d.amount), label: String(d.label || ''), ref: d.ref ? String(d.ref) : '' }; }) : [],
           snapshots: a.snapshots.filter(function (s) { return s && isFinite(s.ts) && isFinite(s.balance); })
             .map(function (s) { return { ts: Number(s.ts), balance: Number(s.balance) }; }).sort(function (x, y) { return x.ts - y.ts; })
         };
@@ -263,7 +263,10 @@
     (entries || []).forEach(function (e) {
       if (!e || e.synthetic || !(e.ts > snap.ts)) return;
       var a = toPaise(e.amount);
-      if (isIn(e) && held.indexOf(e.id) >= 0) { heldP += a; }
+      if (isIn(e) && held.indexOf(e.id) >= 0) {
+        var dep = (acct.deposits || []).some(function (d) { return d.ref === e.id; });
+        if (!dep) heldP += a;
+      }
       else if (isIn(e)) { inP += a; items.push({ id: e.id, ts: e.ts, amount: a / 100, kind: 'in', label: e.desc }); }
       else if (isOut(e)) { outP += a; items.push({ id: e.id, ts: e.ts, amount: a / 100, kind: 'out', label: e.desc }); }
     });
