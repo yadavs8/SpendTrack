@@ -197,3 +197,13 @@ button.row .method-badge { display: inline-block; margin-left: 6px; font-weight:
 .msheet-card { position: absolute; left: 0; right: 0; bottom: 0; width: auto; max-width: 34rem; margin: 0 auto; max-height: 85%; overflow-y: auto; animation: none !important; opacity: 1 !important; transform: none !important; background: var(--surface, #fff); color: var(--ink, #0f172a); }
 .mtile { background: var(--bg, #f0f4f8); color: var(--ink, #0f172a); opacity: 1; }
 .mtile .mt b { color: var(--ink, #0f172a); }
+
+/* v56: undo toast above the bottom bar, edit controls kept apart from delete */
+.toast { z-index: 80; bottom: calc(92px + env(safe-area-inset-bottom, 0px)); display: flex; align-items: center; gap: 12px; }
+.toast-undo { background: transparent; border: 0; color: var(--accent, #5eead4); font-weight: 800; font-size: 0.86rem; padding: 6px 8px; margin: -6px -6px -6px 0; cursor: pointer; }
+.udh-tools { display: inline-flex; align-items: center; gap: 14px; flex: none; }
+.udh-edit { background: none; border: 0; padding: 8px 6px; font-size: 0.8rem; font-weight: 700; color: var(--accent, #0a7); cursor: pointer; }
+.udh-editform { display: grid; gap: 10px; margin: 8px 0; padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg); }
+.udh-x { min-width: 36px; min-height: 36px; }
+.edit-btns .danger { margin-left: auto; }
+.err.note { color: var(--muted); }

@@ -1582,44 +1582,6 @@
     render();
   });
 
-  var moveBtn = $('move-all-family');
-  if (moveBtn) {
-    moveBtn.addEventListener('click', function () {
-      var personalEntries = state.entries.filter(function (e) { return !isFamilyEntry(e.desc); });
-      if (!personalEntries.length) {
-        toast('All expenses are already under Family & Bills!');
-        return;
-      }
-      showConfirmModal({
-        title: '🏠 Move to Family & Bills',
-        message: 'Move ' + personalEntries.length + ' personal expense(s) to Family & Bills?',
-        confirmText: 'Move All',
-        onConfirm: async function () {
-          moveBtn.disabled = true;
-          moveBtn.textContent = 'Moving…';
-          var count = 0;
-          try {
-            for (var i = 0; i < personalEntries.length; i++) {
-              var e = personalEntries[i];
-              var clean = e.desc.replace(/^[👤🏠]\s*/, '');
-              var newDesc = '🏠 ' + clean;
-              await store.update(e.id, { amount: e.amount, desc: newDesc, spent_at: new Date(e.ts).toISOString() });
-              count++;
-            }
-            toast('Moved ' + count + ' expenses to Family & Bills!');
-          } catch (err) {
-            toast('Moved ' + count + ' expenses before error: ' + (err.message || 'failed'));
-          } finally {
-            moveBtn.disabled = false;
-            moveBtn.textContent = '🏠 Move All to Family';
-            state.entries = await store.loadAll();
-            render();
-          }
-        }
-      });
-    });
-  }
-
   $('export-csv').addEventListener('click', function () {
     var list = visibleEntries(state.sel);
     if (!list.length) { toast('No expenses to export for this view.'); return; }
@@ -1651,11 +1613,24 @@
 
   /* ---------- small UI helpers ---------- */
   var toastTimer = 0;
-  function toast(msg) {
+  // toast(msg) shows a short note. toast(msg, undoFn) also shows an Undo button for a few seconds.
+  function toast(msg, undoFn) {
     var t = $('toast');
-    t.textContent = msg; t.hidden = false;
+    t.textContent = ''; t.appendChild(document.createTextNode(msg));
+    if (undoFn) {
+      var u = el('button', 'toast-undo', 'Undo'); u.type = 'button';
+      u.addEventListener('click', function () { t.hidden = true; clearTimeout(toastTimer); undoFn(); });
+      t.appendChild(u);
+    }
+    t.hidden = false;
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(function () { t.hidden = true; }, 2600);
+    toastTimer = setTimeout(function () { t.hidden = true; }, undoFn ? 7000 : 2600);
+  }
+  // Puts an entry back the way it was (used by Undo).
+  function restoreEntry(e) {
+    return store.update(e.id, { amount: e.amount, desc: e.desc, spent_at: new Date(e.ts).toISOString(), method: e.method || null })
+      .then(function () { render(); toast('Restored'); })
+      .catch(function () { toast('Could not undo. Try again.'); });
   }
   function showErr(msg) { var e = $('err'); e.textContent = msg; e.hidden = !msg; }
   function updateStamp() {
@@ -1972,7 +1947,7 @@
   }
 
   /* ---------- Udhaar: money I lent or borrowed ---------- */
-  var udhaar = { formOpen: false, kind: 'lent', open: {}, showSettled: false };
+  var udhaar = { formOpen: false, kind: 'lent', open: {}, showSettled: false, editing: null };
   function loadLoans() { return window.KharchaLedger ? window.KharchaLedger.parseLoans(kv.get('kharcha_loans')) : []; }
   function saveLoans(list) { kv.set('kharcha_loans', JSON.stringify(list)); }
   function newLoanId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
@@ -2083,6 +2058,65 @@
     return f;
   }
 
+  // Inline fix-up forms: change a wrongly typed amount, name, note or date without losing the repayment history.
+  function udhaarEditForm(l) {
+    var KL = window.KharchaLedger;
+    var f = el('form', 'udh-editform'); f.noValidate = true;
+    function field(label, input) { var w = el('div', 'field'); w.appendChild(el('label', null, label)); w.appendChild(input); return w; }
+    var name = el('input', 'input'); name.maxLength = 40; name.value = l.person;
+    var amt = el('input', 'input'); amt.inputMode = 'decimal'; amt.value = String(l.amount);
+    var note = el('input', 'input'); note.maxLength = 80; note.value = l.note || '';
+    var date = el('input', 'input'); date.type = 'date'; date.value = dayKey(l.ts); date.max = dayKey(Date.now());
+    f.appendChild(field('Name', name));
+    var row = el('div', 'add-row'); row.appendChild(field('Amount (₹)', amt)); row.appendChild(field('Date', date)); f.appendChild(row);
+    f.appendChild(field('Note', note));
+    var err = el('p', 'err'); err.hidden = true; err.setAttribute('role', 'alert'); f.appendChild(err);
+    var btns = el('div', 'edit-btns');
+    var save = el('button', 'primary small', 'Save changes'); save.type = 'submit';
+    var cancel = el('button', 'ghost', 'Cancel'); cancel.type = 'button';
+    btns.appendChild(save); btns.appendChild(cancel); f.appendChild(btns);
+    cancel.addEventListener('click', function () { udhaar.editing = null; renderUdhaar(); });
+    f.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var n = parseAmount(amt.value);
+      if (n == null) { err.textContent = 'Enter an amount greater than zero, like 12000.'; err.hidden = false; return; }
+      var before = loadLoans(), cur = before.filter(function (x) { return x.id === l.id; })[0];
+      if (!cur) return;
+      var res = KL.editLoan(cur, { amount: n, person: name.value, note: note.value, ts: date.value === dayKey(cur.ts) ? cur.ts : dateInputToTs(date.value) });
+      if (res.error) { err.textContent = res.error; err.hidden = false; return; }
+      saveLoans(before.map(function (x) { return x.id === l.id ? res.loan : x; }));
+      udhaar.editing = null; renderUdhaar();
+      toast('Updated to ' + money(n), function () { saveLoans(before); renderUdhaar(); toast('Restored'); });
+    });
+    return f;
+  }
+  function udhaarPayEditForm(l, pay) {
+    var KL = window.KharchaLedger;
+    var f = el('form', 'udh-editform'); f.noValidate = true;
+    var amt = el('input', 'input'); amt.inputMode = 'decimal'; amt.value = String(pay.amount); amt.setAttribute('aria-label', 'Repayment amount');
+    var date = el('input', 'input'); date.type = 'date'; date.value = dayKey(pay.ts); date.max = dayKey(Date.now()); date.setAttribute('aria-label', 'Repayment date');
+    var row = el('div', 'add-row'); row.appendChild(amt); row.appendChild(date); f.appendChild(row);
+    var err = el('p', 'err'); err.hidden = true; err.setAttribute('role', 'alert'); f.appendChild(err);
+    var btns = el('div', 'edit-btns');
+    var save = el('button', 'primary small', 'Save'); save.type = 'submit';
+    var cancel = el('button', 'ghost', 'Cancel'); cancel.type = 'button';
+    btns.appendChild(save); btns.appendChild(cancel); f.appendChild(btns);
+    cancel.addEventListener('click', function () { udhaar.editing = null; renderUdhaar(); });
+    f.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var n = parseAmount(amt.value);
+      if (n == null) { err.textContent = 'Enter an amount greater than zero.'; err.hidden = false; return; }
+      var before = loadLoans(), cur = before.filter(function (x) { return x.id === l.id; })[0];
+      if (!cur) return;
+      var res = KL.editPayment(cur, pay.id, { amount: n, ts: date.value === dayKey(pay.ts) ? pay.ts : dateInputToTs(date.value) });
+      if (res.error) { err.textContent = res.error; err.hidden = false; return; }
+      saveLoans(before.map(function (x) { return x.id === l.id ? res.loan : x; }));
+      udhaar.editing = null; renderUdhaar();
+      toast('Repayment updated', function () { saveLoans(before); renderUdhaar(); toast('Restored'); });
+    });
+    return f;
+  }
+
   function udhaarPerson(p, allLoans) {
     var KL = window.KharchaLedger;
     var li = el('li', 'udh-person');
@@ -2111,26 +2145,38 @@
       var left = KL.outstanding(l), box = el('div', 'udh-loan');
       var top = el('div', 'udh-loan-top');
       top.appendChild(el('span', null, (l.kind === 'lent' ? 'You lent ' : 'You borrowed ') + money(l.amount) + ' · ' + dFmt.format(new Date(l.ts)) + (l.note ? ' · ' + l.note : '')));
+      var edt = el('button', 'udh-edit', 'Edit'); edt.type = 'button'; edt.setAttribute('aria-label', 'Edit this entry');
+      edt.addEventListener('click', function () { udhaar.editing = udhaar.editing === l.id ? null : l.id; renderUdhaar(); });
       var del = el('button', 'udh-x', '×'); del.type = 'button'; del.setAttribute('aria-label', 'Delete this entry');
       del.addEventListener('click', function () {
         showConfirmModal({ title: 'Delete this entry?', message: money(l.amount) + ' with ' + l.person + ' and its repayments will be removed.', onConfirm: function () {
-          saveLoans(loadLoans().filter(function (x) { return x.id !== l.id; })); renderUdhaar(); toast('Deleted');
+          var before = loadLoans();
+          saveLoans(before.filter(function (x) { return x.id !== l.id; })); renderUdhaar();
+          toast('Deleted', function () { saveLoans(before); renderUdhaar(); toast('Restored'); });
         } });
       });
-      top.appendChild(del);
+      var tools = el('span', 'udh-tools'); tools.appendChild(edt); tools.appendChild(del);
+      top.appendChild(tools);
       box.appendChild(top);
+      if (udhaar.editing === l.id) box.appendChild(udhaarEditForm(l));
       var pct = Math.min(100, Math.round(((l.amount - left) / l.amount) * 100));
       var bar = el('div', 'bar'); var fill = el('i'); fill.style.width = pct + '%'; bar.appendChild(fill); box.appendChild(bar);
       box.appendChild(el('div', 'udh-loan-sub', left > 0 ? ('Pending ' + money(left) + (l.payments.length ? ' · repaid ' + money(KL.repaid(l)) : '')) : 'Fully settled ✓'));
       l.payments.forEach(function (pay) {
         var r = el('div', 'udh-pay');
         r.appendChild(el('span', null, (l.kind === 'lent' ? 'Got back ' : 'You paid ') + money(pay.amount) + ' · ' + dFmt.format(new Date(pay.ts))));
+        var pe = el('button', 'udh-edit', 'Edit'); pe.type = 'button'; pe.setAttribute('aria-label', 'Edit this repayment');
+        pe.addEventListener('click', function () { udhaar.editing = udhaar.editing === pay.id ? null : pay.id; renderUdhaar(); });
         var px = el('button', 'udh-x', '×'); px.type = 'button'; px.setAttribute('aria-label', 'Delete this repayment');
         px.addEventListener('click', function () {
-          saveLoans(loadLoans().map(function (x) { return x.id === l.id ? Object.assign({}, x, { payments: x.payments.filter(function (y) { return y.id !== pay.id; }) }) : x; }));
+          var before = loadLoans();
+          saveLoans(before.map(function (x) { return x.id === l.id ? Object.assign({}, x, { payments: x.payments.filter(function (y) { return y.id !== pay.id; }) }) : x; }));
           renderUdhaar();
+          toast('Repayment removed', function () { saveLoans(before); renderUdhaar(); toast('Restored'); });
         });
-        r.appendChild(px); box.appendChild(r);
+        var ptools = el('span', 'udh-tools'); ptools.appendChild(pe); ptools.appendChild(px);
+        r.appendChild(ptools); box.appendChild(r);
+        if (udhaar.editing === pay.id) box.appendChild(udhaarPayEditForm(l, pay));
       });
       if (left > 0) {
         var form = el('form', 'udh-repay'); form.noValidate = true;
@@ -2605,20 +2651,31 @@
     var total = heldEntries.reduce(function (n, e) { return n + paise(e.amount); }, 0) / 100;
     box.appendChild(el('h4', 'wal-h', '💵 Cash at home'));
     box.appendChild(el('p', 'wal-sub', heldEntries.length ? 'Not in the bank yet: ' + money(total) : 'Got paid in cash and keeping it at home? Mark that income below so it is not added to your bank balance.'));
-    function row(e, label, cls, fn) {
+    function row(e, label, cls, fn, extra) {
       var r = el('div', 'wal-item');
       r.appendChild(el('span', null, dFmt.format(new Date(e.ts)) + ' · ' + String(e.desc || '').replace(/^[^\wऀ-ॿ]+/, '').slice(0, 28) + ' · ' + money(e.amount)));
-      var b = el('button', cls, label); b.type = 'button'; b.addEventListener('click', fn); r.appendChild(b);
+      var b = el('button', cls, label); b.type = 'button'; b.addEventListener('click', fn); if (extra) r.appendChild(extra); r.appendChild(b);
       box.appendChild(r);
     }
+    var doneEntries = state.entries.filter(function (e) { return isIncome(e) && !e.synthetic && held.indexOf(e.id) >= 0 && depRefs.indexOf(e.id) >= 0; });
+    doneEntries.forEach(function (e) {
+      row(e, 'Undo deposit', 'ghost', function () {
+        save(function (x) { return { id: x.id, name: x.name, snapshots: x.snapshots, held: x.held, deposits: (x.deposits || []).filter(function (d) { return d.ref !== e.id; }) }; });
+        toast('Deposit undone. It is cash at home again.');
+      });
+    });
     heldEntries.forEach(function (e) {
+      var back = el('button', 'ghost', 'Not cash'); back.type = 'button';
+      back.addEventListener('click', function () {
+        save(function (x) { return { id: x.id, name: x.name, snapshots: x.snapshots, deposits: x.deposits, held: (x.held || []).filter(function (i) { return i !== e.id; }) }; });
+      });
       row(e, 'Deposited ✓', 'primary small', function () {
         save(function (x) {
           return { id: x.id, name: x.name, snapshots: x.snapshots, held: x.held,
             deposits: (x.deposits || []).concat([{ ts: Date.now(), amount: e.amount, ref: e.id, label: 'Cash deposited: ' + String(e.desc || '').replace(/^[^\wऀ-ॿ]+/, '').slice(0, 24) }]) };
         });
         toast(money(e.amount) + ' added to the bank. Not counted as income again.');
-      });
+      }, back);
     });
     cands.forEach(function (e) {
       row(e, 'Kept as cash', 'ghost', function () {
@@ -4338,71 +4395,13 @@
     b.appendChild(dSpan);
     b.appendChild(el('span', 'a', money(e.amount)));
 
-    // Actions revealed on swipe
-    var actionsLeft = el('div', 'entry-swipe-actions', null);
-    actionsLeft.hidden = true;
-    var curScope = getEntryScope(e);
-
-    function makeQuickShiftPill(targetScope, icon, label) {
-      var pill = el('button', 'quick-shift-pill' + (curScope === targetScope ? ' active' : ''), icon + ' ' + label);
-      pill.type = 'button';
-      pill.addEventListener('click', function (ev) {
-        ev.stopPropagation();
-        var newDesc = shiftScopeDesc(e.desc, targetScope);
-        rememberMerchantScope(e.desc, targetScope);
-        store.update(e.id, { amount: e.amount, desc: newDesc, spent_at: new Date(e.ts).toISOString() }).then(function () {
-          render();
-          toast('Moved to ' + label);
-        }).catch(function (err) {
-          toast('Could not move: ' + (err.message || 'error'));
-        });
-      });
-      return pill;
-    }
-
-    if (curScope !== 'personal') actionsLeft.appendChild(makeQuickShiftPill('personal', '👤', 'Personal'));
-    if (curScope !== 'family') actionsLeft.appendChild(makeQuickShiftPill('family', '🏠', 'Family'));
-    if (curScope !== 'investment') actionsLeft.appendChild(makeQuickShiftPill('investment', '📈', 'Invest'));
-    var curTrip = getActiveTripName();
-    if (curScope !== 'trip') actionsLeft.appendChild(makeQuickShiftPill('trip', '✈️', curTrip || 'Trip'));
-
-    // Touch Swipe Gestures
-    var touchStartX = 0, touchStartY = 0, swiped = false;
-    b.addEventListener('touchstart', function (ev) {
-      if (ev.touches && ev.touches[0]) {
-        touchStartX = ev.touches[0].clientX;
-        touchStartY = ev.touches[0].clientY;
-      }
-    }, { passive: true });
-
-    b.addEventListener('touchmove', function (ev) {
-      if (!ev.touches || !ev.touches[0]) return;
-      var dx = ev.touches[0].clientX - touchStartX;
-      var dy = ev.touches[0].clientY - touchStartY;
-      if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 35) {
-        swiped = true;
-      }
-    }, { passive: true });
-
-    b.addEventListener('touchend', function (ev) {
-      if (swiped) {
-        actionsLeft.hidden = !actionsLeft.hidden;
-        swiped = false;
-      }
-    });
-
     b.addEventListener('click', function () {
-      if (actionsLeft && !actionsLeft.hidden) {
-        actionsLeft.hidden = true;
-        return;
-      }
       state.editing = e.id;
       state.draft = { amount: String(e.amount), desc: e.desc, spent_at: toLocalISOString(e.ts), method: e.method || '' };
       render();
       var f = $('edit-amt'); if (f) f.focus();
     });
 
-    wrap.appendChild(actionsLeft);
     wrap.appendChild(b);
     return wrap;
   }
@@ -4453,33 +4452,23 @@
     // 1-Tap Quick Shift Scope Buttons
     var curScope = getEntryScope(e);
     var shiftRow = el('div', 'edit-shift-row');
-    var shiftLabel = el('span', 'edit-shift-label', 'Move to:');
+    var shiftLabel = el('span', 'edit-shift-label', 'Type (applied when you tap Save):');
     shiftRow.appendChild(shiftLabel);
+    var pendingScope = null;
 
     function doShift(targetScope, label, tripName) {
+      // Only changes the draft. Nothing is saved until Save is tapped, so a stray tap is harmless.
       var newDesc = shiftScopeDesc(state.draft.desc || e.desc, targetScope, tripName);
       state.draft.desc = newDesc;
       d.value = newDesc;
-      // Auto-save immediately on shift click for seamless 1-tap workflow
-      var amt = parseAmount(state.draft.amount);
-      if (amt == null) { msg.textContent = 'Enter an amount greater than zero.'; msg.hidden = false; return; }
-      save.disabled = true;
-      var newTs = state.draft.spent_at ? new Date(state.draft.spent_at).toISOString() : null;
-      rememberMerchantScope(e.desc, targetScope);
-      store.update(e.id, { amount: amt, desc: newDesc, spent_at: newTs }).then(function () {
-        state.editing = null;
-        render();
-        toast('Moved to ' + label);
-      }).catch(function (err) {
-        save.disabled = false;
-        msg.textContent = 'Could not move: ' + (err && err.message ? err.message : 'try again');
-        msg.hidden = false;
-      });
+      pendingScope = targetScope;
+      shiftRow.querySelectorAll('.btn-shift').forEach(function (x) { x.classList.toggle('active', x.dataset.scope === targetScope && x.dataset.label === label); });
+      msg.textContent = 'Will move to ' + label + '. Tap Save to confirm.'; msg.hidden = false; msg.classList.add('note');
     }
 
     function createShiftBtn(targetScope, label, icon, tripName) {
       var btn = el('button', 'btn-shift' + (curScope === targetScope ? ' active' : ''), icon + ' ' + label);
-      btn.type = 'button';
+      btn.type = 'button'; btn.dataset.scope = targetScope; btn.dataset.label = label;
       btn.addEventListener('click', function () { doShift(targetScope, label, tripName); });
       return btn;
     }
@@ -4523,6 +4512,7 @@
     cancel.addEventListener('click', function () { state.editing = null; render(); });
     f.addEventListener('submit', function (ev) {
       ev.preventDefault();
+      msg.classList.remove('note');
       var amt = parseAmount(state.draft.amount), desc = normDesc(state.draft.desc);
       if (amt == null) { msg.textContent = 'Enter an amount greater than zero, like 250 or 99.50.'; msg.hidden = false; return; }
       if (!desc) { msg.textContent = 'Add a short description, like Grocery.'; msg.hidden = false; return; }
@@ -4530,8 +4520,9 @@
       var newTs = state.draft.spent_at ? new Date(state.draft.spent_at).toISOString() : null;
       var patch = { amount: amt, desc: desc, spent_at: newTs };
       if (hasV5Cols && (state.draft.method || '') !== (e.method || '')) patch.method = state.draft.method || null;
+      if (pendingScope) rememberMerchantScope(e.desc, pendingScope);
       store.update(e.id, patch).then(function () {
-        state.editing = null; render(); toast('Changes saved');
+        state.editing = null; render(); toast('Changes saved', function () { restoreEntry(e); });
       }).catch(function () {
         save.disabled = false; msg.textContent = 'Could not save the change. Try again.'; msg.hidden = false;
       });
@@ -4545,7 +4536,11 @@
       }
       clearTimeout(armTimer);
       store.remove(e.id).then(function () {
-        state.editing = null; render(); toast('Deleted ' + e.desc + ' ' + money(e.amount));
+        state.editing = null; render();
+        toast('Deleted ' + e.desc + ' ' + money(e.amount), function () {
+          store.add({ amount: e.amount, desc: e.desc, spent_at: new Date(e.ts).toISOString(), method: e.method || undefined, kind: e.kind || undefined })
+            .then(function () { render(); toast('Restored'); }).catch(function () { toast('Could not undo. Try again.'); });
+        });
       }).catch(function () { msg.textContent = 'Could not delete. Try again.'; msg.hidden = false; });
     });
     return f;

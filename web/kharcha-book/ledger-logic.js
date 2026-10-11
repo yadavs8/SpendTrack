@@ -139,6 +139,34 @@
     return { loan: next };
   }
 
+  // Corrects a loan (amount, name, note, date). The amount may not drop below what has already been repaid.
+  function editLoan(loan, patch) {
+    var amt = patch.amount == null ? loan.amount : patch.amount;
+    var p = toPaise(amt);
+    if (!(p > 0)) return { error: 'Enter an amount greater than zero.' };
+    var paid = toPaise(repaid(loan));
+    if (p < paid) return { error: 'Already repaid ₹' + (paid / 100).toLocaleString('en-IN') + ', so the amount cannot be lower than that.' };
+    var who = patch.person == null ? loan.person : cleanName(patch.person);
+    if (!who) return { error: 'Add the person’s name.' };
+    return { loan: Object.assign({}, loan, {
+      amount: p / 100, person: who,
+      note: patch.note == null ? loan.note : String(patch.note).slice(0, 80),
+      ts: patch.ts == null ? loan.ts : patch.ts
+    }) };
+  }
+  // Corrects one repayment. Repayments together may not exceed the loan.
+  function editPayment(loan, payId, patch) {
+    var cur = loan.payments.filter(function (x) { return x.id === payId; })[0];
+    if (!cur) return { error: 'That repayment no longer exists.' };
+    var p = toPaise(patch.amount == null ? cur.amount : patch.amount);
+    if (!(p > 0)) return { error: 'Enter an amount greater than zero.' };
+    var others = loan.payments.reduce(function (s, x) { return x.id === payId ? s : s + toPaise(x.amount); }, 0);
+    if (others + p > toPaise(loan.amount)) return { error: 'That would be more than the ₹' + (toPaise(loan.amount) / 100).toLocaleString('en-IN') + ' lent.' };
+    return { loan: Object.assign({}, loan, { payments: loan.payments.map(function (x) {
+      return x.id === payId ? { id: x.id, amount: p / 100, ts: patch.ts == null ? x.ts : patch.ts, note: x.note } : x;
+    }) }) };
+  }
+
   /* Per person: what they owe me, what I owe them, and the net. Names match ignoring case and spacing. */
   function summarize(loans) {
     var map = {}, order = [];
@@ -283,7 +311,7 @@
   return {
     splitPaise: splitPaise, tripItemLabel: tripItemLabel, tripSettlement: tripSettlement,
     cleanName: cleanName, nameKey: nameKey, parseLoans: parseLoans, repaid: repaid, outstanding: outstanding,
-    addPayment: addPayment, summarize: summarize,
+    addPayment: addPayment, editLoan: editLoan, editPayment: editPayment, summarize: summarize,
     walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, parseWalletDesc: parseWalletDesc,
     parseWallets: parseWallets, walletState: walletState, walletReconcile: walletReconcile,
     payCycles: payCycles, lastWorkingDay: lastWorkingDay, nextPayday: nextPayday, parseBank: parseBank, bankEstimate: bankEstimate
