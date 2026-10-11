@@ -857,6 +857,7 @@
     store: store,
     enterApp: enterApp,
     getSb: function () { return sb; },
+    getEntries: function () { return state.entries; },
     parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, parseSMSDate: parseSMSDate, findDuplicate: findDuplicate, categoryBreakdown: categoryBreakdown, monthCompare: monthCompare,
     isIncome: isIncome, isMotherSettlement: isMotherSettlement, isMotherPension: isMotherPension, isSalary: isSalary, isExpense: isExpense, isInvestment: isInvestment, getFamilySettlement: getFamilySettlement, getPersonalCashFlow: getPersonalCashFlow,
     isProjectEntry: isProjectEntry, isProjectMotherPaid: isProjectMotherPaid, getProjectSummary: getProjectSummary,
@@ -1751,6 +1752,7 @@
     renderTripsView(tripSummary, allMonthEntries);
 
     renderSync();
+    try { document.dispatchEvent(new Event('kharcha:render')); } catch (e) {}
   }
 
   /* ---------- Cash Flow Cards on Hero ---------- */
