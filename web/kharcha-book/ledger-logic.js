@@ -308,7 +308,73 @@
     return { since: snap.ts, startBalance: snap.balance, income: inP / 100, cashHeld: heldP / 100, spent: outP / 100, balance: (start + inP - outP) / 100, items: items };
   }
 
+  /* ---------- smart rules: payees, monthly payments, which bank ----------
+     rule: { id, name, words: [text found in the payee/description], day (1-31 or 0), amount (0 = ask), scope, acct (account name or '' = main) } */
+  function parseRules(json) {
+    var arr;
+    try { arr = JSON.parse(json); } catch (e) { return null; }
+    if (!Array.isArray(arr)) return null;
+    return arr.filter(function (r) { return r && typeof r.id === 'string' && cleanName(r.name); }).map(function (r) {
+      var day = Math.round(Number(r.day)); if (!(day >= 1 && day <= 31)) day = 0;
+      var amt = Number(r.amount); if (!(amt > 0)) amt = 0;
+      return {
+        id: r.id, name: cleanName(r.name), day: day, amount: amt,
+        words: (Array.isArray(r.words) ? r.words : []).map(function (w) { return String(w).toLowerCase().replace(/\s+/g, ' ').trim(); }).filter(Boolean).slice(0, 8),
+        scope: ['personal', 'family', 'investment'].indexOf(r.scope) >= 0 ? r.scope : 'personal',
+        acct: cleanName(r.acct)
+      };
+    });
+  }
+  function defaultRules() {
+    return [
+      { id: 'r-emi', name: 'Flat EMI', words: ['emi', 'flat emi', 'home loan'], day: 5, amount: 0, scope: 'personal', acct: 'HDFC' },
+      { id: 'r-niece', name: 'Niece allowance', words: ['priyanka mehta', 'priyanka', 'bhabi'], day: 1, amount: 5000, scope: 'family', acct: '' },
+      { id: 'r-milk', name: 'Milk vendor', words: ['jagroop', 'shoshri chand'], day: 1, amount: 0, scope: 'family', acct: '' }
+    ];
+  }
+  function wordIn(text, w) {
+    var esc = w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp('(^|[^a-z0-9])' + esc + '([^a-z0-9]|$)').test(text);
+  }
+  function matchRule(desc, rules) {
+    var d = String(desc || '').toLowerCase();
+    for (var i = 0; i < (rules || []).length; i++) {
+      var r = rules[i], keys = r.words.concat([r.name.toLowerCase()]);
+      for (var j = 0; j < keys.length; j++) if (keys[j] && wordIn(d, keys[j])) return r;
+    }
+    return null;
+  }
+  // Rules with a day of the month that are due now and have no matching entry yet this month.
+  function dueRules(rules, entries, nowMs, skips) {
+    var now = new Date(nowMs), y = now.getFullYear(), m = now.getMonth(), dim = new Date(y, m + 1, 0).getDate();
+    var mk = y + '-' + (m + 1), start = new Date(y, m, 1).getTime(), out = [];
+    (rules || []).forEach(function (r) {
+      if (!r.day || (skips && skips[r.id] === mk)) return;
+      if (now.getDate() < Math.min(r.day, dim)) return;
+      var hits = (entries || []).filter(function (e) { return e && !e.synthetic && matchRule(e.desc, [r]); }).sort(function (a, b) { return b.ts - a.ts; });
+      if (hits.some(function (e) { return e.ts >= start; })) return;
+      out.push({ rule: r, amount: r.amount || (hits[0] ? hits[0].amount : 0), monthKey: mk });
+    });
+    return out;
+  }
+  /* Which tracked account an entry belongs to: an explicit choice (map) wins, then a rule's bank, then the main account.
+     Returns null when it is not a bank movement of any tracked account (wallet, or a bank you do not track). */
+  function routeAccount(entry, accts, map, rules, primaryId) {
+    var ids = accts.map(function (a) { return a.id; });
+    var pick = map && map[entry.id];
+    if (pick === 'none') return null;
+    if (pick === 'cash') return ids.indexOf(primaryId) >= 0 ? primaryId : null;
+    if (pick && ids.indexOf(pick) >= 0) return pick;
+    var r = matchRule(entry.desc, rules);
+    if (r && r.acct) {
+      var key = nameKey(r.acct), hit = accts.filter(function (a) { return nameKey(a.name).indexOf(key) >= 0; })[0];
+      return hit ? hit.id : null;
+    }
+    return ids.indexOf(primaryId) >= 0 ? primaryId : (ids[0] || null);
+  }
+
   return {
+    parseRules: parseRules, defaultRules: defaultRules, matchRule: matchRule, dueRules: dueRules, routeAccount: routeAccount,
     splitPaise: splitPaise, tripItemLabel: tripItemLabel, tripSettlement: tripSettlement,
     cleanName: cleanName, nameKey: nameKey, parseLoans: parseLoans, repaid: repaid, outstanding: outstanding,
     addPayment: addPayment, editLoan: editLoan, editPayment: editPayment, summarize: summarize,

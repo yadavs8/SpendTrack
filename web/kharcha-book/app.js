@@ -192,7 +192,7 @@
     // Strip leading trip prefix (✈️ TripName: or ✈️ )
     s = s.replace(/^[✈\u{2708}\u{FE0F}\u{1F6EB}\u{1F6EC}]+\s*(?:[^:]+:\s*)?/u, '').trim();
     // Strip other leading scope tags (🏠, 👤, 📈, 🔨)
-    s = s.replace(/^[\u{1F3E0}\u{1F464}\u{1F4C8}\u{1F528}]\s*/u, '').trim();
+    s = s.replace(/^[\u{1F3E0}\u{1F464}\u{1F4C8}\u{1F528}\u{1F4B0}]\s*/u, '').trim();
     return s;
   }
 
@@ -202,6 +202,7 @@
     if (targetScope === 'family') return '🏠 ' + clean;
     if (targetScope === 'investment') return '📈 ' + clean;
     if (targetScope === 'personal') return '👤 ' + clean;
+    if (targetScope === 'income') return '💰 ' + clean;
     if (targetScope === 'trip') return '✈️ ' + (tripName || getActiveTripName() || 'Trip') + ': ' + clean;
     return clean;
   }
@@ -577,10 +578,57 @@
   var BANK_KEY = 'kharcha_bank';
   function loadBank() { return window.KharchaLedger ? window.KharchaLedger.parseBank(kv.get(BANK_KEY)) : []; }
   function saveBank(list) { kv.set(BANK_KEY, JSON.stringify(list)); }
+  var RULES_KEY = 'kharcha_rules', ACCTMAP_KEY = 'kharcha_acctmap', PRIMARY_KEY = 'kharcha_primary_acct', SKIPS_KEY = 'kharcha_rule_skips';
+  function loadRules() {
+    var KL = window.KharchaLedger;
+    if (!KL) return [];
+    return KL.parseRules(kv.get(RULES_KEY)) || KL.parseRules(JSON.stringify(KL.defaultRules()));
+  }
+  function saveRules(list) { kv.set(RULES_KEY, JSON.stringify(list)); }
+  function loadJsonObj(k) { try { var o = JSON.parse(kv.get(k) || '{}'); return o && typeof o === 'object' && !Array.isArray(o) ? o : {}; } catch (e) { return {}; } }
+  function primaryAcctId(accts) {
+    var id = kv.get(PRIMARY_KEY);
+    if (accts.some(function (a) { return a.id === id; })) return id;
+    var ic = accts.filter(function (a) { return /icici/i.test(a.name); })[0];
+    return ic ? ic.id : (accts[0] ? accts[0].id : null);
+  }
+  // Each money-in or money-out belongs to ONE account: your explicit choice, else the rule's bank (HDFC for the EMI), else the main account.
+  function bankPreds(acct, accts) {
+    var KL = window.KharchaLedger, map = loadJsonObj(ACCTMAP_KEY), rules = loadRules(), pid = primaryAcctId(accts);
+    function mine(e) { return KL.routeAccount(e, accts, map, rules, pid) === acct.id; }
+    return { isIn: function (e) { return isBankIn(e) && mine(e); }, isOut: function (e) { return isBankOut(e) && mine(e); } };
+  }
+  function setEntryAcct(entryId, choice) {
+    var map = loadJsonObj(ACCTMAP_KEY);
+    if (!choice) delete map[entryId]; else map[entryId] = choice;
+    kv.set(ACCTMAP_KEY, JSON.stringify(map));
+    var accts = loadBank();
+    if (!accts.length) return;
+    var pid = primaryAcctId(accts);
+    saveBank(accts.map(function (a) {
+      var held = (a.held || []).filter(function (x) { return x !== entryId; });
+      if (choice === 'cash' && a.id === pid) held.push(entryId);
+      return Object.assign({}, a, { held: held });
+    }));
+  }
+  function currentAcctChoice(e, accts) {
+    var KL = window.KharchaLedger, map = loadJsonObj(ACCTMAP_KEY);
+    if (map[e.id]) return map[e.id];
+    var pid = primaryAcctId(accts);
+    return e.id ? (KL.routeAccount(e, accts, map, loadRules(), pid) || 'none') : pid;
+  }
+  function acctChoiceSelect(accts, value) {
+    var sel = el('select', 'input');
+    accts.forEach(function (a) { var o = el('option', null, '🏦 ' + a.name); o.value = a.id; sel.appendChild(o); });
+    var c = el('option', null, '💵 Cash at home (not in the bank yet)'); c.value = 'cash'; sel.appendChild(c);
+    var n = el('option', null, '👛 Not in a bank (wallet, other)'); n.value = 'none'; sel.appendChild(n);
+    sel.value = value;
+    return sel;
+  }
   function getBankTotals() {
     var KL = window.KharchaLedger, accts = loadBank(), p = 0;
     if (!KL) return { has: false, total: 0, count: 0 };
-    accts.forEach(function (a) { p += paise(KL.bankEstimate(state.entries, a, isBankIn, isBankOut).balance); });
+    accts.forEach(function (a) { var pr = bankPreds(a, accts); p += paise(KL.bankEstimate(state.entries, a, pr.isIn, pr.isOut).balance); });
     return { has: accts.length > 0, total: p / 100, count: accts.length };
   }
 
@@ -1026,7 +1074,7 @@
      localStorage stays as the offline cache, and is all there is until the v4 SQL has been run. */
   var SHARED_KEYS = ['kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
     'kharcha_active_trip_name', 'kharcha_all_trips_list', 'kharcha_category_budgets', 'kharcha_merchant_memory',
-    'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers', 'kharcha_loans', 'kharcha_wallets', 'kharcha_bank', 'kharcha_cycle'];
+    'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers', 'kharcha_loans', 'kharcha_wallets', 'kharcha_bank', 'kharcha_cycle', 'kharcha_rules', 'kharcha_acctmap', 'kharcha_primary_acct', 'kharcha_rule_skips'];
   var SHARED_PREFIXES = ['kharcha_trip_friends_', 'kharcha_trip_budget_'];
   function isSharedKey(k) {
     return SHARED_KEYS.indexOf(k) >= 0 || SHARED_PREFIXES.some(function (p) { return k.indexOf(p) === 0; });
@@ -1134,7 +1182,7 @@
         var cleanDesc = safeTruncate(e.desc, 50);
         var mockEntry = { id: 'demo-' + Date.now(), amount: e.amount, desc: cleanDesc, ts: e.spent_at ? Date.parse(e.spent_at) : Date.now(), refNo: e.ref_no || null, method: e.method || null, kind: e.kind || null };
         state.entries.push(mockEntry);
-        return;
+        return mockEntry;
       }
       var userRes = await sb.auth.getUser();
       if (!userRes.data || !userRes.data.user) {
@@ -1161,7 +1209,9 @@
         console.error('Supabase add error:', res.error);
         throw res.error;
       }
-      state.entries.push(fromRow(res.data));
+      var added = fromRow(res.data);
+      state.entries.push(added);
+      return added;
     },
     update: async function (id, patch) {
       var cleanDesc = safeTruncate(patch.desc, 50);
@@ -1819,6 +1869,8 @@
 
     renderBudget(cur.total);
     renderSuggestions();
+    refreshIncomeAcct();
+    renderDue();
     var paidViaField = $('paid-via-field');
     if (paidViaField) paidViaField.hidden = !hasV5Cols;
     renderCategoryBreakdown(totalsList, cmp, prevKey);
@@ -2290,6 +2342,12 @@
         saveWallets(loadWallets().filter(function (x) { return x.id !== w.id; })); renderWallet();
       } });
     });
+    if (allAccts.length > 1) {
+      var isMain = primaryAcctId(allAccts) === a.id;
+      var mainBtn = el('button', 'scope-pill' + (isMain ? ' active' : ''), isMain ? 'Main account ✓' : 'Make main'); mainBtn.type = 'button';
+      mainBtn.addEventListener('click', function () { kv.set(PRIMARY_KEY, a.id); renderBank(); render(); toast(a.name + ' is now your main account. New income goes here.'); });
+      head.insertBefore(mainBtn, rm);
+    }
     head.appendChild(rm); card.appendChild(head);
     card.appendChild(el('div', 'wal-bal' + (ws.balance < 0 ? ' neg' : ''), money(ws.balance)));
     card.appendChild(el('div', 'wal-sub', ws.balance < 0
@@ -2551,6 +2609,138 @@
     }
   }
 
+  /* ---------- Smart rules: payees and monthly payments ---------- */
+  var SCOPE_LABEL = { personal: '👤 Personal', family: '🏠 Family', investment: '📈 Invest' };
+  function scopeWord(entryDesc) { return /^\s*[🏠👤📈✈🔨💼👵💰👛]/u.test(entryDesc || ''); }
+  function ordinal(n) { var s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
+
+  // Recognises payees by name ("Jagroop Shoshri Chand" is the milk vendor) and files them once, keeping the original name.
+  async function applyRulesToEntries() {
+    var KL = window.KharchaLedger;
+    if (!KL || !state.entries.length) return;
+    var rules = loadRules(), since = Date.now() - 120 * 86400000, done = {}, n = 0;
+    for (var i = 0; i < state.entries.length && n < 40; i++) {
+      var e = state.entries[i];
+      if (!e || e.synthetic || e.ts < since || !isExpense(e) || scopeWord(e.desc)) continue;
+      var r = KL.matchRule(e.desc, rules);
+      if (!r || String(e.desc).toLowerCase().indexOf(r.name.toLowerCase()) >= 0) continue;
+      var nd = shiftScopeDesc(r.name + ' (' + String(e.desc).replace(/\s+/g, ' ').trim() + ')', r.scope);
+      try { await store.update(e.id, { amount: e.amount, desc: nd, spent_at: new Date(e.ts).toISOString() }); n++; done[r.name] = (done[r.name] || 0) + 1; } catch (err) { break; }
+    }
+    if (n) toast('Recognised ' + Object.keys(done).join(', '));
+  }
+
+  function renderDue() {
+    var box = $('due-box'), KL = window.KharchaLedger;
+    if (!box || !KL) return;
+    box.textContent = '';
+    var due = KL.dueRules(loadRules(), state.entries, Date.now(), loadJsonObj(SKIPS_KEY));
+    if (!due.length || (state.activeStream || 'spends') !== 'spends') { box.hidden = true; return; }
+    box.hidden = false;
+    due.slice(0, 3).forEach(function (d) {
+      var r = d.rule, row = el('div', 'due-card');
+      var txt = el('div', 'due-txt');
+      txt.appendChild(el('b', null, '📅 ' + r.name));
+      txt.appendChild(el('span', null, 'Due on the ' + ordinal(r.day) + (d.amount ? ' · ' + money(d.amount) : '') + (r.acct ? ' · from ' + r.acct : '')));
+      row.appendChild(txt);
+      var log = el('button', 'primary small', 'Log it'); log.type = 'button';
+      function add(amount) {
+        store.add({ amount: amount, desc: shiftScopeDesc(r.name, r.scope), spent_at: new Date().toISOString() })
+          .then(function () { render(); toast(r.name + ' ' + money(amount) + ' logged'); })
+          .catch(function () { toast('Could not log it. Try again.'); });
+      }
+      log.addEventListener('click', function () {
+        if (d.amount) { add(d.amount); return; }
+        showInputModal({ title: r.name, message: 'How much was it this month?', fields: [{ label: 'Amount (₹)', placeholder: 'e.g. 25000', inputmode: 'decimal' }], confirmText: 'Log it',
+          onConfirm: function (v) { var a = parseAmount(v[0]); if (a != null) add(a); } });
+      });
+      var skip = el('button', 'ghost', 'Not this month'); skip.type = 'button';
+      skip.addEventListener('click', function () {
+        var before = loadJsonObj(SKIPS_KEY), next = Object.assign({}, before); next[r.id] = d.monthKey;
+        kv.set(SKIPS_KEY, JSON.stringify(next)); renderDue();
+        toast(r.name + ' skipped for this month', function () { kv.set(SKIPS_KEY, JSON.stringify(before)); renderDue(); });
+      });
+      row.appendChild(log); row.appendChild(skip);
+      box.appendChild(row);
+    });
+  }
+
+  var rulesUi = { editing: null };
+  function renderRules() {
+    var root = $('rules-root'), KL = window.KharchaLedger;
+    if (!root) return;
+    root.textContent = '';
+    if (!KL) { root.appendChild(el('p', 'err', 'Rules could not load. Refresh the page.')); return; }
+    var rules = loadRules(), accts = loadBank();
+    root.appendChild(el('p', 'wal-sub', 'Tell the app who you pay and when. It files those payments for you, reminds you on the due day, and takes them off the right bank account.'));
+    rules.forEach(function (r) {
+      var card = el('div', 'wal-card');
+      var head = el('div', 'wal-head');
+      head.appendChild(el('span', 'wal-name', r.name));
+      var tools = el('span', 'udh-tools');
+      var ed = el('button', 'udh-edit', 'Edit'); ed.type = 'button';
+      ed.addEventListener('click', function () { rulesUi.editing = rulesUi.editing === r.id ? null : r.id; renderRules(); });
+      var rm = el('button', 'udh-x', '×'); rm.type = 'button'; rm.setAttribute('aria-label', 'Delete ' + r.name);
+      rm.addEventListener('click', function () {
+        showConfirmModal({ title: 'Delete "' + r.name + '"?', message: 'Past entries stay as they are.', onConfirm: function () {
+          var before = loadRules(); saveRules(before.filter(function (x) { return x.id !== r.id; })); renderRules(); render();
+          toast('Rule deleted', function () { saveRules(before); renderRules(); render(); });
+        } });
+      });
+      tools.appendChild(ed); tools.appendChild(rm); head.appendChild(tools); card.appendChild(head);
+      card.appendChild(el('div', 'wal-sub', 'Looks for: ' + r.words.join(', ')));
+      card.appendChild(el('div', 'wal-sub', (r.day ? 'Every month on the ' + ordinal(r.day) : 'No fixed day') + (r.amount ? ' · ' + money(r.amount) : ' · amount asked each time') + ' · ' + SCOPE_LABEL[r.scope] + ' · from ' + (r.acct || 'main account')));
+      if (r.acct && !accts.some(function (a) { return a.name.toLowerCase().indexOf(r.acct.toLowerCase()) >= 0; })) card.appendChild(el('p', 'wal-hint', 'You are not tracking a ' + r.acct + ' account yet. Add it in Bank so these payments come off it.'));
+      if (rulesUi.editing === r.id) card.appendChild(ruleForm(r, accts));
+      root.appendChild(card);
+    });
+    if (rulesUi.editing === 'new') root.appendChild(ruleForm(null, accts));
+    else {
+      var add = el('button', 'ghost', '+ Add a rule'); add.type = 'button';
+      add.addEventListener('click', function () { rulesUi.editing = 'new'; renderRules(); });
+      root.appendChild(add);
+    }
+  }
+  function ruleForm(r, accts) {
+    var KL = window.KharchaLedger, f = el('form', 'udh-editform'); f.noValidate = true;
+    function field(label, input) { var w = el('div', 'field'); w.appendChild(el('label', null, label)); w.appendChild(input); return w; }
+    var name = el('input', 'input'); name.maxLength = 40; name.value = r ? r.name : ''; name.placeholder = 'e.g. Milk vendor';
+    var words = el('input', 'input'); words.value = r ? r.words.join(', ') : ''; words.placeholder = 'Names as they show in UPI, comma separated';
+    var day = el('input', 'input'); day.inputMode = 'numeric'; day.value = r && r.day ? String(r.day) : ''; day.placeholder = 'Day of month (optional)';
+    var amt = el('input', 'input'); amt.inputMode = 'decimal'; amt.value = r && r.amount ? String(r.amount) : ''; amt.placeholder = 'Usual amount (optional)';
+    var scope = el('select', 'input'); ['personal', 'family', 'investment'].forEach(function (k) { var o = el('option', null, SCOPE_LABEL[k]); o.value = k; scope.appendChild(o); });
+    scope.value = r ? r.scope : 'family';
+    var bank = el('select', 'input'), names = accts.map(function (a) { return a.name; });
+    if (r && r.acct && !names.some(function (n) { return n.toLowerCase().indexOf(r.acct.toLowerCase()) >= 0; })) names.push(r.acct);
+    var m0 = el('option', null, 'Main account'); m0.value = ''; bank.appendChild(m0);
+    names.forEach(function (n) { var o = el('option', null, '🏦 ' + n); o.value = n; bank.appendChild(o); });
+    bank.value = r ? r.acct : '';
+    if (r && r.acct && bank.value !== r.acct) { var match = names.filter(function (n) { return n.toLowerCase().indexOf(r.acct.toLowerCase()) >= 0; })[0]; if (match) bank.value = match; }
+    f.appendChild(field('What is it called', name)); f.appendChild(field('Recognise these names', words));
+    var row = el('div', 'add-row'); row.appendChild(field('Day', day)); row.appendChild(field('Amount (₹)', amt)); f.appendChild(row);
+    f.appendChild(field('Counts as', scope)); f.appendChild(field('Paid from', bank));
+    var err = el('p', 'err'); err.hidden = true; err.setAttribute('role', 'alert'); f.appendChild(err);
+    var btns = el('div', 'edit-btns'), save = el('button', 'primary small', 'Save'); save.type = 'submit';
+    var cancel = el('button', 'ghost', 'Cancel'); cancel.type = 'button'; btns.appendChild(save); btns.appendChild(cancel); f.appendChild(btns);
+    cancel.addEventListener('click', function () { rulesUi.editing = null; renderRules(); });
+    f.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var nm = KL.cleanName(name.value), ws = words.value.split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+      if (!nm) { err.textContent = 'Give it a name.'; err.hidden = false; return; }
+      if (!ws.length) ws = [nm.toLowerCase()];
+      var d = day.value.trim() ? Math.round(Number(day.value)) : 0;
+      if (day.value.trim() && !(d >= 1 && d <= 31)) { err.textContent = 'Day must be between 1 and 31.'; err.hidden = false; return; }
+      var a = amt.value.trim() ? parseAmount(amt.value) : 0;
+      if (amt.value.trim() && a == null) { err.textContent = 'Amount should be a number, like 5000.'; err.hidden = false; return; }
+      var before = loadRules();
+      var next = { id: r ? r.id : newLoanId(), name: nm, words: ws, day: d, amount: a || 0, scope: scope.value, acct: bank.value };
+      var list = r ? before.map(function (x) { return x.id === r.id ? next : x; }) : before.concat([next]);
+      saveRules(list); rulesUi.editing = null; renderRules(); render();
+      toast('Saved ' + nm, function () { saveRules(before); renderRules(); render(); });
+    });
+    return f;
+  }
+
   /* ---------- Bank tab ---------- */
   var bankUi = { add: false, mode: {}, actual: {} };
   function renderBank() {
@@ -2599,7 +2789,8 @@
 
   function bankCard(a) {
     var KL = window.KharchaLedger;
-    var est = KL.bankEstimate(state.entries, a, isBankIn, isBankOut);
+    var allAccts = loadBank(), pr = bankPreds(a, allAccts);
+    var est = KL.bankEstimate(state.entries, a, pr.isIn, pr.isOut);
     var card = el('div', 'wal-card');
     var head = el('div', 'wal-head');
     head.appendChild(el('span', 'wal-name', '🏦 ' + a.name));
@@ -2755,6 +2946,7 @@
     var walletSec = $('wallet-sec');
     var monthlySec = $('monthly-sec');
     var bankSec = $('bank-sec');
+    var rulesSec = $('rules-sec');
 
     var stream = state.activeStream || 'spends';
     if (spendsView) spendsView.hidden = (stream !== 'spends');
@@ -2768,6 +2960,8 @@
     if (stream === 'udhaar') renderUdhaar();
     if (monthlySec) monthlySec.hidden = (stream !== 'monthly');
     if (bankSec) bankSec.hidden = (stream !== 'bank');
+    if (rulesSec) rulesSec.hidden = (stream !== 'rules');
+    if (stream === 'rules') renderRules();
     if (stream === 'bank') renderBank();
     if (stream === 'wallet') renderWallet();
     if (stream === 'monthly') renderMonthly();
@@ -2931,6 +3125,20 @@
   }
 
   /* ---------- Add Income Form Handling ---------- */
+  // "Credited to" choice on the income form: the bank accounts you track, cash at home, or no bank.
+  function refreshIncomeAcct() {
+    var f = $('income-acct-field'), sel = $('income-acct');
+    if (!f || !sel) return;
+    var accts = loadBank();
+    f.hidden = !accts.length;
+    if (!accts.length) return;
+    var keep = sel.value, pid = primaryAcctId(accts);
+    sel.textContent = '';
+    var fresh = acctChoiceSelect(accts, pid);
+    Array.prototype.slice.call(fresh.options).forEach(function (o) { sel.appendChild(o); });
+    sel.value = Array.prototype.some.call(sel.options, function (o) { return o.value === keep; }) ? keep : pid;
+  }
+
   function getSelectedIncomeSource() {
     var checked = document.querySelector('input[name="income-source"]:checked');
     return checked ? checked.value : 'salary1';
@@ -3006,7 +3214,10 @@
       delete addIncomeForm.dataset.confirmedTwin;
 
       addIncomeBtn.disabled = true;
-      store.add({ amount: amt, desc: desc, spent_at: spentAt, kind: 'income' }).then(function () {
+      var acctSel = $('income-acct');
+      var acctChoice = acctSel && !$('income-acct-field').hidden ? acctSel.value : '';
+      store.add({ amount: amt, desc: desc, spent_at: spentAt, kind: 'income' }).then(function (ne) {
+        if (ne && acctChoice) setEntryAcct(ne.id, acctChoice);
         incomeAmtInput.value = '';
         if ($('income-note')) $('income-note').value = '';
         if ($('income-date')) $('income-date').value = '';
@@ -4462,6 +4673,7 @@
       state.draft.desc = newDesc;
       d.value = newDesc;
       pendingScope = targetScope;
+      if (acctField) acctField.hidden = !(targetScope === 'income');
       shiftRow.querySelectorAll('.btn-shift').forEach(function (x) { x.classList.toggle('active', x.dataset.scope === targetScope && x.dataset.label === label); });
       msg.textContent = 'Will move to ' + label + '. Tap Save to confirm.'; msg.hidden = false; msg.classList.add('note');
     }
@@ -4473,6 +4685,7 @@
       return btn;
     }
 
+    if (!isIncome(e)) shiftRow.appendChild(createShiftBtn('income', 'Income', '💰'));
     if (curScope !== 'personal') shiftRow.appendChild(createShiftBtn('personal', 'Personal', '👤'));
     if (curScope !== 'family') shiftRow.appendChild(createShiftBtn('family', 'Family', '🏠'));
     if (curScope !== 'investment') shiftRow.appendChild(createShiftBtn('investment', 'Investment', '📈'));
@@ -4502,12 +4715,18 @@
       shiftRow.appendChild(newTripShiftBtn);
     }
 
+    var bankAccts = loadBank(), acctField = null, acctSel = null;
+    if (bankAccts.length) {
+      acctField = el('div', 'field'); acctField.appendChild(el('label', null, 'Credited to'));
+      acctSel = acctChoiceSelect(bankAccts, currentAcctChoice(e, bankAccts));
+      acctField.appendChild(acctSel); acctField.hidden = !isIncome(e);
+    }
     var btns = el('div', 'edit-btns');
     var save = el('button', 'primary small', 'Save'); save.type = 'submit';
     var cancel = el('button', 'ghost', 'Cancel'); cancel.type = 'button';
     var del = el('button', 'danger', 'Delete'); del.type = 'button';
     btns.appendChild(save); btns.appendChild(cancel); btns.appendChild(del);
-    f.appendChild(row1); f.appendChild(row2); f.appendChild(shiftRow); f.appendChild(msg); f.appendChild(btns);
+    f.appendChild(row1); f.appendChild(row2); f.appendChild(shiftRow); if (acctField) f.appendChild(acctField); f.appendChild(msg); f.appendChild(btns);
 
     cancel.addEventListener('click', function () { state.editing = null; render(); });
     f.addEventListener('submit', function (ev) {
@@ -4522,6 +4741,7 @@
       if (hasV5Cols && (state.draft.method || '') !== (e.method || '')) patch.method = state.draft.method || null;
       if (pendingScope) rememberMerchantScope(e.desc, pendingScope);
       store.update(e.id, patch).then(function () {
+        if (acctSel && (isIncome(e) || pendingScope === 'income') && pendingScope !== 'personal' && pendingScope !== 'family' && pendingScope !== 'investment' && pendingScope !== 'trip') setEntryAcct(e.id, acctSel.value);
         state.editing = null; render(); toast('Changes saved', function () { restoreEntry(e); });
       }).catch(function () {
         save.disabled = false; msg.textContent = 'Could not save the change. Try again.'; msg.hidden = false;
@@ -4900,6 +5120,7 @@
     }
     isLoadingApp = false;
     render();
+    applyRulesToEntries().then(function () { render(); }).catch(function () {});
     console.log('Kharcha: render completed successfully, total entries=' + state.entries.length);
   }
 

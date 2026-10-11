@@ -224,4 +224,27 @@ t('editPayment corrects a repayment but not beyond the loan', () => {
   assert.ok(L.editPayment(loanX, 'nope', { amount: 1 }).error);
 });
 
+t('smart rules recognise payees and route banks', () => {
+  const rules = L.parseRules(JSON.stringify(L.defaultRules()));
+  assert.strictEqual(L.matchRule('UPI-JAGROOP SHOSHRI CHAND', rules).name, 'Milk vendor');
+  assert.strictEqual(L.matchRule('Priyanka Mehta', rules).name, 'Niece allowance');
+  assert.strictEqual(L.matchRule('Premium paid', rules), null);
+  const accts = [{ id: 'i', name: 'ICICI Salary' }, { id: 'h', name: 'HDFC Savings' }];
+  assert.strictEqual(L.routeAccount({ id: '1', desc: 'Flat EMI' }, accts, {}, rules, 'i'), 'h');
+  assert.strictEqual(L.routeAccount({ id: '2', desc: 'Blinkit' }, accts, {}, rules, 'i'), 'i');
+  assert.strictEqual(L.routeAccount({ id: '3', desc: 'Flat EMI' }, [accts[0]], {}, rules, 'i'), null);
+  assert.strictEqual(L.routeAccount({ id: '4', desc: 'Salary' }, accts, { '4': 'cash' }, rules, 'i'), 'i');
+  assert.strictEqual(L.routeAccount({ id: '5', desc: 'Cred wallet' }, accts, { '5': 'none' }, rules, 'i'), null);
+});
+t('due rules appear from the due day until logged or skipped', () => {
+  const rules = L.parseRules(JSON.stringify(L.defaultRules()));
+  const D2 = (y, m, d) => new Date(y, m - 1, d, 12).getTime();
+  assert.deepStrictEqual(L.dueRules(rules, [], D2(2026, 10, 4), {}).map(x => x.rule.id).sort(), ['r-milk', 'r-niece']);
+  const logged = [{ id: 'a', desc: '🏠 Milk vendor', amount: 2400, ts: D2(2026, 10, 2) }];
+  const due = L.dueRules(rules, logged, D2(2026, 10, 6), { 'r-niece': '2026-10' });
+  assert.deepStrictEqual(due.map(x => x.rule.id), ['r-emi']);
+  const prev = L.dueRules(rules, [{ id: 'p', desc: 'Milk vendor', amount: 2400, ts: D2(2026, 9, 2) }], D2(2026, 10, 2), {});
+  assert.strictEqual(prev.filter(x => x.rule.id === 'r-milk')[0].amount, 2400);
+});
+
 console.log(n + ' tests passed');
