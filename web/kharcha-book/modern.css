@@ -190,3 +190,10 @@ button.row .method-badge { display: inline-block; margin-left: 6px; font-weight:
 .mtile { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; }
 .mtile .mt { display: flex; flex-direction: column; min-width: 0; text-align: left; }
 .mtile .mt b, .mtile .mt small { display: block; }
+
+/* v55: no animation, plain fixed-position card (some phone WebViews left it invisible) */
+.msheet { display: block; position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 9999; background: rgba(2, 6, 23, 0.55); }
+.msheet[hidden] { display: none !important; }
+.msheet-card { position: absolute; left: 0; right: 0; bottom: 0; width: auto; max-width: 34rem; margin: 0 auto; max-height: 85%; overflow-y: auto; animation: none !important; opacity: 1 !important; transform: none !important; background: var(--surface, #fff); color: var(--ink, #0f172a); }
+.mtile { background: var(--bg, #f0f4f8); color: var(--ink, #0f172a); opacity: 1; }
+.mtile .mt b { color: var(--ink, #0f172a); }
