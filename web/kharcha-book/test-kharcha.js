@@ -561,5 +561,32 @@ assert(whatsappLink('a b').startsWith('https://wa.me/?text=a%20b'), 'whatsappLin
   assert(K.getMonthlySummary(rows, '2026-09').salaries === 58081, 'the September salary counts in the September summary');
 }
 
+// ---- Pay cycles and bank estimate ----
+{
+  const K = windowMock.__kharcha;
+  const D = (m, d) => new Date(2026, m - 1, d, 12).getTime();
+  const rows = [
+    { id: 's1', amount: 58081, desc: '💼 Salary 1 (September month salary)', ts: D(9, 30) },
+    { id: 'm1', amount: 25000, desc: "👵 Mother's Pension", ts: D(10, 2) },
+    { id: 'p1', amount: 5000, desc: 'Personal shopping', ts: D(10, 3) },
+    { id: 's2', amount: 38000, desc: '💼 Salary 2', ts: D(10, 10) },
+    { id: 'f1', amount: 4000, desc: '🏠 Groceries', ts: D(10, 11) },
+    { id: 'p0', amount: 700, desc: 'Late September lunch', ts: D(9, 29) }
+  ];
+  const cyc = K.getPeriodSummary(rows, D(9, 30), null, 'c');
+  assert(cyc.salaries === 96081 && cyc.personalSpent === 5000 && cyc.savings === 91081, 'pay cycle: salary from 30 Sep funds the spending after it, and Salary 2 inside the cycle counts');
+  assert(cyc.motherReceived === 25000 && cyc.familyLeft === 21000, 'pay cycle: family fund inside the cycle');
+  const before = K.getPeriodSummary(rows, D(9, 1), D(9, 30), 'x');
+  assert(before.salaries === 0 && before.personalSpent === 700, 'pay cycle: the day before payday is not part of the new cycle');
+  const cc = { id: 'c', amount: 975.62, desc: 'WWW AIRTEL (ICICI Card XX1014)', ts: 1 };
+  assert(K.isBankOut({ id: 'a', amount: 120, desc: 'Chai', ts: 1 }) === true, 'bank: a normal spend leaves the bank');
+  assert(K.isBankOut(cc) === false, 'bank: a credit-card spend does not');
+  assert(K.isBankOut({ id: 'b', amount: 5, desc: '✈️ Goa: Hotel [Paid by Rahul]', ts: 1 }) === false, 'bank: what a friend paid does not');
+  assert(K.isBankOut({ id: 'd', amount: 10000, desc: '📈 SIP Mutual Fund', ts: 1 }) === true, 'bank: an investment does');
+  assert(K.isBankOut({ id: 'e', amount: 4274, desc: 'Credit card bill', ts: 1 }) === true, 'bank: paying the card bill does');
+  assert(K.isBankOut({ id: 'f', amount: 906, desc: '👛 Amazon Pay · Blinkit', ts: 1 }) === false, 'bank: a wallet spend does not');
+  assert(K.isBankIn({ id: 'g', amount: 38000, desc: '💼 Salary 2', ts: 1 }) === true, 'bank: salary comes in');
+}
+
 console.log(`\nResults: ${passed} passed, ${failed} failed.`);
 if (failed > 0) process.exit(1);

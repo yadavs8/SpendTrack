@@ -153,3 +153,17 @@ button.row .method-badge { display: inline-block; margin-left: 6px; font-weight:
 .mo-row-l small { color: var(--muted); font-size: 0.78rem; overflow-wrap: anywhere; }
 .mo-row-v { font-weight: 700; font-size: 1.05rem; color: var(--success, #10B981); }
 .mo-row-v.neg { color: var(--danger); }
+
+/* ---------- pay cycle controls and bank chip ---------- */
+.mo-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); }
+.mo-mode { min-height: 42px; border: 0; border-radius: 12px; background: transparent; font-weight: 600; color: var(--muted); }
+.mo-mode.on { background: var(--accent); color: var(--accent-ink); }
+.mo-anchor { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.mo-anchor-l { font-size: 0.82rem; color: var(--muted); flex: 1 1 100%; }
+.mo-anchor .input { flex: 1 1 8rem; min-width: 0; height: 42px; }
+.mo-month-wrap { display: grid; gap: 2px; justify-items: center; text-align: center; min-width: 0; }
+.mo-sub { color: var(--muted); font-size: 0.78rem; }
+.mo-arrow:disabled { opacity: 0.35; }
+.hx-bank { display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%; padding: 10px 14px; border-radius: 14px; border: 1px solid rgba(255, 255, 255, 0.18); background: rgba(255, 255, 255, 0.14); color: inherit; text-align: left; }
+.hx-bank span { font-size: 0.78rem; opacity: 0.9; }
+.hx-bank b { font-size: 1.05rem; font-variant-numeric: tabular-nums; white-space: nowrap; }

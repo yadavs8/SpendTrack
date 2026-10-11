@@ -214,11 +214,65 @@
     return diff > 0 ? { kind: 'spent', amount: diff / 100 } : { kind: 'extra', amount: -diff / 100 };
   }
 
+  /* ---------- pay cycles ----------
+     Salary arrives on the last working day, so it pays for the NEXT stretch of spending. A pay cycle runs from one
+     payday (an entry that matches the anchor, normally "Salary 1") up to, but not including, the next payday. */
+  function payCycles(entries, isAnchor) {
+    var anchors = (entries || []).filter(function (e) { return e && !e.synthetic && isAnchor(e); })
+      .map(function (e) { return e.ts; }).sort(function (a, b) { return a - b; });
+    var bounds = [];
+    anchors.forEach(function (t) { if (!bounds.length || t - bounds[bounds.length - 1] > 7 * 86400000) bounds.push(t); });
+    var out = bounds.map(function (s, i) { return { start: s, end: i + 1 < bounds.length ? bounds[i + 1] : null }; });
+    return out.reverse();                              // newest first; end === null means the cycle is still running
+  }
+  // Last Monday-Friday of a month (month is 0-based). Bank holidays are not known, so it can be a day early.
+  function lastWorkingDay(year, month) {
+    var d = new Date(year, month + 1, 0, 12);
+    while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() - 1);
+    return d;
+  }
+  function nextPayday(nowTs) {
+    var n = new Date(nowTs), today = new Date(n.getFullYear(), n.getMonth(), n.getDate(), 12);
+    var d = lastWorkingDay(n.getFullYear(), n.getMonth());
+    if (d.getTime() < today.getTime()) d = lastWorkingDay(n.getFullYear(), n.getMonth() + 1);
+    return { date: d, days: Math.round((d.getTime() - today.getTime()) / 86400000) };
+  }
+
+  /* ---------- bank balance ----------
+     account: { id, name, snapshots: [{ ts, balance }] }. The estimate starts from the newest snapshot (a balance you
+     typed in) and adds the money in and takes off the money out that was logged after it. */
+  function parseBank(json) {
+    var arr;
+    try { arr = JSON.parse(json || '[]'); } catch (e) { return []; }
+    if (!Array.isArray(arr)) return [];
+    return arr.filter(function (a) { return a && typeof a.id === 'string' && cleanName(a.name) && Array.isArray(a.snapshots); })
+      .map(function (a) {
+        return {
+          id: a.id, name: cleanName(a.name),
+          snapshots: a.snapshots.filter(function (s) { return s && isFinite(s.ts) && isFinite(s.balance); })
+            .map(function (s) { return { ts: Number(s.ts), balance: Number(s.balance) }; }).sort(function (x, y) { return x.ts - y.ts; })
+        };
+      }).filter(function (a) { return a.snapshots.length; });
+  }
+  function bankEstimate(entries, acct, isIn, isOut) {
+    var snap = acct.snapshots[acct.snapshots.length - 1], inP = 0, outP = 0, items = [];
+    (entries || []).forEach(function (e) {
+      if (!e || e.synthetic || !(e.ts > snap.ts)) return;
+      var a = toPaise(e.amount);
+      if (isIn(e)) { inP += a; items.push({ id: e.id, ts: e.ts, amount: a / 100, kind: 'in', label: e.desc }); }
+      else if (isOut(e)) { outP += a; items.push({ id: e.id, ts: e.ts, amount: a / 100, kind: 'out', label: e.desc }); }
+    });
+    items.sort(function (x, y) { return y.ts - x.ts; });
+    var start = toPaise(snap.balance);
+    return { since: snap.ts, startBalance: snap.balance, income: inP / 100, spent: outP / 100, balance: (start + inP - outP) / 100, items: items };
+  }
+
   return {
     splitPaise: splitPaise, tripItemLabel: tripItemLabel, tripSettlement: tripSettlement,
     cleanName: cleanName, nameKey: nameKey, parseLoans: parseLoans, repaid: repaid, outstanding: outstanding,
     addPayment: addPayment, summarize: summarize,
     walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, parseWalletDesc: parseWalletDesc,
-    parseWallets: parseWallets, walletState: walletState, walletReconcile: walletReconcile
+    parseWallets: parseWallets, walletState: walletState, walletReconcile: walletReconcile,
+    payCycles: payCycles, lastWorkingDay: lastWorkingDay, nextPayday: nextPayday, parseBank: parseBank, bankEstimate: bankEstimate
   };
 });

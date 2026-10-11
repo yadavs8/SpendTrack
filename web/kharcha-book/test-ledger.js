@@ -143,4 +143,55 @@ t('parseWallets keeps valid wallets only', () => {
   assert.deepStrictEqual(L.parseWallets('bad'), []);
 });
 
+// ---- pay cycles ----
+const D = (y, m, d) => new Date(y, m - 1, d, 12).getTime();
+t('pay cycles run from one Salary 1 payday to the next, newest first', () => {
+  const rows = [
+    { desc: '💼 Salary 1', ts: D(2026, 9, 30) }, { desc: '💼 Salary 2', ts: D(2026, 10, 10) },
+    { desc: '💼 Salary 1', ts: D(2026, 10, 30) }, { desc: 'Chai', ts: D(2026, 10, 2) }
+  ];
+  const c = L.payCycles(rows, e => /salary 1/i.test(e.desc));
+  assert.deepStrictEqual(c, [{ start: D(2026, 10, 30), end: null }, { start: D(2026, 9, 30), end: D(2026, 10, 30) }]);
+  assert.deepStrictEqual(L.payCycles([{ desc: 'x', ts: 1 }], () => false), []);
+});
+t('two payday entries within a week are one cycle start', () => {
+  const c = L.payCycles([{ desc: 'Salary 1', ts: D(2026, 9, 30) }, { desc: 'Salary 1 arrears', ts: D(2026, 10, 2) }], e => true);
+  assert.strictEqual(c.length, 1);
+});
+t('last working day skips weekends', () => {
+  assert.strictEqual(L.lastWorkingDay(2026, 8).getDate(), 30);   // Sep 2026 ends on Wednesday the 30th
+  assert.strictEqual(L.lastWorkingDay(2026, 9).getDate(), 30);   // Oct 31 2026 is a Saturday, so Friday 30th
+  assert.strictEqual(L.lastWorkingDay(2026, 10).getDate(), 30);  // Nov 30 2026 is a Monday
+});
+t('next payday this month, or next month once it has passed', () => {
+  const a = L.nextPayday(D(2026, 10, 11));
+  assert.strictEqual(a.date.getDate(), 30); assert.strictEqual(a.days, 19);
+  const b = L.nextPayday(D(2026, 10, 31));
+  assert.strictEqual(b.date.getMonth(), 10);
+});
+// ---- bank ----
+const bank = { id: 'b1', name: 'ICICI', snapshots: [{ ts: D(2026, 10, 1), balance: 100000 }] };
+const isIn = e => e.kind === 'income', isOut = e => e.kind === 'spend';
+t('bank balance = newest balance + money in - money out since then', () => {
+  const rows = [
+    { id: '1', amount: 38000, kind: 'income', desc: 'Salary 2', ts: D(2026, 10, 10) },
+    { id: '2', amount: 906, kind: 'spend', desc: 'Blinkit', ts: D(2026, 10, 10) },
+    { id: '3', amount: 500, kind: 'spend', desc: 'before the snapshot', ts: D(2026, 9, 20) },
+    { id: '4', amount: 99, kind: 'other', desc: 'ignored', ts: D(2026, 10, 11) }
+  ];
+  const e = L.bankEstimate(rows, bank, isIn, isOut);
+  assert.strictEqual(e.balance, 100000 + 38000 - 906);
+  assert.strictEqual(e.income, 38000); assert.strictEqual(e.spent, 906); assert.strictEqual(e.items.length, 2);
+});
+t('a newer balance restarts the estimate', () => {
+  const b2 = { id: 'b1', name: 'ICICI', snapshots: [{ ts: D(2026, 10, 1), balance: 100000 }, { ts: D(2026, 10, 10), balance: 90000 }] };
+  const e = L.bankEstimate([{ id: '1', amount: 1000, kind: 'spend', ts: D(2026, 10, 5) }, { id: '2', amount: 2000, kind: 'spend', ts: D(2026, 10, 11) }], b2, isIn, isOut);
+  assert.strictEqual(e.balance, 88000);
+});
+t('parseBank keeps valid accounts only', () => {
+  const out = L.parseBank(JSON.stringify([bank, { id: 'x', name: '', snapshots: [{ ts: 1, balance: 1 }] }, { id: 'y', name: 'Empty', snapshots: [] }]));
+  assert.strictEqual(out.length, 1);
+  assert.deepStrictEqual(L.parseBank('nope'), []);
+});
+
 console.log(n + ' tests passed');
