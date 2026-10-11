@@ -546,5 +546,20 @@ assert(whatsappLink('a b').startsWith('https://wa.me/?text=a%20b'), 'whatsappLin
   assert(K.getMonthlySummary(rows, '2026-08').hasData === false, 'monthly: a month with no entries has no data');
 }
 
+// ---- A month that only holds income must still be reachable ----
+{
+  const K = windowMock.__kharcha;
+  const rows = [
+    { id: 'a', amount: 58081, desc: '💼 Salary 1 (September month salary)', ts: new Date(2026, 8, 30, 7, 32).getTime() },
+    { id: 'b', amount: 120, desc: 'Chai', ts: new Date(2026, 9, 3, 9).getTime() },
+    { id: 'c', amount: 25000, desc: "👵 Mother's Pension", ts: new Date(2026, 9, 2, 17).getTime() }
+  ];
+  const keys = K.monthsWithAnyEntry(rows).map(m => m.key);
+  assert(keys.join() === '2026-10,2026-09', 'month list includes a month that has only a salary');
+  assert(K.monthsWithAnyEntry(rows).find(m => m.key === '2026-09').noSpend === true, 'income-only month is flagged as having no spending');
+  assert(K.monthTotals(rows).map(m => m.key).join() === '2026-10', 'monthTotals still counts spending months only');
+  assert(K.getMonthlySummary(rows, '2026-09').salaries === 58081, 'the September salary counts in the September summary');
+}
+
 console.log(`\nResults: ${passed} passed, ${failed} failed.`);
 if (failed > 0) process.exit(1);
