@@ -194,4 +194,19 @@ t('parseBank keeps valid accounts only', () => {
   assert.deepStrictEqual(L.parseBank('nope'), []);
 });
 
+t('cash income kept at home stays out of the bank until deposited, and deposit is not income', () => {
+  const rows = [{ id: '1', amount: 38000, kind: 'income', desc: 'Salary 2', ts: D(2026, 10, 10) }];
+  const held = Object.assign({}, bank, { held: ['1'], deposits: [] });
+  const e = L.bankEstimate(rows, held, isIn, isOut);
+  assert.strictEqual(e.balance, 100000); assert.strictEqual(e.cashHeld, 38000);
+  const dep = Object.assign({}, held, { deposits: [{ ts: D(2026, 10, 12), amount: 38000, ref: '1' }] });
+  const e2 = L.bankEstimate(rows, dep, isIn, isOut);
+  assert.strictEqual(e2.balance, 138000); assert.strictEqual(e2.cashHeld, 0);
+  assert.strictEqual(e2.items.length, 1);
+});
+t('parseBank keeps held and deposits', () => {
+  const o = L.parseBank(JSON.stringify([Object.assign({}, bank, { held: ['1'], deposits: [{ ts: 5, amount: 10 }, { ts: 6, amount: -1 }] })]));
+  assert.deepStrictEqual(o[0].held, ['1']); assert.strictEqual(o[0].deposits.length, 1);
+});
+
 console.log(n + ' tests passed');

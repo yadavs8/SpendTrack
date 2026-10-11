@@ -249,22 +249,35 @@
       .map(function (a) {
         return {
           id: a.id, name: cleanName(a.name),
+          held: Array.isArray(a.held) ? a.held.filter(function (x) { return typeof x === 'string'; }) : [],
+          deposits: Array.isArray(a.deposits) ? a.deposits.filter(function (d) { return d && isFinite(d.ts) && isFinite(d.amount) && d.amount > 0; })
+            .map(function (d) { return { ts: Number(d.ts), amount: Number(d.amount), label: String(d.label || ''), ref: d.ref ? String(d.ref) : '' }; }) : [],
           snapshots: a.snapshots.filter(function (s) { return s && isFinite(s.ts) && isFinite(s.balance); })
             .map(function (s) { return { ts: Number(s.ts), balance: Number(s.balance) }; }).sort(function (x, y) { return x.ts - y.ts; })
         };
       }).filter(function (a) { return a.snapshots.length; });
   }
   function bankEstimate(entries, acct, isIn, isOut) {
-    var snap = acct.snapshots[acct.snapshots.length - 1], inP = 0, outP = 0, items = [];
+    var snap = acct.snapshots[acct.snapshots.length - 1], inP = 0, outP = 0, items = [], heldP = 0;
+    var held = acct.held || [];
     (entries || []).forEach(function (e) {
       if (!e || e.synthetic || !(e.ts > snap.ts)) return;
       var a = toPaise(e.amount);
-      if (isIn(e)) { inP += a; items.push({ id: e.id, ts: e.ts, amount: a / 100, kind: 'in', label: e.desc }); }
+      if (isIn(e) && held.indexOf(e.id) >= 0) {
+        var dep = (acct.deposits || []).some(function (d) { return d.ref === e.id; });
+        if (!dep) heldP += a;
+      }
+      else if (isIn(e)) { inP += a; items.push({ id: e.id, ts: e.ts, amount: a / 100, kind: 'in', label: e.desc }); }
       else if (isOut(e)) { outP += a; items.push({ id: e.id, ts: e.ts, amount: a / 100, kind: 'out', label: e.desc }); }
+    });
+    (acct.deposits || []).forEach(function (d) {
+      if (!(d.ts > snap.ts)) return;
+      var a = toPaise(d.amount); inP += a;
+      items.push({ id: 'dep' + d.ts, ts: d.ts, amount: a / 100, kind: 'in', label: d.label || 'Cash deposited' });
     });
     items.sort(function (x, y) { return y.ts - x.ts; });
     var start = toPaise(snap.balance);
-    return { since: snap.ts, startBalance: snap.balance, income: inP / 100, spent: outP / 100, balance: (start + inP - outP) / 100, items: items };
+    return { since: snap.ts, startBalance: snap.balance, income: inP / 100, cashHeld: heldP / 100, spent: outP / 100, balance: (start + inP - outP) / 100, items: items };
   }
 
   return {

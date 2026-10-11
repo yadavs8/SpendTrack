@@ -2545,7 +2545,7 @@
       if (b == null) { err.textContent = 'Enter the balance as a number, like 123456.'; err.hidden = false; return; }
       var list = loadBank();
       if (list.some(function (x) { return KL.nameKey(x.name) === KL.nameKey(nm); })) { err.textContent = 'You already track ' + nm + '.'; err.hidden = false; return; }
-      list.push({ id: newLoanId(), name: nm, snapshots: [{ ts: Date.now(), balance: b }] });
+      list.push({ id: newLoanId(), name: nm, held: [], deposits: [], snapshots: [{ ts: Date.now(), balance: b }] });
       saveBank(list); bankUi.add = false; renderBank(); render(); toast('Tracking ' + nm + ' from ' + money(b));
     });
     return f;
@@ -2563,7 +2563,7 @@
     });
     head.appendChild(rm); card.appendChild(head);
     card.appendChild(el('div', 'wal-bal' + (est.balance < 0 ? ' neg' : ''), money(est.balance)));
-    card.appendChild(el('div', 'wal-sub', 'Estimate. Started at ' + money(est.startBalance) + ' on ' + dFmt.format(new Date(est.since)) + ', + ' + money(est.income) + ' in, − ' + money(est.spent) + ' out.'));
+    card.appendChild(el('div', 'wal-sub', 'Estimate. Started at ' + money(est.startBalance) + ' on ' + dFmt.format(new Date(est.since)) + ', + ' + money(est.income) + ' in, − ' + money(est.spent) + ' out.' + (est.cashHeld ? ' ' + money(est.cashHeld) + ' still cash at home.' : '')));
     var acts = el('div', 'wal-acts');
     [['check', 'Update balance'], ['moves', 'What moved']].forEach(function (m) {
       var b = el('button', 'scope-pill' + (bankUi.mode[a.id] === m[0] ? ' active' : ''), m[1]); b.type = 'button';
@@ -2571,6 +2571,7 @@
       acts.appendChild(b);
     });
     card.appendChild(acts);
+    card.appendChild(bankCash(a));
     var mode = bankUi.mode[a.id];
     if (mode === 'check') card.appendChild(bankCheck(a, est));
     if (mode === 'moves') {
@@ -2586,6 +2587,45 @@
       card.appendChild(el('p', 'wal-hint', 'Not counted: credit-card spends (the card bill is), cash and wallet spends, and what friends or Mother paid. Log a card bill as "Credit card bill" so it comes off the balance.'));
     }
     return card;
+  }
+
+  /* Income received as cash and kept at home: held out of the bank estimate until deposited. A deposit is a
+     transfer, so it moves money into the bank without creating income (savings stay counted once). */
+  function bankCash(a) {
+    var snapTs = a.snapshots[a.snapshots.length - 1].ts, held = a.held || [];
+    function save(fn) {
+      saveBank(loadBank().map(function (x) { return x.id === a.id ? fn(x) : x; }));
+      renderBank(); render();
+    }
+    var box = el('div', 'wal-form');
+    var depRefs = (a.deposits || []).map(function (d) { return d.ref; });
+    var heldEntries = state.entries.filter(function (e) { return isIncome(e) && !e.synthetic && held.indexOf(e.id) >= 0 && depRefs.indexOf(e.id) < 0; });
+    var cands = state.entries.filter(function (e) { return isBankIn(e) && !e.synthetic && e.ts > snapTs && held.indexOf(e.id) < 0; })
+      .sort(function (x, y) { return y.ts - x.ts; }).slice(0, 6);
+    var total = heldEntries.reduce(function (n, e) { return n + paise(e.amount); }, 0) / 100;
+    if (heldEntries.length) box.appendChild(el('p', 'wal-sub', '💵 Cash at home, not in the bank yet: ' + money(total)));
+    function row(e, label, cls, fn) {
+      var r = el('div', 'wal-item');
+      r.appendChild(el('span', null, dFmt.format(new Date(e.ts)) + ' · ' + String(e.desc || '').replace(/^[^\wऀ-ॿ]+/, '').slice(0, 28) + ' · ' + money(e.amount)));
+      var b = el('button', cls, label); b.type = 'button'; b.addEventListener('click', fn); r.appendChild(b);
+      box.appendChild(r);
+    }
+    heldEntries.forEach(function (e) {
+      row(e, 'Deposited ✓', 'primary small', function () {
+        save(function (x) {
+          return { id: x.id, name: x.name, snapshots: x.snapshots, held: x.held,
+            deposits: (x.deposits || []).concat([{ ts: Date.now(), amount: e.amount, ref: e.id, label: 'Cash deposited: ' + String(e.desc || '').replace(/^[^\wऀ-ॿ]+/, '').slice(0, 24) }]) };
+        });
+        toast(money(e.amount) + ' added to the bank. Not counted as income again.');
+      });
+    });
+    cands.forEach(function (e) {
+      row(e, 'Kept as cash', 'ghost', function () {
+        save(function (x) { return { id: x.id, name: x.name, snapshots: x.snapshots, deposits: x.deposits, held: (x.held || []).concat([e.id]) }; });
+      });
+    });
+    if (heldEntries.length || cands.length) box.appendChild(el('p', 'wal-hint', 'Received cash instead of a bank credit? Tap "Kept as cash" so it is not added to the balance. When you deposit it, tap "Deposited ✓". Do not log the deposit as income again.'));
+    return box;
   }
 
   function bankCheck(a, est) {
@@ -2611,7 +2651,7 @@
         : 'The bank shows ' + money(r.amount) + ' more than the estimate: income that was not logged, or a refund.'));
       function setBalance(logGap) {
         var list = loadBank().map(function (x) {
-          return x.id === a.id ? { id: x.id, name: x.name, snapshots: x.snapshots.concat([{ ts: Date.now(), balance: actual }]) } : x;
+          return x.id === a.id ? { id: x.id, name: x.name, held: x.held, deposits: x.deposits, snapshots: x.snapshots.concat([{ ts: Date.now(), balance: actual }]) } : x;
         });
         saveBank(list); bankUi.actual[a.id] = null;
         if (logGap && r.kind === 'spent') {
