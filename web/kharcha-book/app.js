@@ -98,8 +98,16 @@
   }
   function isCashSpend(e) { return !!e && e.method === 'cash' && isExpense(e); }
 
+  // Money moved into a prepaid wallet (Amazon Pay, ...): a transfer, not spending. The purchases made
+  // from the wallet are the spending (see ledger-logic.js).
+  function isWalletTopup(e) {
+    var KL = window.KharchaLedger;
+    var p = e && e.desc && KL ? KL.parseWalletDesc(e.desc) : null;
+    return !!p && p.kind === 'topup';
+  }
+
   function isExpense(e) {
-    return !isIncome(e) && !isInvestment(e) && !isCashWithdrawal(e) && !(e && e.kind === 'transfer');
+    return !isIncome(e) && !isInvestment(e) && !isCashWithdrawal(e) && !isWalletTopup(e) && !(e && e.kind === 'transfer');
   }
 
   /* ---------- Cash wallet ---------- */
@@ -908,7 +916,7 @@
      localStorage stays as the offline cache, and is all there is until the v4 SQL has been run. */
   var SHARED_KEYS = ['kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
     'kharcha_active_trip_name', 'kharcha_all_trips_list', 'kharcha_category_budgets', 'kharcha_merchant_memory',
-    'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers'];
+    'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers', 'kharcha_loans', 'kharcha_wallets'];
   var SHARED_PREFIXES = ['kharcha_trip_friends_', 'kharcha_trip_budget_'];
   function isSharedKey(k) {
     return SHARED_KEYS.indexOf(k) >= 0 || SHARED_PREFIXES.some(function (p) { return k.indexOf(p) === 0; });
@@ -1786,6 +1794,472 @@
     }
   }
 
+
+  /* ---------- Trip settle-up: who pays whom, and for what ---------- */
+  var tripSettleMode = 'fewest';
+  function personLabel(n) { return n === 'Me' ? 'You' : n; }
+  function possessive(n) { return n === 'Me' ? 'your' : n + '’s'; }
+  function renderTripSettle(tripSummary, viewTrip) {
+    var box = $('trip-settle');
+    if (!box) return;
+    box.textContent = '';
+    var KL = window.KharchaLedger;
+    if (!KL || !viewTrip || !tripSummary.entries.length) return;
+    var res = KL.tripSettlement(tripSummary.entries.map(function (e) {
+      return { id: e.id, label: KL.tripItemLabel(e.desc), amount: e.amount, payer: parseTripPayer(e.desc) };
+    }), tripSummary.participants);
+
+    var head = el('div', 'ts-head');
+    head.appendChild(el('span', 'ts-title', '🤝 Who pays whom'));
+    var modes = el('div', 'ts-modes');
+    [['fewest', 'Fewest payments'], ['why', 'For what']].forEach(function (m) {
+      var b = el('button', 'ts-mode' + (tripSettleMode === m[0] ? ' active' : ''), m[1]);
+      b.type = 'button';
+      b.addEventListener('click', function () { tripSettleMode = m[0]; renderTripSettle(tripSummary, viewTrip); });
+      modes.appendChild(b);
+    });
+    head.appendChild(modes);
+    box.appendChild(head);
+
+    if (!res.transfers.length) { box.appendChild(el('p', 'ts-empty', 'Everyone is square. Nobody owes anyone. 🎉')); return; }
+    var myUpi = (kv.get('kharcha_my_upi') || '').trim();
+    var list = el('ul', 'ts-list');
+    if (tripSettleMode === 'fewest') {
+      res.transfers.forEach(function (t) {
+        var li = el('li', 'ts-row');
+        li.appendChild(el('span', 'ts-who', personLabel(t.from) + ' → ' + personLabel(t.to)));
+        li.appendChild(el('span', 'ts-amt', money(t.amount)));
+        if (t.to === 'Me') {
+          var ask = el('a', 'fbr-ask', '📲 Ask');
+          ask.href = whatsappLink(settleMessage(t.from, t.amount, viewTrip + ' trip', myUpi));
+          ask.target = '_blank'; ask.rel = 'noopener';
+          li.appendChild(ask);
+        }
+        list.appendChild(li);
+      });
+    } else {
+      res.pairs.forEach(function (p) {
+        var li = el('li', 'ts-pair');
+        var top = el('div', 'ts-row');
+        top.appendChild(el('span', 'ts-who', personLabel(p.from) + (p.from === 'Me' ? ' owe ' : ' owes ') + personLabel(p.to)));
+        top.appendChild(el('span', 'ts-amt', money(p.amount)));
+        li.appendChild(top);
+        var items = el('ul', 'ts-items');
+        p.items.forEach(function (it) {
+          var r = el('li', 'ts-item' + (it.kind === 'offset' ? ' offset' : ''));
+          r.appendChild(el('span', null, it.kind === 'owes'
+            ? it.label + ' (' + possessive(p.from) + ' share)'
+            : 'Less: ' + it.label + ' (paid by ' + personLabel(p.from) + ', ' + possessive(p.to) + ' share)'));
+          r.appendChild(el('span', null, (it.kind === 'offset' ? '− ' : '') + money(it.amount)));
+          items.appendChild(r);
+        });
+        li.appendChild(items);
+        list.appendChild(li);
+      });
+    }
+    box.appendChild(list);
+  }
+
+  /* ---------- Udhaar: money I lent or borrowed ---------- */
+  var udhaar = { formOpen: false, kind: 'lent', open: {}, showSettled: false };
+  function loadLoans() { return window.KharchaLedger ? window.KharchaLedger.parseLoans(kv.get('kharcha_loans')) : []; }
+  function saveLoans(list) { kv.set('kharcha_loans', JSON.stringify(list)); }
+  function newLoanId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+  function udhaarNames(loans) {
+    var seen = {}, out = [];
+    function add(n) { var c = window.KharchaLedger.cleanName(n); var k = c.toLowerCase(); if (c && k !== 'me' && !seen[k]) { seen[k] = 1; out.push(c); } }
+    loans.forEach(function (l) { add(l.person); });
+    getAllTrips().forEach(function (t) { getTripFriends(t).forEach(add); });
+    return out;
+  }
+  function dateInputToTs(v) {
+    if (!v || v === dayKey(Date.now())) return Date.now();
+    var d = new Date(v + 'T12:00:00');
+    return isNaN(d.getTime()) ? Date.now() : d.getTime();
+  }
+
+  function renderUdhaar() {
+    var root = $('udhaar-root');
+    if (!root) return;
+    var KL = window.KharchaLedger;
+    root.textContent = '';
+    if (!KL) { root.appendChild(el('p', 'err', 'Udhaar could not load. Refresh the page.')); return; }
+    var loans = loadLoans();
+    var sum = KL.summarize(loans);
+
+    var card = el('div', 'udh-summary');
+    var a = el('div', 'udh-fig');
+    a.appendChild(el('span', 'udh-fig-l', 'Friends owe you'));
+    a.appendChild(el('span', 'udh-fig-v', money(sum.totalOwedToMe)));
+    card.appendChild(a);
+    if (sum.totalIOwe > 0) {
+      var b = el('div', 'udh-fig');
+      b.appendChild(el('span', 'udh-fig-l', 'You owe'));
+      b.appendChild(el('span', 'udh-fig-v owe', money(sum.totalIOwe)));
+      card.appendChild(b);
+    }
+    root.appendChild(card);
+
+    var addBtn = el('button', 'primary small', udhaar.formOpen ? 'Close' : '+ Add udhaar');
+    addBtn.type = 'button';
+    addBtn.addEventListener('click', function () { udhaar.formOpen = !udhaar.formOpen; renderUdhaar(); });
+    root.appendChild(addBtn);
+    if (udhaar.formOpen) root.appendChild(udhaarForm(loans));
+
+    var active = sum.people.filter(function (p) { return p.owedToMe > 0 || p.iOwe > 0; });
+    var settled = sum.people.filter(function (p) { return !(p.owedToMe > 0 || p.iOwe > 0); });
+    if (!sum.people.length) {
+      var em = el('div', 'empty');
+      em.appendChild(el('p', null, 'Nothing noted yet. Tap + Add udhaar to write down money you lent to a friend, or money you borrowed.'));
+      root.appendChild(em);
+      return;
+    }
+    var ul = el('ul', 'udh-people');
+    active.forEach(function (p) { ul.appendChild(udhaarPerson(p, loans)); });
+    root.appendChild(ul);
+    if (!active.length) root.appendChild(el('p', 'ts-empty', 'All settled. Nobody owes anything. 🎉'));
+    if (settled.length) {
+      var tog = el('button', 'linkbtn', (udhaar.showSettled ? 'Hide' : 'Show') + ' settled (' + settled.length + ')');
+      tog.type = 'button';
+      tog.addEventListener('click', function () { udhaar.showSettled = !udhaar.showSettled; renderUdhaar(); });
+      root.appendChild(tog);
+      if (udhaar.showSettled) {
+        var ul2 = el('ul', 'udh-people');
+        settled.forEach(function (p) { ul2.appendChild(udhaarPerson(p, loans)); });
+        root.appendChild(ul2);
+      }
+    }
+  }
+
+  function udhaarForm(loans) {
+    var KL = window.KharchaLedger;
+    var f = el('form', 'add udh-form');
+    f.noValidate = true;
+    var kinds = el('div', 'udh-kinds');
+    [['lent', 'They owe me'], ['borrowed', 'I owe them']].forEach(function (k) {
+      var pill = el('button', 'scope-pill' + (udhaar.kind === k[0] ? ' active' : ''), k[1]);
+      pill.type = 'button';
+      pill.addEventListener('click', function () { udhaar.kind = k[0]; kinds.querySelectorAll('.scope-pill').forEach(function (x) { x.classList.toggle('active', x === pill); }); });
+      kinds.appendChild(pill);
+    });
+    f.appendChild(kinds);
+    function field(label, id, input) { var w = el('div', 'field'); var l = el('label', null, label); l.htmlFor = id; w.appendChild(l); w.appendChild(input); return w; }
+    var name = el('input', 'input'); name.id = 'udh-name'; name.maxLength = 40; name.placeholder = 'Friend’s name'; name.setAttribute('list', 'udh-names'); name.autocomplete = 'off';
+    var dl = document.createElement('datalist'); dl.id = 'udh-names';
+    udhaarNames(loans).forEach(function (n) { var o = document.createElement('option'); o.value = n; dl.appendChild(o); });
+    var amt = el('input', 'input'); amt.id = 'udh-amt'; amt.inputMode = 'decimal'; amt.placeholder = '0'; amt.autocomplete = 'off';
+    var note = el('input', 'input'); note.id = 'udh-note'; note.maxLength = 80; note.placeholder = 'What for (optional)'; note.autocomplete = 'off';
+    var date = el('input', 'input'); date.id = 'udh-date'; date.type = 'date'; date.value = dayKey(Date.now()); date.max = dayKey(Date.now());
+    f.appendChild(field('Name', 'udh-name', name)); f.appendChild(dl);
+    var row = el('div', 'add-row');
+    row.appendChild(field('Amount (₹)', 'udh-amt', amt)); row.appendChild(field('Date', 'udh-date', date));
+    f.appendChild(row);
+    f.appendChild(field('Note', 'udh-note', note));
+    var err = el('p', 'err'); err.hidden = true; err.setAttribute('role', 'alert'); f.appendChild(err);
+    var save = el('button', 'primary', 'Save'); save.type = 'submit'; f.appendChild(save);
+    f.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var who = KL.cleanName(name.value), n = parseAmount(amt.value);
+      if (!who) { err.textContent = 'Add the person’s name.'; err.hidden = false; return; }
+      if (n == null) { err.textContent = 'Enter an amount greater than zero, like 2500.'; err.hidden = false; return; }
+      var list = loadLoans();
+      list.push({ id: newLoanId(), person: who, kind: udhaar.kind, amount: n, note: note.value.trim().slice(0, 80), ts: dateInputToTs(date.value), payments: [] });
+      saveLoans(list);
+      udhaar.formOpen = false; udhaar.open[KL.nameKey(who)] = true;
+      renderUdhaar();
+      toast((udhaar.kind === 'lent' ? 'Noted: ' + who + ' owes you ' : 'Noted: you owe ' + who + ' ') + money(n));
+    });
+    return f;
+  }
+
+  function udhaarPerson(p, allLoans) {
+    var KL = window.KharchaLedger;
+    var li = el('li', 'udh-person');
+    var head = el('button', 'udh-head');
+    head.type = 'button';
+    head.setAttribute('aria-expanded', udhaar.open[p.key] ? 'true' : 'false');
+    head.appendChild(el('span', 'udh-name', p.name));
+    var status;
+    if (p.owedToMe > 0 && p.iOwe > 0) status = p.net >= 0 ? 'owes you ' + money(p.net) + ' net' : 'you owe ' + money(-p.net) + ' net';
+    else if (p.owedToMe > 0) status = 'owes you ' + money(p.owedToMe);
+    else if (p.iOwe > 0) status = 'you owe ' + money(p.iOwe);
+    else status = 'settled';
+    head.appendChild(el('span', 'udh-status' + (p.iOwe > 0 && p.owedToMe === 0 ? ' owe' : p.owedToMe > 0 ? ' get' : ''), status));
+    head.addEventListener('click', function () { udhaar.open[p.key] = !udhaar.open[p.key]; renderUdhaar(); });
+    li.appendChild(head);
+    if (!udhaar.open[p.key]) return li;
+
+    var body = el('div', 'udh-body');
+    if (p.owedToMe > 0) {
+      var rem = el('a', 'fbr-ask', '📲 Remind on WhatsApp');
+      rem.href = whatsappLink(settleMessage(p.name, p.owedToMe, 'the money I lent you', (kv.get('kharcha_my_upi') || '').trim()));
+      rem.target = '_blank'; rem.rel = 'noopener';
+      body.appendChild(rem);
+    }
+    p.loans.forEach(function (l) {
+      var left = KL.outstanding(l), box = el('div', 'udh-loan');
+      var top = el('div', 'udh-loan-top');
+      top.appendChild(el('span', null, (l.kind === 'lent' ? 'You lent ' : 'You borrowed ') + money(l.amount) + ' · ' + dFmt.format(new Date(l.ts)) + (l.note ? ' · ' + l.note : '')));
+      var del = el('button', 'udh-x', '×'); del.type = 'button'; del.setAttribute('aria-label', 'Delete this entry');
+      del.addEventListener('click', function () {
+        showConfirmModal({ title: 'Delete this entry?', message: money(l.amount) + ' with ' + l.person + ' and its repayments will be removed.', onConfirm: function () {
+          saveLoans(loadLoans().filter(function (x) { return x.id !== l.id; })); renderUdhaar(); toast('Deleted');
+        } });
+      });
+      top.appendChild(del);
+      box.appendChild(top);
+      var pct = Math.min(100, Math.round(((l.amount - left) / l.amount) * 100));
+      var bar = el('div', 'bar'); var fill = el('i'); fill.style.width = pct + '%'; bar.appendChild(fill); box.appendChild(bar);
+      box.appendChild(el('div', 'udh-loan-sub', left > 0 ? ('Pending ' + money(left) + (l.payments.length ? ' · repaid ' + money(KL.repaid(l)) : '')) : 'Fully settled ✓'));
+      l.payments.forEach(function (pay) {
+        var r = el('div', 'udh-pay');
+        r.appendChild(el('span', null, (l.kind === 'lent' ? 'Got back ' : 'You paid ') + money(pay.amount) + ' · ' + dFmt.format(new Date(pay.ts))));
+        var px = el('button', 'udh-x', '×'); px.type = 'button'; px.setAttribute('aria-label', 'Delete this repayment');
+        px.addEventListener('click', function () {
+          saveLoans(loadLoans().map(function (x) { return x.id === l.id ? Object.assign({}, x, { payments: x.payments.filter(function (y) { return y.id !== pay.id; }) }) : x; }));
+          renderUdhaar();
+        });
+        r.appendChild(px); box.appendChild(r);
+      });
+      if (left > 0) {
+        var form = el('form', 'udh-repay'); form.noValidate = true;
+        var inp = el('input', 'input'); inp.inputMode = 'decimal'; inp.placeholder = l.kind === 'lent' ? 'Got back ₹' : 'Paid back ₹'; inp.autocomplete = 'off';
+        inp.setAttribute('aria-label', 'Repayment amount');
+        var ok = el('button', 'ghost', 'Record'); ok.type = 'submit';
+        var all = el('button', 'ghost', 'All ' + money(left)); all.type = 'button';
+        var msg = el('p', 'err'); msg.hidden = true; msg.setAttribute('role', 'alert');
+        function apply(v) {
+          var cur = loadLoans().filter(function (x) { return x.id === l.id; })[0];
+          if (!cur) return;
+          var res = KL.addPayment(cur, v, Date.now(), newLoanId());
+          if (res.error) { msg.textContent = res.error; msg.hidden = false; return; }
+          saveLoans(loadLoans().map(function (x) { return x.id === l.id ? res.loan : x; }));
+          renderUdhaar(); toast('Recorded ' + money(v));
+        }
+        form.addEventListener('submit', function (ev) { ev.preventDefault(); var v = parseAmount(inp.value); if (v == null) { msg.textContent = 'Enter an amount, like 500.'; msg.hidden = false; return; } apply(v); });
+        all.addEventListener('click', function () { apply(left); });
+        form.appendChild(inp); form.appendChild(ok); form.appendChild(all);
+        box.appendChild(form); box.appendChild(msg);
+      }
+      body.appendChild(box);
+    });
+    li.appendChild(body);
+    return li;
+  }
+
+
+  /* ---------- Wallets: Amazon Pay and other prepaid balances ---------- */
+  var walletUi = { setup: false, mode: {}, actual: {} };
+  function loadWallets() { return window.KharchaLedger ? window.KharchaLedger.parseWallets(kv.get('kharcha_wallets')) : []; }
+  function saveWallets(list) { kv.set('kharcha_wallets', JSON.stringify(list)); }
+  function walletField(label, id, input) { var w = el('div', 'field'); var l = el('label', null, label); l.htmlFor = id; w.appendChild(l); w.appendChild(input); return w; }
+  function walletInput(id, ph, mode) { var i = el('input', 'input'); i.id = id; i.placeholder = ph || ''; i.autocomplete = 'off'; if (mode) i.inputMode = mode; return i; }
+  function walletDate(id) { var d = el('input', 'input'); d.id = id; d.type = 'date'; d.value = dayKey(Date.now()); d.max = dayKey(Date.now()); return d; }
+
+  function renderWallet() {
+    var root = $('wallet-root');
+    if (!root) return;
+    var KL = window.KharchaLedger;
+    root.textContent = '';
+    if (!KL) { root.appendChild(el('p', 'err', 'Wallets could not load. Refresh the page.')); return; }
+    var wallets = loadWallets();
+
+    if (!wallets.length) {
+      var intro = el('div', 'empty');
+      intro.appendChild(el('p', null, 'Track a prepaid wallet like Amazon Pay. Top-ups from your card are not counted as spending; the purchases you make from the wallet are, and the balance stays up to date.'));
+      root.appendChild(intro);
+    }
+    wallets.forEach(function (w) { root.appendChild(walletCard(w)); });
+
+    if (walletUi.setup || !wallets.length) {
+      root.appendChild(walletSetupForm());
+    } else {
+      var add = el('button', 'ghost', '+ Track another wallet');
+      add.type = 'button';
+      add.addEventListener('click', function () { walletUi.setup = true; renderWallet(); });
+      root.appendChild(add);
+    }
+  }
+
+  function walletSetupForm() {
+    var KL = window.KharchaLedger;
+    var f = el('form', 'add udh-form'); f.noValidate = true;
+    f.appendChild(el('h3', 'wal-h', 'Start tracking a wallet'));
+    var name = walletInput('wal-new-name', 'Amazon Pay'); name.maxLength = 40; name.setAttribute('list', 'wal-names'); name.value = '';
+    var dl = document.createElement('datalist'); dl.id = 'wal-names';
+    ['Amazon Pay', 'Paytm', 'PhonePe', 'Mobikwik', 'Freecharge'].forEach(function (n) { var o = document.createElement('option'); o.value = n; dl.appendChild(o); });
+    var bal = walletInput('wal-new-bal', '0', 'decimal');
+    f.appendChild(walletField('Wallet', 'wal-new-name', name)); f.appendChild(dl);
+    f.appendChild(walletField('Balance in it right now (₹)', 'wal-new-bal', bal));
+    var err = el('p', 'err'); err.hidden = true; err.setAttribute('role', 'alert'); f.appendChild(err);
+    var save = el('button', 'primary', 'Start tracking'); save.type = 'submit'; f.appendChild(save);
+    f.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var nm = KL.cleanName(name.value);
+      var raw = bal.value.trim();
+      var b = raw === '' ? 0 : parseAmount(raw);
+      if (!nm) { err.textContent = 'Enter the wallet name, like Amazon Pay.'; err.hidden = false; return; }
+      if (b == null) { err.textContent = 'Enter the balance as a number, or leave it empty for zero.'; err.hidden = false; return; }
+      var list = loadWallets();
+      if (list.some(function (w) { return KL.nameKey(w.name) === KL.nameKey(nm); })) { err.textContent = 'You already track ' + nm + '.'; err.hidden = false; return; }
+      list.push({ id: newLoanId(), name: nm, opening: b, since: Date.now() });
+      saveWallets(list); walletUi.setup = false;
+      renderWallet(); toast('Tracking ' + nm + ' from ' + money(b));
+    });
+    return f;
+  }
+
+  async function walletAdd(desc, amount, dateVal, okMsg) {
+    var ts = dateInputToTs(dateVal);
+    try {
+      await store.add({ amount: amount, desc: desc, spent_at: new Date(ts).toISOString() });
+      render(); toast(okMsg);
+      return true;
+    } catch (err) {
+      toast(err && err.message ? err.message : 'Could not save. Check your connection and try again.');
+      return false;
+    }
+  }
+
+  function walletCard(w) {
+    var KL = window.KharchaLedger;
+    var ws = KL.walletState(state.entries, w);
+    var card = el('div', 'wal-card');
+    var head = el('div', 'wal-head');
+    head.appendChild(el('span', 'wal-name', '👛 ' + w.name));
+    var rm = el('button', 'udh-x', '×'); rm.type = 'button'; rm.setAttribute('aria-label', 'Stop tracking ' + w.name);
+    rm.addEventListener('click', function () {
+      showConfirmModal({ title: 'Stop tracking ' + w.name + '?', message: 'Your top-up and purchase entries stay in Kharcha Book; only the balance card is removed.', onConfirm: function () {
+        saveWallets(loadWallets().filter(function (x) { return x.id !== w.id; })); renderWallet();
+      } });
+    });
+    head.appendChild(rm); card.appendChild(head);
+    card.appendChild(el('div', 'wal-bal' + (ws.balance < 0 ? ' neg' : ''), money(ws.balance)));
+    card.appendChild(el('div', 'wal-sub', ws.balance < 0
+      ? 'Below zero: a top-up is missing. Add it, or check the real balance.'
+      : 'Started with ' + money(ws.opening) + ' · top-ups ' + money(ws.topups) + ' · spent ' + money(ws.spent)));
+
+    var acts = el('div', 'wal-acts');
+    [['topup', '+ Top-up'], ['spend', 'Spent from wallet'], ['check', 'Check balance'], ['convert', 'From an entry']].forEach(function (m) {
+      var b = el('button', 'scope-pill' + (walletUi.mode[w.id] === m[0] ? ' active' : ''), m[1]);
+      b.type = 'button';
+      b.addEventListener('click', function () { walletUi.mode[w.id] = walletUi.mode[w.id] === m[0] ? null : m[0]; renderWallet(); });
+      acts.appendChild(b);
+    });
+    card.appendChild(acts);
+
+    var mode = walletUi.mode[w.id];
+    if (mode === 'topup' || mode === 'spend') card.appendChild(walletEntryForm(w, mode));
+    if (mode === 'check') card.appendChild(walletCheck(w, ws));
+    if (mode === 'convert') card.appendChild(walletConvert(w));
+
+    if (ws.items.length) {
+      var ul = el('ul', 'wal-items');
+      ws.items.slice(0, 12).forEach(function (it) {
+        var li = el('li', 'wal-item' + (it.kind === 'topup' ? ' up' : ''));
+        li.appendChild(el('span', null, dFmt.format(new Date(it.ts)) + ' · ' + (it.note || (it.kind === 'topup' ? 'Top-up' : 'Purchase'))));
+        li.appendChild(el('span', 'wal-amt', (it.kind === 'topup' ? '+ ' : '− ') + money(it.amount)));
+        ul.appendChild(li);
+      });
+      card.appendChild(ul);
+    }
+    return card;
+  }
+
+  function walletEntryForm(w, mode) {
+    var KL = window.KharchaLedger;
+    var f = el('form', 'wal-form'); f.noValidate = true;
+    var pre = 'wal-' + w.id + '-' + mode;
+    var amt = walletInput(pre + '-amt', '0', 'decimal');
+    var note = walletInput(pre + '-note', mode === 'topup' ? 'From, e.g. ICICI card XX1014' : 'What for, e.g. Blinkit groceries');
+    note.maxLength = 30;
+    var date = walletDate(pre + '-date');
+    var row = el('div', 'add-row');
+    row.appendChild(walletField('Amount (₹)', pre + '-amt', amt)); row.appendChild(walletField('Date', pre + '-date', date));
+    f.appendChild(row);
+    f.appendChild(walletField(mode === 'topup' ? 'From (optional)' : 'What for', pre + '-note', note));
+    if (mode === 'topup') f.appendChild(el('p', 'wal-hint', 'Top-ups move money into the wallet. They are not counted as spending.'));
+    else f.appendChild(el('p', 'wal-hint', 'Log the full price of the purchase. If part was paid by card, also add that part as a top-up.'));
+    var err = el('p', 'err'); err.hidden = true; err.setAttribute('role', 'alert'); f.appendChild(err);
+    var save = el('button', 'primary small', 'Save'); save.type = 'submit'; f.appendChild(save);
+    f.addEventListener('submit', async function (ev) {
+      ev.preventDefault();
+      var n = parseAmount(amt.value);
+      if (n == null) { err.textContent = 'Enter an amount greater than zero, like 442.'; err.hidden = false; return; }
+      if (mode === 'spend' && !note.value.trim()) { err.textContent = 'Add what it was for, like Blinkit groceries.'; err.hidden = false; return; }
+      save.disabled = true;
+      var desc = mode === 'topup' ? KL.walletTopupDesc(w.name, note.value) : KL.walletSpendDesc(w.name, note.value);
+      var ok = await walletAdd(desc, n, date.value, (mode === 'topup' ? 'Top-up of ' : 'Wallet spend of ') + money(n) + ' saved');
+      if (!ok) save.disabled = false;
+    });
+    return f;
+  }
+
+  function walletCheck(w, ws) {
+    var KL = window.KharchaLedger;
+    var box = el('div', 'wal-form');
+    var f = el('form', 'wal-check'); f.noValidate = true;
+    var inp = walletInput('wal-' + w.id + '-actual', 'Balance shown in the app (₹)', 'decimal');
+    inp.setAttribute('aria-label', 'Balance shown in the wallet app');
+    if (walletUi.actual[w.id] != null) inp.value = String(walletUi.actual[w.id]);
+    var go = el('button', 'ghost', 'Compare'); go.type = 'submit';
+    f.appendChild(inp); f.appendChild(go); box.appendChild(f);
+    var err = el('p', 'err'); err.hidden = true; err.setAttribute('role', 'alert'); box.appendChild(err);
+    f.addEventListener('submit', function (ev) {
+      ev.preventDefault();
+      var raw = inp.value.trim();
+      var n = raw === '0' ? 0 : parseAmount(raw);
+      if (n == null) { err.textContent = 'Enter the balance as a number, like 1250.'; err.hidden = false; return; }
+      walletUi.actual[w.id] = n; renderWallet();
+    });
+    if (walletUi.actual[w.id] != null) {
+      var r = KL.walletReconcile(ws.balance, walletUi.actual[w.id]);
+      if (r.kind === 'match') box.appendChild(el('p', 'wal-ok', 'Matches. Your tracked balance is right. ✓'));
+      else {
+        var msg = r.kind === 'spent'
+          ? money(r.amount) + ' is missing from the wallet: spent or charged without an entry.'
+          : money(r.amount) + ' more than tracked: cashback, a refund, or a top-up you did not log.';
+        box.appendChild(el('p', 'wal-diff', msg));
+        var fix = el('button', 'primary small', r.kind === 'spent' ? 'Log ' + money(r.amount) + ' as wallet spend' : 'Add ' + money(r.amount) + ' as top-up (not spending)');
+        fix.type = 'button';
+        fix.addEventListener('click', async function () {
+          fix.disabled = true;
+          var ok = await walletAdd(r.kind === 'spent' ? KL.walletSpendDesc(w.name, 'Unaccounted') : KL.walletTopupDesc(w.name, 'Cashback / adjustment'), r.amount, dayKey(Date.now()), 'Balance matched');
+          if (ok) { walletUi.actual[w.id] = null; renderWallet(); } else fix.disabled = false;
+        });
+        box.appendChild(fix);
+      }
+    }
+    return box;
+  }
+
+  // The card SMS for "₹442 towards Amazon Pay" arrives as an ordinary expense. This turns it into a top-up.
+  function walletConvert(w) {
+    var KL = window.KharchaLedger;
+    var box = el('div', 'wal-form');
+    box.appendChild(el('p', 'wal-hint', 'Tap an entry that was really money added to ' + w.name + ' (like the card charge). It stops counting as spending and becomes a top-up. Entries from before you started tracking do not change the balance, because the balance you typed in already includes them.'));
+    var cutoff = Date.now() - 30 * 86400000;
+    var list = state.entries.filter(function (e) { return e.ts >= cutoff && !e.synthetic && isExpense(e) && !KL.parseWalletDesc(e.desc); })
+      .sort(function (a, b) { return b.ts - a.ts; }).slice(0, 15);
+    if (!list.length) { box.appendChild(el('p', 'wal-hint', 'No recent entries to convert.')); return box; }
+    var ul = el('ul', 'wal-items');
+    list.forEach(function (e) {
+      var li = el('li', 'wal-item');
+      li.appendChild(el('span', null, dFmt.format(new Date(e.ts)) + ' · ' + e.desc + (e.ts < w.since ? ' (before tracking)' : '')));
+      var b = el('button', 'ghost wal-conv', money(e.amount) + ' → top-up'); b.type = 'button';
+      b.addEventListener('click', async function () {
+        b.disabled = true;
+        try {
+          await store.update(e.id, { amount: e.amount, desc: KL.walletTopupDesc(w.name, e.desc.replace(/^[^\w₹]+/, '').slice(0, 30)) });
+          render(); toast(money(e.amount) + ' is now a top-up, not spending' + (e.ts < w.since ? ' (balance unchanged: it was before tracking)' : ''));
+        } catch (err) { b.disabled = false; toast(err && err.message ? err.message : 'Could not change that entry.'); }
+      });
+      li.appendChild(b); ul.appendChild(li);
+    });
+    box.appendChild(ul);
+    return box;
+  }
+
   /* ---------- Stream Switcher Tabs ---------- */
   function renderStreamSwitcher(spendsCount, incomingsCount, projCount, invCount, tripsCount) {
     var spCountEl = $('spends-count');
@@ -1805,6 +2279,8 @@
     var projectSec = $('project-sec');
     var investmentsSec = $('investments-sec');
     var tripsSec = $('trips-sec');
+    var udhaarSec = $('udhaar-sec');
+    var walletSec = $('wallet-sec');
 
     var stream = state.activeStream || 'spends';
     if (spendsView) spendsView.hidden = (stream !== 'spends');
@@ -1813,6 +2289,10 @@
     if (projectSec) projectSec.hidden = (stream !== 'projects');
     if (investmentsSec) investmentsSec.hidden = (stream !== 'investments');
     if (tripsSec) tripsSec.hidden = (stream !== 'trips');
+    if (udhaarSec) udhaarSec.hidden = (stream !== 'udhaar');
+    if (walletSec) walletSec.hidden = (stream !== 'wallet');
+    if (stream === 'udhaar') renderUdhaar();
+    if (stream === 'wallet') renderWallet();
 
     document.querySelectorAll('.streambtn').forEach(function (btn) {
       btn.classList.toggle('active', btn.dataset.stream === stream);
@@ -2688,6 +3168,8 @@
         });
       }
     }
+
+    renderTripSettle(tripSummary, viewTrip);
 
     // Render Who Paid dynamic radio pills in Add Form
     var payerChips = $('trip-payer-chips');
