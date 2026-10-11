@@ -373,12 +373,14 @@
   }
   /* ---------- own accounts, cards and UPI ids ----------
      own: { banks: [{ key (part of the account name, e.g. 'icici'), last4, upi: [..] }], cards: [{ kind: 'credit'|'debit', last4, bank (key) }] } */
+  function normName(s) { return String(s || '').toLowerCase().replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim(); }
   function parseOwn(json) {
     var o;
     try { o = JSON.parse(json); } catch (e) { return null; }
     if (!o || typeof o !== 'object') return null;
     var d4 = function (x) { var v = String(x || '').replace(/\D/g, ''); return v.length >= 3 && v.length <= 6 ? v.slice(-4) : ''; };
     return {
+      names: (Array.isArray(o.names) ? o.names : []).map(function (n) { return normName(n); }).filter(function (n) { return n.indexOf(' ') > 0; }).slice(0, 6),
       banks: (Array.isArray(o.banks) ? o.banks : []).filter(function (b) { return b && cleanName(b.key); }).map(function (b) {
         return { key: nameKey(b.key), last4: d4(b.last4), upi: (Array.isArray(b.upi) ? b.upi : []).map(function (u) { return String(u).toLowerCase().trim(); }).filter(function (u) { return u.indexOf('@') > 0; }).slice(0, 6) };
       }),
@@ -387,10 +389,14 @@
     };
   }
   function defaultOwn() {
-    return { banks: [{ key: 'icici', last4: '3602', upi: [] }, { key: 'hdfc', last4: '8749', upi: [] }],
+    return { names: ['sanjeev yadav'], banks: [{ key: 'icici', last4: '3602', upi: [] }, { key: 'hdfc', last4: '8749', upi: [] }],
       cards: [{ kind: 'credit', last4: '1014', bank: 'icici' }, { kind: 'debit', last4: '0778', bank: 'icici' }] };
   }
-  function hasDigits(text, d4) { return !!d4 && new RegExp('(^|[^0-9])' + d4 + '([^0-9]|$)').test(text); }
+  // Banks often print only the last 3 digits ("Acct XX602"), so a last 4 of 3602 also matches XX602.
+  function hasDigits(text, d4) {
+    if (!d4) return false;
+    return new RegExp('(^|[^0-9])' + d4 + '([^0-9]|$)').test(text) || new RegExp('[x*]\\s*' + d4.slice(1) + '([^0-9]|$)', 'i').test(text);
+  }
   function acctByKey(accts, key) { return key ? (accts.filter(function (a) { return nameKey(a.name).indexOf(key) >= 0; })[0] || null) : null; }
   function cardFor(desc, own) {
     var d = String(desc || '').toLowerCase();
@@ -408,6 +414,40 @@
     }
     return null;
   }
+  // Payee text is one of your own names ("Sanjeev Yadav" credited): money sent to yourself.
+  function isOwnName(desc, own) {
+    if (!own || !own.names || !own.names.length) return false;
+    var d = normName(String(desc || '').replace(/^[^A-Za-z0-9]+/, ''));
+    return own.names.some(function (n) { return d === n; });
+  }
+  // The account a bank debit SMS came from ("Acct XX602 debited").
+  function sourceAccountFromRaw(raw, own, accts) {
+    var t = String(raw || '');
+    if (!own || !t || !/debit/i.test(t)) return null;
+    for (var i = 0; i < own.banks.length; i++) {
+      var a = acctByKey(accts, own.banks[i].key);
+      if (a && hasDigits(t, own.banks[i].last4)) return a.id;
+    }
+    return null;
+  }
+  /* Strong signals only, safe to convert automatically: the payee is your own name, or your own account / UPI id.
+     The destination must be certain (named, or the only other account). */
+  function autoOwnTransfers(entries, accts, own, nowMs, pred) {
+    if (accts.length < 2 || !own) return [];
+    var since = nowMs - 30 * 86400000, out = [];
+    (entries || []).forEach(function (e) {
+      if (!e || e.synthetic || e.ts < since || pred.isTransfer(e) || !pred.isExpense(e) || pred.isCard(e)) return;
+      var namedTo = ownAccountFor(e.desc, own, accts);
+      if (!namedTo && !isOwnName(e.desc, own)) return;
+      var from = sourceAccountFromRaw(e.raw, own, accts) || pred.route(e);
+      var to = namedTo;
+      if (!to) { var others = accts.filter(function (a) { return a.id !== from; }); if (others.length === 1) to = others[0].id; }
+      if (!from || !to || from === to) return;
+      out.push({ id: e.id, amount: e.amount, ts: e.ts, from: from, to: to, ids: [e.id], reason: 'Sent to yourself' });
+    });
+    return out;
+  }
+
   /* Entries that look like money moved between your own accounts. Suggestions only; the app asks before converting.
      a) the text names one of your own accounts / UPI ids (that account is the destination);
      b) an expense and an income of the same amount within 36 hours, neither tied to a rule. */
@@ -445,9 +485,10 @@
     if (pick === 'cash') return ids.indexOf(primaryId) >= 0 ? primaryId : null;
     if (pick && ids.indexOf(pick) >= 0) return pick;
     if (own) {
-      var card = cardFor(entry.desc, own);
+      var txt = String(entry.desc || '') + ' ' + String(entry.raw || '');
+      var card = cardFor(txt, own);
       if (card && card.kind === 'debit') { var ca = acctByKey(accts, card.bank); if (ca) return ca.id; }
-      if (!card) { var oa = ownAccountFor(entry.desc, own, accts); if (oa) return oa; }
+      if (!card) { var oa = ownAccountFor(txt, own, accts); if (oa) return oa; }
     }
     var r = matchRule(entry.desc, rules);
     if (r && r.acct) {
@@ -458,7 +499,7 @@
   }
 
   return {
-    parseOwn: parseOwn, defaultOwn: defaultOwn, cardFor: cardFor, ownAccountFor: ownAccountFor, transferCandidates: transferCandidates,
+    parseOwn: parseOwn, defaultOwn: defaultOwn, cardFor: cardFor, ownAccountFor: ownAccountFor, transferCandidates: transferCandidates, autoOwnTransfers: autoOwnTransfers, isOwnName: isOwnName, sourceAccountFromRaw: sourceAccountFromRaw,
     parseRules: parseRules, defaultRules: defaultRules, matchRule: matchRule, dueRules: dueRules, routeAccount: routeAccount,
     splitPaise: splitPaise, tripItemLabel: tripItemLabel, tripSettlement: tripSettlement,
     cleanName: cleanName, nameKey: nameKey, parseLoans: parseLoans, repaid: repaid, outstanding: outstanding,

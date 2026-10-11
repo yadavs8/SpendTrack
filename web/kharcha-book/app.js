@@ -1171,7 +1171,7 @@
   function fromRow(r) {
     return {
       id: r.id, amount: Number(r.amount), desc: r.description, ts: Date.parse(r.spent_at), refNo: r.ref_no || null,
-      kind: r.kind || null, method: r.method || null, last4: r.account_last4 || null, bank: r.bank || null
+      raw: r.raw_sms || '', kind: r.kind || null, method: r.method || null, last4: r.account_last4 || null, bank: r.bank || null
     };
   }
 
@@ -2656,14 +2656,7 @@
     box.textContent = '';
     var due = KL.dueRules(loadRules(), state.entries, Date.now(), loadJsonObj(SKIPS_KEY));
     var accts = loadBank(), sugg = [];
-    if (accts.length > 1) {
-      var map = loadJsonObj(ACCTMAP_KEY), rules0 = loadRules(), pid = primaryAcctId(accts), own = loadOwn();
-      sugg = KL.transferCandidates(state.entries, accts, own, Date.now(), loadJsonObj('kharcha_xfer_dismissed'), {
-        isTransfer: isTransferEntry, isExpense: isExpense, isIncome: isIncome, isCard: isCardEntry,
-        isRule: function (e) { return !!KL.matchRule(e.desc, rules0); },
-        route: function (e) { return KL.routeAccount(e, accts, map, rules0, pid, own); }
-      }).slice(0, 3);
-    }
+    if (accts.length > 1) sugg = KL.transferCandidates(state.entries, accts, loadOwn(), Date.now(), loadJsonObj('kharcha_xfer_dismissed'), transferPred(accts)).slice(0, 3);
     if ((!due.length && !sugg.length) || (state.activeStream || 'spends') !== 'spends') { box.hidden = true; return; }
     box.hidden = false;
     sugg.forEach(function (c) { box.appendChild(transferSuggestion(c, accts)); });
@@ -2693,6 +2686,53 @@
       row.appendChild(log); row.appendChild(skip);
       box.appendChild(row);
     });
+  }
+
+  function transferPred(accts) {
+    var KL = window.KharchaLedger, map = loadJsonObj(ACCTMAP_KEY), rules0 = loadRules(), pid = primaryAcctId(accts), own = loadOwn();
+    return {
+      isTransfer: isTransferEntry, isExpense: isExpense, isIncome: isIncome, isCard: isCardEntry,
+      isRule: function (e) { return !!KL.matchRule(e.desc, rules0); },
+      route: function (e) { return KL.routeAccount(e, accts, map, rules0, pid, own); }
+    };
+  }
+  // Payments to yourself (your own name, or your own account / UPI id) are filed as own transfers by themselves. Undo is offered.
+  var ownXferBusy = false;
+  async function applyOwnTransfers() {
+    var KL = window.KharchaLedger, accts = loadBank();
+    if (!KL || ownXferBusy || accts.length < 2) return;
+    ownXferBusy = true;
+    try {
+      var pred = transferPred(accts), own = loadOwn(), found = KL.autoOwnTransfers(state.entries, accts, own, Date.now(), pred);
+      // Your own-name credit that mirrors a transfer you already have is the other half of it, not income.
+      var existing = loadTransfers();
+      var mirrors = state.entries.filter(function (e) {
+        return e && !e.synthetic && isIncome(e) && !isTransferEntry(e) && KL.isOwnName(e.desc, own) &&
+          existing.some(function (t) { return Math.abs(t.amount - e.amount) < 0.005 && Math.abs(t.ts - e.ts) <= 36 * 3600000; });
+      });
+      if (!found.length && !mirrors.length) return;
+      var nm = function (id) { var a = accts.filter(function (x) { return x.id === id; })[0]; return a ? a.name : '?'; };
+      var beforeT = loadTransfers(), olds = [], added = [];
+      for (var i = 0; i < found.length; i++) {
+        var c = found[i], e = state.entries.filter(function (x) { return x.id === c.id; })[0];
+        if (!e) continue;
+        await store.update(e.id, { amount: e.amount, desc: shiftScopeDesc(e.desc, 'transfer'), spent_at: new Date(e.ts).toISOString() });
+        olds.push(e);
+        added.push({ id: newLoanId(), ts: c.ts, amount: c.amount, from: c.from, to: c.to, ref: c.id, label: 'Transfer ' + nm(c.from) + ' → ' + nm(c.to) });
+      }
+      for (var j = 0; j < mirrors.length; j++) {
+        await store.update(mirrors[j].id, { amount: mirrors[j].amount, desc: shiftScopeDesc(mirrors[j].desc, 'transfer'), spent_at: new Date(mirrors[j].ts).toISOString() });
+        olds.push(mirrors[j]);
+      }
+      if (added.length) saveTransfers(beforeT.concat(added));
+      render();
+      var first = added[0];
+      toast(first ? 'Own transfer ' + money(first.amount) + ': ' + nm(first.from) + ' → ' + nm(first.to) : 'Own transfer credit filed', function () {
+        saveTransfers(beforeT);
+        Promise.all(olds.map(function (e) { return store.update(e.id, { amount: e.amount, desc: e.desc, spent_at: new Date(e.ts).toISOString() }); })).then(function () { render(); toast('Restored'); });
+      });
+    } catch (err) { console.warn('Kharcha: own transfer pass failed', err); }
+    finally { ownXferBusy = false; }
   }
 
   var xferSwap = {};
@@ -2750,6 +2790,8 @@
       var r = el('div', 'add-row'); r.appendChild(fld('Bank', key)); r.appendChild(fld('Account last 4', l4)); f.appendChild(r); f.appendChild(fld('Your UPI ids for this bank', upi));
       return { key: key, l4: l4, upi: upi };
     });
+    var namesIn = el('input', 'input'); namesIn.value = (own.names || []).join(', '); namesIn.placeholder = 'e.g. sanjeev yadav (first and last name)';
+    f.appendChild(fld('Your own name(s) as UPI shows them. Money sent to these is your own transfer.', namesIn));
     var credit = own.cards.filter(function (c) { return c.kind === 'credit'; })[0], debit = own.cards.filter(function (c) { return c.kind === 'debit'; })[0];
     var cc = el('input', 'input'); cc.value = credit ? credit.last4 : ''; cc.inputMode = 'numeric'; cc.maxLength = 4; cc.placeholder = 'Last 4';
     var dc = el('input', 'input'); dc.value = debit ? debit.last4 : ''; dc.inputMode = 'numeric'; dc.maxLength = 4; dc.placeholder = 'Last 4';
@@ -2766,6 +2808,7 @@
       ev.preventDefault();
       var before = kv.get(OWN_KEY);
       var next = {
+        names: namesIn.value.split(','),
         banks: ins.filter(function (x) { return x.key.value.trim(); }).map(function (x) { return { key: x.key.value.trim(), last4: x.l4.value, upi: x.upi.value.split(',') }; }),
         cards: [].concat(cc.value.trim() ? [{ kind: 'credit', last4: cc.value, bank: ccBank.value }] : [], dc.value.trim() ? [{ kind: 'debit', last4: dc.value, bank: dcBank.value }] : [])
       };
@@ -5194,6 +5237,7 @@
       // Pick up trips/budgets changed on the phone -- unless a local change is still waiting to save.
       if (!kv.timer) await kv.load();
       render();
+      applyOwnTransfers();
     } catch (e) {
       console.warn('Kharcha: background refresh failed', e);
     }
@@ -5302,6 +5346,7 @@
     isLoadingApp = false;
     render();
     applyRulesToEntries().then(function () { render(); }).catch(function () {});
+    applyOwnTransfers();
     console.log('Kharcha: render completed successfully, total entries=' + state.entries.length);
   }
 

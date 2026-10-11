@@ -278,4 +278,16 @@ t('transfer suggestions: named own account, and same amount out and in', () => {
   assert.strictEqual(L.transferCandidates([{ id: 'x', kind: 'spend', amount: 5, desc: 'IMPS to A/c XX8749', ts: NOW }], [accts2[0]], own, NOW, {}, pred).length, 0);
 });
 
+t('payments to your own name are detected, with the source account from the SMS', () => {
+  const NOW = D(2026, 10, 11);
+  const pred = { isTransfer: () => false, isExpense: e => e.kind === 'spend', isIncome: e => e.kind === 'income', isCard: () => false, isRule: () => false, route: () => 'i' };
+  assert.ok(L.isOwnName('Sanjeev Yadav', own)); assert.ok(L.isOwnName('🔁 SANJEEV  YADAV', own)); assert.ok(!L.isOwnName('Sanjeev Kumar', own));
+  const raw = 'ICICI Bank Acct XX602 debited for Rs 5000.00 on 11-Oct-26; SANJEEV YADAV credited. UPI:665';
+  assert.strictEqual(L.sourceAccountFromRaw(raw, own, accts2), 'i');
+  const r = L.autoOwnTransfers([{ id: 'e', kind: 'spend', amount: 5000, desc: 'Sanjeev Yadav', raw, ts: NOW - 1000 }, { id: 'f', kind: 'spend', amount: 72, desc: 'Sanskriti S Sto', raw, ts: NOW }], accts2, own, NOW, pred);
+  assert.strictEqual(r.length, 1); assert.strictEqual(r[0].from, 'i'); assert.strictEqual(r[0].to, 'h');
+  assert.strictEqual(L.autoOwnTransfers([{ id: 'e', kind: 'spend', amount: 5000, desc: 'Sanjeev Yadav', raw, ts: NOW }], [accts2[0]], own, NOW, pred).length, 0);
+  assert.strictEqual(L.routeAccount({ id: '9', desc: 'EMI', raw: 'HDFC Bank A/c XX749 debited Rs 5' }, accts2, {}, [], 'i', own), 'h');
+});
+
 console.log(n + ' tests passed');
