@@ -489,6 +489,48 @@
     };
   }
 
+
+  /* ---------- Monthly report: personal savings + family fund ---------- */
+  // Personal savings = salaries (Salary 1, Salary 2, ...) - personal spending; investments count as saved.
+  // Family fund = what Mother sends for the month (Mother's Pension and Mother Withdrawal entries) minus the
+  // family expenses. If family spending goes past the fund, the overflow is shown separately and is NOT
+  // taken from personal savings unless you look at "after covering it".
+  function getMonthlySummary(entries, key) {
+    var list = (entries || []).filter(function (e) { return !e.synthetic && monthKey(e.ts) === key; });
+    var cf = getPersonalCashFlow(list);
+    var fam = getFamilySettlement(list);
+    var motherList = list.filter(function (e) { return isIncome(e) && (isMotherPension(e) || isMotherSettlement(e)); });
+    var motherP = motherList.reduce(function (s, e) { return s + paise(e.amount); }, 0);
+    var famP = paise(fam.familySpent);
+    var otherIncome = list.filter(function (e) { return isIncome(e) && !isSalary(e) && !isMotherPension(e) && !isMotherSettlement(e); })
+      .reduce(function (s, e) { return s + paise(e.amount); }, 0) / 100;
+    var leftP = motherP - famP;
+    var overflow = Math.max(0, -leftP) / 100;
+    return {
+      key: key,
+      salaryEntries: list.filter(isSalary).sort(function (a, b) { return a.ts - b.ts; }),
+      salaries: cf.salaries,
+      personalSpent: cf.personalSpent,
+      invested: cf.totalInvested,
+      savings: cf.personalSavings,
+      savingsRate: cf.savingsRate,
+      otherIncome: otherIncome,
+      motherEntries: motherList,
+      motherReceived: motherP / 100,
+      familySpent: fam.familySpent,
+      familyLeft: leftP / 100,
+      overflow: overflow,
+      savingsAfterOverflow: (paise(cf.personalSavings) - paise(overflow)) / 100,
+      hasData: list.length > 0
+    };
+  }
+  // Newest month first, for every month that has any entry.
+  function getMonthlyHistory(entries) {
+    var seen = {};
+    (entries || []).forEach(function (e) { if (!e.synthetic) seen[monthKey(e.ts)] = true; });
+    return Object.keys(seen).sort().reverse().map(function (k) { return getMonthlySummary(entries, k); });
+  }
+
   function groupByDay(list) {
     var map = new Map();
     list.slice().sort(byTimeDesc).forEach(function (e) {
@@ -858,6 +900,7 @@
     enterApp: enterApp,
     getSb: function () { return sb; },
     getEntries: function () { return state.entries; },
+    getMonthlySummary: getMonthlySummary, getMonthlyHistory: getMonthlyHistory,
     parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, parseSMSDate: parseSMSDate, findDuplicate: findDuplicate, categoryBreakdown: categoryBreakdown, monthCompare: monthCompare,
     isIncome: isIncome, isMotherSettlement: isMotherSettlement, isMotherPension: isMotherPension, isSalary: isSalary, isExpense: isExpense, isInvestment: isInvestment, getFamilySettlement: getFamilySettlement, getPersonalCashFlow: getPersonalCashFlow,
     isProjectEntry: isProjectEntry, isProjectMotherPaid: isProjectMotherPaid, getProjectSummary: getProjectSummary,
@@ -2262,6 +2305,96 @@
     return box;
   }
 
+
+  /* ---------- Monthly tab ---------- */
+  function signedMoney(v) { return (v < 0 ? '−' : '') + money(Math.abs(v)); }
+  function renderMonthly() {
+    var root = $('monthly-root');
+    if (!root) return;
+    root.textContent = '';
+    var cur = getMonthlySummary(state.entries, state.sel);
+
+    // month switcher: uses the same month as the rest of the app
+    var nav = el('div', 'mo-nav');
+    var prev = el('button', 'mo-arrow', '‹'); prev.type = 'button'; prev.setAttribute('aria-label', 'Earlier month');
+    var next = el('button', 'mo-arrow', '›'); next.type = 'button'; next.setAttribute('aria-label', 'Later month');
+    prev.addEventListener('click', function () { var b = $('prev'); if (b && !b.disabled) b.click(); });
+    next.addEventListener('click', function () { var b = $('next'); if (b && !b.disabled) b.click(); });
+    nav.appendChild(prev); nav.appendChild(el('span', 'mo-month', monthLabel(state.sel))); nav.appendChild(next);
+    root.appendChild(nav);
+
+    if (!cur.salaries && !cur.motherReceived && !cur.personalSpent && !cur.familySpent) {
+      var em = el('div', 'empty');
+      em.appendChild(el('p', null, 'Nothing for ' + monthLabel(state.sel) + ' yet. Add your salaries in Income (💼 Salary 1 and Salary 2) and your mother’s monthly money (👵 Mother’s Pension) and this page works out your savings and the family fund.'));
+      var go = el('button', 'primary small', 'Open Income'); go.type = 'button';
+      go.addEventListener('click', function () { var b = document.querySelector('.streambtn[data-stream="incomings"]'); if (b) b.click(); });
+      em.appendChild(go); root.appendChild(em);
+    } else {
+      // 1) savings
+      var hero = el('div', 'mo-hero' + (cur.savings < 0 ? ' neg' : ''));
+      hero.appendChild(el('span', 'mo-hero-l', 'Saved this month'));
+      hero.appendChild(el('span', 'mo-hero-v', signedMoney(cur.savings)));
+      hero.appendChild(el('span', 'mo-hero-s', cur.salaries > 0
+        ? cur.savingsRate + '% of salary' + (cur.invested > 0 ? ' · ' + money(cur.invested) + ' invested' : '')
+        : 'Add your salary to see the rate'));
+      var track = el('div', 'mo-track'), fill = el('i');
+      fill.style.width = Math.max(0, Math.min(100, cur.salaries > 0 ? (cur.personalSpent / cur.salaries) * 100 : 0)) + '%';
+      track.appendChild(fill); hero.appendChild(track);
+      hero.appendChild(el('span', 'mo-hero-n', 'Spent ' + money(cur.personalSpent) + ' of ' + money(cur.salaries)));
+      root.appendChild(hero);
+
+      // 2) income
+      var inc = el('div', 'mo-card');
+      inc.appendChild(el('h3', 'mo-h', 'Income'));
+      var ul = el('ul', 'mo-list');
+      cur.salaryEntries.forEach(function (e) {
+        var li = el('li'); li.appendChild(el('span', null, e.desc.replace(/^[^\wऀ-ॿ]+/, '') + ' · ' + dFmt.format(new Date(e.ts))));
+        li.appendChild(el('b', null, money(e.amount))); ul.appendChild(li);
+      });
+      if (!cur.salaryEntries.length) { var li0 = el('li'); li0.appendChild(el('span', 'mo-dim', 'No salary added for this month')); ul.appendChild(li0); }
+      if (cur.otherIncome > 0) { var li1 = el('li'); li1.appendChild(el('span', null, 'Other income (not in savings)')); li1.appendChild(el('b', null, money(cur.otherIncome))); ul.appendChild(li1); }
+      inc.appendChild(ul); root.appendChild(inc);
+
+      // 3) family fund
+      var fam = el('div', 'mo-card');
+      fam.appendChild(el('h3', 'mo-h', '🏠 Family fund (from Mother)'));
+      var over = cur.familyLeft < 0;
+      var big = el('div', 'mo-fund' + (over ? ' neg' : ''));
+      big.appendChild(el('span', 'mo-fund-v', over ? 'Over by ' + money(cur.overflow) : money(cur.familyLeft) + ' left'));
+      fam.appendChild(big);
+      var ftrack = el('div', 'mo-track'), ffill = el('i', over ? 'danger' : (cur.motherReceived > 0 && cur.familySpent / cur.motherReceived >= 0.8 ? 'warning' : ''));
+      ffill.style.width = Math.max(0, Math.min(100, cur.motherReceived > 0 ? (cur.familySpent / cur.motherReceived) * 100 : (cur.familySpent > 0 ? 100 : 0))) + '%';
+      ftrack.appendChild(ffill); fam.appendChild(ftrack);
+      var fl = el('ul', 'mo-list');
+      [['Received from Mother', cur.motherReceived], ['Family spending', cur.familySpent]].forEach(function (r) {
+        var li = el('li'); li.appendChild(el('span', null, r[0])); li.appendChild(el('b', null, money(r[1]))); fl.appendChild(li);
+      });
+      fam.appendChild(fl);
+      if (!cur.motherReceived) fam.appendChild(el('p', 'mo-note', 'Add this month’s money from Mother in Income (👵 Mother’s Pension) and family spending is deducted from it.'));
+      else if (over) fam.appendChild(el('p', 'mo-note', 'You covered ' + money(cur.overflow) + ' of family spending beyond Mother’s money. Savings after covering it: ' + signedMoney(cur.savingsAfterOverflow) + '.'));
+      root.appendChild(fam);
+    }
+
+    // 4) every month
+    var hist = getMonthlyHistory(state.entries).slice(0, 12);
+    if (hist.length) {
+      root.appendChild(el('h3', 'sec-title mo-title', 'Every month'));
+      var hl = el('ul', 'mo-hist');
+      hist.forEach(function (m) {
+        var li = el('li'), b = el('button', 'mo-row' + (m.key === state.sel ? ' on' : '')); b.type = 'button';
+        var left = el('span', 'mo-row-l'); left.appendChild(el('b', null, monthLabel(m.key)));
+        var parts = ['Salary ' + money(m.salaries), 'Personal ' + money(m.personalSpent)];
+        if (m.motherReceived || m.familySpent) parts.push(m.familyLeft < 0 ? 'Family over ' + money(m.overflow) : 'Family +' + money(m.familyLeft));
+        left.appendChild(el('small', null, parts.join(' · ')));
+        b.appendChild(left);
+        b.appendChild(el('span', 'mo-row-v' + (m.savings < 0 ? ' neg' : ''), signedMoney(m.savings)));
+        b.addEventListener('click', function () { state.sel = m.key; state.editing = null; render(); window.scrollTo({ top: 0 }); });
+        li.appendChild(b); hl.appendChild(li);
+      });
+      root.appendChild(hl);
+    }
+  }
+
   /* ---------- Stream Switcher Tabs ---------- */
   function renderStreamSwitcher(spendsCount, incomingsCount, projCount, invCount, tripsCount) {
     var spCountEl = $('spends-count');
@@ -2283,6 +2416,7 @@
     var tripsSec = $('trips-sec');
     var udhaarSec = $('udhaar-sec');
     var walletSec = $('wallet-sec');
+    var monthlySec = $('monthly-sec');
 
     var stream = state.activeStream || 'spends';
     if (spendsView) spendsView.hidden = (stream !== 'spends');
@@ -2294,7 +2428,9 @@
     if (udhaarSec) udhaarSec.hidden = (stream !== 'udhaar');
     if (walletSec) walletSec.hidden = (stream !== 'wallet');
     if (stream === 'udhaar') renderUdhaar();
+    if (monthlySec) monthlySec.hidden = (stream !== 'monthly');
     if (stream === 'wallet') renderWallet();
+    if (stream === 'monthly') renderMonthly();
 
     document.querySelectorAll('.streambtn').forEach(function (btn) {
       btn.classList.toggle('active', btn.dataset.stream === stream);
@@ -3561,6 +3697,11 @@
     try { kv.set(CAT_BUDGET_KEY, JSON.stringify(b)); } catch (e) {}
   }
 
+  // Spending by category as a donut plus a colour-keyed list. Tap a category to highlight it and
+  // set its budget; each row shows last month's change.
+  var CAT_COLORS = ['#0EA5E9', '#8B5CF6', '#F59E0B', '#10B981', '#EC4899', '#F97316'];
+  var CAT_OTHER = '#94A3B8';
+  var catSel = null;
   function renderCategoryBreakdown(list, cmp, prevKey) {
     var sec = $('category-sec');
     var container = $('cat-breakdown');
@@ -3574,59 +3715,97 @@
 
     var budgets = categoryBudgets();
     var prevName = monthLabel(prevKey).split(' ')[0].slice(0, 3);
-    res.categories.slice(0, 6).forEach(function (c) {
-      var row = el('button', 'cat-row');
-      row.type = 'button';
-      row.title = 'Tap to set a monthly budget for ' + c.name;
-      var head = el('div', 'cat-row-head');
-      var nameSpan = el('span', null, c.name + ' (' + c.count + ')');
-      var amtSpan = el('span', null, money(c.total) + ' · ' + c.pct + '%');
-      head.appendChild(nameSpan);
-      head.appendChild(amtSpan);
+    var top = res.categories.slice(0, 6);
+    var restP = res.categories.slice(6).reduce(function (s, c) { return s + paise(c.total); }, 0);
+    var segs = top.map(function (c, i) { return { name: c.name, total: c.total, color: CAT_COLORS[i % CAT_COLORS.length], cat: c }; });
+    if (restP > 0) segs.push({ name: 'Other', total: restP / 100, color: CAT_OTHER, cat: null });
+    var grandP = segs.reduce(function (s, x) { return s + paise(x.total); }, 0) || 1;
+    if (catSel && !segs.some(function (x) { return x.name === catSel; })) catSel = null;
+    var svgNS = 'http://www.w3.org/2000/svg';
 
-      var budget = budgets[c.name];
-      var used = budget ? Math.round((c.total / budget) * 100) : c.pct;
-      var track = el('div', 'cat-track');
-      var fill = el('div', 'cat-fill' + (budget && used >= 100 ? ' danger' : budget && used >= 80 ? ' warning' : ''));
-      fill.style.width = Math.min(100, Math.max(2, used)) + '%';
-      track.appendChild(fill);
-
-      var notes = [];
-      if (budget) notes.push(used + '% of ' + money(budget) + ' budget');
-      var prev = cmp.prevCats[c.name];
-      if (prev) {
-        var diff = c.total - prev;
-        notes.push((diff > 0 ? '▲ ' : diff < 0 ? '▼ ' : '') + money(Math.abs(diff)) + ' vs ' + prevName);
-      } else if (cmp.prev > 0) {
-        notes.push('New vs ' + prevName);
-      }
-
-      row.appendChild(head);
-      row.appendChild(track);
-      if (notes.length) row.appendChild(el('div', 'cat-note', notes.join(' · ')));
-      row.addEventListener('click', function () {
-        var curBudget = budgets[c.name] || 0;
-        openBudgetModal({
-          title: c.name + ' Budget',
-          intro: 'Set a monthly spending limit for ' + c.name + '. You will get warned when spending approaches this limit.',
-          spentText: money(c.total) + ' (' + c.pct + '% of month total)',
-          currentValue: curBudget,
-          presets: [500, 1000, 2500, 5000],
-          onSave: function (n) {
-            setCategoryBudget(c.name, n);
-            render();
-            toast('Budget for ' + c.name + ' set to ' + money(n));
-          },
-          onClear: function () {
-            setCategoryBudget(c.name, 0);
-            render();
-            toast('Budget for ' + c.name + ' cleared');
-          }
-        });
+    function draw(animate) {
+      container.textContent = '';
+      var wrap = el('div', 'dn');
+      var chart = el('div', 'dn-chart');
+      var svg = document.createElementNS(svgNS, 'svg');
+      svg.setAttribute('viewBox', '0 0 132 132'); svg.setAttribute('class', 'dn-svg');
+      svg.setAttribute('role', 'img'); svg.setAttribute('aria-label', 'Spending by category');
+      var R = 50, C = 2 * Math.PI * R;
+      var track = document.createElementNS(svgNS, 'circle');
+      track.setAttribute('cx', 66); track.setAttribute('cy', 66); track.setAttribute('r', R); track.setAttribute('class', 'dn-track');
+      svg.appendChild(track);
+      var g = document.createElementNS(svgNS, 'g'); g.setAttribute('transform', 'rotate(-90 66 66)');
+      var acc = 0, gap = segs.length > 1 ? 2.2 : 0, pending = [];
+      segs.forEach(function (sg) {
+        var frac = paise(sg.total) / grandP, len = Math.max(0.5, frac * C - gap);
+        var c = document.createElementNS(svgNS, 'circle');
+        c.setAttribute('cx', 66); c.setAttribute('cy', 66); c.setAttribute('r', R);
+        c.setAttribute('class', 'dn-seg' + (catSel && catSel !== sg.name ? ' dim' : ''));
+        c.setAttribute('stroke', sg.color);
+        c.setAttribute('stroke-dashoffset', String(-acc));
+        c.setAttribute('stroke-dasharray', animate ? '0 ' + C : len + ' ' + (C - len));
+        if (animate) pending.push([c, len, C]);
+        c.addEventListener('click', function () { catSel = catSel === sg.name ? null : sg.name; draw(false); });
+        g.appendChild(c); acc += frac * C;
       });
-      container.appendChild(row);
-    });
+      svg.appendChild(g); chart.appendChild(svg);
+      var sel = segs.filter(function (x) { return x.name === catSel; })[0];
+      var center = el('div', 'dn-center');
+      center.appendChild(el('b', null, money(sel ? sel.total : grandP / 100)));
+      center.appendChild(el('span', null, sel ? sel.name + ' · ' + Math.round(paise(sel.total) / grandP * 100) + '%' : 'spent this month'));
+      chart.appendChild(center); wrap.appendChild(chart);
+      if (pending.length) raf2(function () { pending.forEach(function (p) { p[0].setAttribute('stroke-dasharray', p[1] + ' ' + (p[2] - p[1])); }); });
+
+      var ul = el('div', 'dn-list');
+      segs.forEach(function (sg) {
+        var c = sg.cat, on = catSel === sg.name;
+        var row = el('div', 'dn-row' + (on ? ' on' : ''));
+        row.tabIndex = 0; row.setAttribute('role', 'button'); row.setAttribute('aria-pressed', on ? 'true' : 'false');
+        var dot = el('span', 'dn-dot'); dot.style.background = sg.color; row.appendChild(dot);
+        row.appendChild(el('span', 'dn-name', c ? c.name + ' (' + c.count + ')' : 'Other categories'));
+        row.appendChild(el('span', 'dn-amt', money(sg.total)));
+        var pct = Math.round(paise(sg.total) / grandP * 100);
+        var budget = c ? budgets[c.name] : 0;
+        var used = budget ? Math.round((sg.total / budget) * 100) : pct;
+        var bar = el('div', 'dn-bar'), fill = el('i', budget && used >= 100 ? 'danger' : budget && used >= 80 ? 'warning' : '');
+        fill.style.width = Math.min(100, Math.max(2, used)) + '%';
+        if (!fill.className) fill.style.background = sg.color;
+        bar.appendChild(fill); row.appendChild(bar);
+        var notes = [pct + '% of spending'];
+        if (budget) notes.unshift(used + '% of ' + money(budget) + ' budget');
+        if (c) {
+          var prev = cmp.prevCats[c.name];
+          if (prev) { var diff = c.total - prev; notes.push((diff > 0 ? '▲ ' : diff < 0 ? '▼ ' : '') + money(Math.abs(diff)) + ' vs ' + prevName); }
+          else if (cmp.prev > 0) notes.push('New vs ' + prevName);
+        }
+        row.appendChild(el('div', 'dn-sub', notes.join(' · ')));
+        if (on && c) {
+          var bb = el('button', 'dn-budget-btn', budget ? '🎯 Change budget' : '🎯 Set a budget'); bb.type = 'button';
+          bb.addEventListener('click', function (ev) {
+            ev.stopPropagation();
+            openBudgetModal({
+              title: c.name + ' Budget',
+              intro: 'Set a monthly spending limit for ' + c.name + '. You will get warned when spending approaches this limit.',
+              spentText: money(c.total) + ' (' + c.pct + '% of month total)',
+              currentValue: budget || 0,
+              presets: [500, 1000, 2500, 5000],
+              onSave: function (n) { setCategoryBudget(c.name, n); render(); toast('Budget for ' + c.name + ' set to ' + money(n)); },
+              onClear: function () { setCategoryBudget(c.name, 0); render(); toast('Budget for ' + c.name + ' cleared'); }
+            });
+          });
+          row.appendChild(bb);
+        }
+        function toggle() { catSel = on ? null : sg.name; draw(false); }
+        row.addEventListener('click', toggle);
+        row.addEventListener('keydown', function (ev) { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(); } });
+        ul.appendChild(row);
+      });
+      wrap.appendChild(ul); container.appendChild(wrap);
+    }
+    draw(!reducedMotionPref());
   }
+  function reducedMotionPref() { try { return window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; } }
+  function raf2(fn) { (window.requestAnimationFrame || function (f) { return setTimeout(f, 16); })(function () { (window.requestAnimationFrame || function (f) { return setTimeout(f, 16); })(fn); }); }
 
   /* ---------- Bank SMS Parser Modal & Auto-Detection ---------- */
   var parsedSMSDraft = null;
@@ -3817,6 +3996,7 @@
 
   function renderBreakdown(list, total) {
     var sec = $('breakdown-sec'), ul = $('breakdown');
+    if (!sec || !ul) return;   // this section was merged into the category donut
     ul.textContent = '';
     if (!list.length) { sec.hidden = true; return; }
     sec.hidden = false;
