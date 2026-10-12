@@ -126,3 +126,6 @@ The header logo turns to ash from left to right like a snap, drifts away, then p
 ### v72: receipt photos
 Open an entry, tap **Add photo**: the picture is shrunk to a small JPEG and kept in a private Supabase Storage bucket (`kharcha-receipts`, one folder per user, row-level security so only you can read it). Entries with a receipt show 📎; View, Replace and Remove (with a confirmation) are in the edit screen. Deleting an entry removes its photo after the Undo window; Undo keeps it. Backups save the receipt marks, not the photos.
 SQL used (already applied to the project): `insert into storage.buckets ... 'kharcha-receipts'` plus four policies on `storage.objects` restricted to the user's own folder.
+
+## v73 – Winged logo
+The in-app header logo and splash now show a winged ₹ that flaps, lifts off through the top of the screen, vanishes, then drops back (tap to skip ahead). The home-screen / PWA icon is unchanged.
