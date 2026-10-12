@@ -116,6 +116,7 @@
       });
       card.appendChild(grid);
     });
+    var tl = el('button', 'linkbtn', '✨ Show the quick tour'); tl.type = 'button'; tl.addEventListener('click', function () { closeSheet(); showTour(true); }); card.appendChild(tl);
     sheet.appendChild(card);
     backbar = el('div', 'backbar'); backbar.hidden = true;
     var bb = el('button', 'backbtn', '‹ Home'); bb.type = 'button'; bb.addEventListener('click', function () { goStream('spends'); });
@@ -414,11 +415,139 @@
     if (img.complete && img.naturalWidth) init(); else img.addEventListener('load', init);
   }
 
+  /* ---------- home: "How am I doing?" card, pace colour on the total card ---------- */
+  function paceKind(f) {
+    if (f.ratio == null) return '';
+    return f.ratio <= 0.95 ? 'good' : f.ratio <= 1.15 ? 'warn' : 'bad';
+  }
+  function renderAnswerCard() {
+    var hero = document.querySelector('.hero'), sw = $('stream-switcher');
+    if (!hero || !sw || !K.getHomeFacts) return;
+    var f = K.getHomeFacts(), kind = paceKind(f);
+    if (kind) hero.setAttribute('data-pace', kind); else hero.removeAttribute('data-pace');
+    var card = $('ans-card');
+    if (!card) { card = el('section', 'ans-card'); card.id = 'ans-card'; sw.parentNode.insertBefore(card, sw); }
+    var act = document.querySelector('.streambtn.active'), onHome = !act || act.dataset.stream === 'spends';
+    card.hidden = !(f.viewingCurrent && onHome);
+    if (card.hidden) return;
+    card.setAttribute('data-pace', kind || 'none');
+    card.textContent = '';
+    var money = K.money;
+    if (f.mode === 'none') {
+      card.appendChild(el('div', 'ans-k', 'SAFE TO SPEND'));
+      card.appendChild(el('div', 'ans-sub', 'Track your bank (More > Bank) or set a monthly budget and this card tells you what you can spend each day.'));
+      return;
+    }
+    if (f.mode === 'bank' && f.payDays === 0) {
+      card.appendChild(el('div', 'ans-k', 'PAYDAY'));
+      card.appendChild(el('div', 'ans-big', 'Payday is today'));
+      card.appendChild(el('div', 'ans-sub', 'Log your salary and the new cycle starts.'));
+      return;
+    }
+    card.appendChild(el('div', 'ans-k', f.mode === 'bank' ? 'SAFE TO SPEND TODAY' : 'LEFT IN YOUR BUDGET'));
+    var big = el('div', 'ans-big'); big.appendChild(document.createTextNode(money(Math.round(f.safe)))); big.appendChild(el('span', 'ans-per', ' a day'));
+    card.appendChild(big);
+    if (f.mode === 'bank') {
+      card.appendChild(el('div', 'ans-sub', 'until payday in ' + f.payDays + ' day' + (f.payDays === 1 ? '' : 's') + '. Bank ' + money(Math.round(f.bankTotal)) + (f.upSum ? ', ' + money(Math.round(f.upSum)) + ' of bills still to come' : '') + '.'));
+    } else {
+      card.appendChild(el('div', 'ans-sub', money(Math.max(0, Math.round(f.left))) + ' left of ' + money(f.budget) + ' for ' + f.days + ' more day' + (f.days === 1 ? '' : 's') + '.'));
+    }
+    var diff = Math.round((f.mode === 'bank' ? f.avg7 - f.safe : 0));
+    var msg = kind === 'good' ? '✅ On track. You have spent about ' + money(Math.round(f.avg7)) + ' a day this week.'
+      : kind === 'warn' ? '⚠️ Close to the limit' + (f.mode === 'bank' ? ': about ' + money(Math.round(f.avg7)) + ' a day this week.' : '. A little ahead of the month.')
+      : '🔴 Over pace' + (f.mode === 'bank' && diff > 0 ? ' by about ' + money(diff) + ' a day.' : ': spending is ahead of the month.');
+    card.appendChild(el('div', 'ans-pace ' + kind, msg));
+  }
+
+  /* ---------- hide amounts (eye) ---------- */
+  var EYE = svg('<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>');
+  var EYE_OFF = svg('<path d="M3 3l18 18"/><path d="M10.6 6.2A9.8 9.8 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4"/><path d="M6.5 6.8C3.7 8.5 2 12 2 12s3.6 7 10 7a9.6 9.6 0 0 0 4.1-.9"/><path d="M9.9 10a3 3 0 0 0 4.1 4.1"/>');
+  (function initPrivacy() {
+    var top = document.querySelector('.hero-amount-block');
+    if (!top) return;
+    var b = el('button', 'eye-btn'); b.type = 'button'; b.id = 'eye-btn';
+    function paint() {
+      var on = document.body.classList.contains('privacy');
+      b.innerHTML = on ? EYE_OFF : EYE; b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      b.setAttribute('aria-label', on ? 'Show amounts' : 'Hide amounts'); b.title = on ? 'Show amounts' : 'Hide amounts';
+    }
+    try { if (localStorage.getItem('kharcha_privacy') === '1') document.body.classList.add('privacy'); } catch (e) {}
+    b.addEventListener('click', function () {
+      document.body.classList.toggle('privacy');
+      try { localStorage.setItem('kharcha_privacy', document.body.classList.contains('privacy') ? '1' : '0'); } catch (e) {}
+      paint();
+    });
+    top.appendChild(b); paint();
+  })();
+
+  /* ---------- search everywhere (all months): text, amount, ">500", "<100" ---------- */
+  function amountTest(q) {
+    var m = /^\s*([<>]=?)\s*([\d,]+(?:\.\d+)?)\s*$/.exec(q);
+    if (m) { var n = Number(m[2].replace(/,/g, '')); return m[1][0] === '>' ? function (a) { return a >= n; } : function (a) { return a <= n; }; }
+    if (/^[\d,]+(?:\.\d+)?$/.test(q.trim())) { var v = Number(q.replace(/,/g, '')); return function (a) { return Math.abs(a - v) < 0.005 || String(a).indexOf(q.trim()) === 0; }; }
+    return null;
+  }
+  var dFmtS = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: '2-digit' });
+  function renderSearchAll() {
+    var inp = $('search'); if (!inp) return;
+    var box = $('search-all');
+    if (!box) { box = el('div', 'search-all'); box.id = 'search-all'; var bar = inp.closest('.actions-bar'); bar.parentNode.insertBefore(box, bar.nextSibling); }
+    var q = inp.value.trim().toLowerCase();
+    box.textContent = '';
+    if (q.length < 2 && !/^[<>]/.test(q)) { box.hidden = true; return; }
+    var test = amountTest(q), rows = (K.getEntries ? K.getEntries() : []).filter(function (e) {
+      if (!e || e.synthetic) return false;
+      return test ? test(e.amount) : String(e.desc || '').toLowerCase().indexOf(q) >= 0;
+    }).sort(function (a, b) { return b.ts - a.ts; });
+    box.hidden = false;
+    var total = rows.reduce(function (n, e) { return n + (K.isExpense(e) ? e.amount : 0); }, 0);
+    box.appendChild(el('div', 'sa-head', rows.length ? rows.length + ' found in all months' + (total ? ' · spent ' + K.money(Math.round(total * 100) / 100) : '') : 'Nothing found in any month.'));
+    rows.slice(0, 30).forEach(function (e) {
+      var r = el('div', 'sa-row'), isIn = K.isIncome && K.isIncome(e);
+      r.appendChild(el('span', 'sa-d', dFmtS.format(new Date(e.ts))));
+      r.appendChild(el('span', 'sa-t', String(e.desc || '').replace(/^[^\wऀ-ॿ]+/, '').slice(0, 34)));
+      r.appendChild(el('span', 'sa-a' + (isIn ? ' in' : ''), (isIn ? '+ ' : '') + K.money(e.amount)));
+      box.appendChild(r);
+    });
+    if (rows.length > 30) box.appendChild(el('div', 'sa-more', '…and ' + (rows.length - 30) + ' more. Narrow the search.'));
+  }
+  (function initSearchAll() {
+    var inp = $('search'); if (!inp) return;
+    var t = 0; inp.addEventListener('input', function () { clearTimeout(t); t = setTimeout(renderSearchAll, 160); });
+    inp.placeholder = 'Search everything: name, 906, >1000';
+  })();
+
+  /* ---------- first-run tour ---------- */
+  var TOUR = [
+    ['➕', 'Add a spend in seconds', 'Type the amount and what it was for. Tap a suggestion to fill it. Every change can be undone for a few seconds.'],
+    ['🏦', 'Bank, cards and transfers', 'More > Bank tracks each account. Money you move between your own accounts is never counted as spending.'],
+    ['⚙️', 'Let it do the boring parts', 'More > Auto rules knows your milk vendor, EMI and monthly payments, and reminds you when they are due.']
+  ];
+  function showTour(force) {
+    var done = false; try { done = localStorage.getItem('kharcha_tour_done') === '1'; } catch (e) {}
+    if (done && !force) return;
+    if ($('tour')) return;
+    var i = 0, back = el('div', 'tour'); back.id = 'tour'; back.setAttribute('role', 'dialog'); back.setAttribute('aria-label', 'Quick tour');
+    var card = el('div', 'tour-card'); back.appendChild(card);
+    function finish() { try { localStorage.setItem('kharcha_tour_done', '1'); } catch (e) {} back.remove(); }
+    function paint() {
+      card.textContent = '';
+      var t = TOUR[i];
+      card.appendChild(el('div', 'tour-e', t[0])); card.appendChild(el('h3', null, t[1])); card.appendChild(el('p', null, t[2]));
+      var dots = el('div', 'tour-dots'); TOUR.forEach(function (_, k) { dots.appendChild(el('i', k === i ? 'on' : '')); }); card.appendChild(dots);
+      var row = el('div', 'tour-btns'), skip = el('button', 'ghost', 'Skip'); skip.type = 'button'; skip.addEventListener('click', finish);
+      var go = el('button', 'primary', i === TOUR.length - 1 ? 'Got it' : 'Next'); go.type = 'button';
+      go.addEventListener('click', function () { if (i === TOUR.length - 1) finish(); else { i++; paint(); } });
+      row.appendChild(skip); row.appendChild(go); card.appendChild(row);
+    }
+    paint(); document.body.appendChild(back);
+  }
+
   /* ---------- wiring ---------- */
   var scheduled = false;
   function refresh() {
     scheduled = false;
-    syncNav(); decorateRows();
+    syncNav(); decorateRows(); renderAnswerCard();
   }
   function schedule() { if (!scheduled) { scheduled = true; raf(refresh); } }
 
@@ -428,7 +557,8 @@
   attachSuggest($('desc'), $('amt'));
   attachSuggest($('trip-exp-desc'), $('trip-exp-amt'));
   document.addEventListener('kharcha:render', function () {
-    pool = null; countUpTotal(); renderHeroExtras(); decorateRows(); syncNav();
+    pool = null; countUpTotal(); renderHeroExtras(); decorateRows(); syncNav(); renderAnswerCard();
+    var m0 = $('main'); if (m0 && !m0.hidden) setTimeout(function () { showTour(false); }, 900);
   });
   var main = $('main');
   if (window.MutationObserver) {

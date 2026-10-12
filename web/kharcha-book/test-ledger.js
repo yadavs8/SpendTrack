@@ -332,4 +332,16 @@ t('newest SMS balance after the last balance wins; older ones and cards are igno
   assert.strictEqual(L.parseBank(JSON.stringify([{ id: 'a', name: 'X', snapshots: [{ ts: 1, balance: 2, src: 'sms' }] }]))[0].snapshots[0].src, 'sms');
 });
 
+t('bills still to come before payday', () => {
+  const rules = L.parseRules(JSON.stringify([
+    { id: 'e', name: 'Flat EMI', words: ['emi'], day: 5, amount: 31000, scope: 'personal', acct: 'HDFC' },
+    { id: 'm', name: 'Milk', words: ['milk'], day: 1, amount: 2400, scope: 'family', acct: '' }]));
+  const NOW = D(2026, 10, 12), END = D(2026, 10, 30);
+  const early = L.upcomingRules(rules, [], NOW, END);          // both not logged yet: overdue ones count
+  assert.strictEqual(early.length, 2);
+  const paid = L.upcomingRules(rules, [{ id: '1', desc: 'Flat EMI', amount: 31000, ts: D(2026, 10, 5) }, { id: '2', desc: 'Milk', amount: 2400, ts: D(2026, 10, 2) }], NOW, END);
+  assert.strictEqual(paid.length, 0);                          // next ones fall in November, after payday
+  assert.strictEqual(L.upcomingRules(rules, [{ id: '2', desc: 'Milk', amount: 2400, ts: D(2026, 10, 2) }], NOW, D(2026, 11, 6)).length, 2);
+});
+
 console.log(n + ' tests passed');

@@ -224,3 +224,40 @@ form, .edit-btns, .add-foot { scroll-margin-bottom: 120px; }
 
 /* v64: ash-logo canvas takes the same box as the image */
 .top .snap-logo { width: 36px; height: 36px; cursor: pointer; background: transparent; box-shadow: none; flex: none; }
+
+/* v68: pace colour on the total card, the answer card, privacy, search everywhere, tour */
+.hero { transition: box-shadow 0.4s ease; }
+.hero[data-pace="good"] { --hero-grad: linear-gradient(135deg, #0b5d75 0%, #0f766e 100%); }
+.hero[data-pace="warn"] { --hero-grad: linear-gradient(135deg, #8a5a00 0%, #b45309 100%); }
+.hero[data-pace="bad"]  { --hero-grad: linear-gradient(135deg, #8a1c1c 0%, #b91c1c 100%); }
+.ans-card { margin: 12px 0; padding: 14px 16px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-sm); border-left: 5px solid var(--line); }
+.ans-card[data-pace="good"] { border-left-color: #10b981; }
+.ans-card[data-pace="warn"] { border-left-color: #f59e0b; }
+.ans-card[data-pace="bad"]  { border-left-color: #ef4444; }
+.ans-k { font-size: 0.7rem; font-weight: 800; letter-spacing: 0.1em; color: var(--muted); }
+.ans-big { font: 800 2rem/1.1 var(--f-display); letter-spacing: -0.02em; margin: 4px 0 2px; font-variant-numeric: tabular-nums; }
+.ans-per { font-size: 0.95rem; font-weight: 600; color: var(--muted); }
+.ans-sub { font-size: 0.84rem; color: var(--muted); line-height: 1.35; }
+.ans-pace { margin-top: 10px; padding: 8px 10px; border-radius: 12px; font-size: 0.82rem; font-weight: 600; background: var(--bg); }
+.ans-pace.good { color: #059669; } .ans-pace.warn { color: #b45309; } .ans-pace.bad { color: #dc2626; }
+.eye-btn { display: inline-grid; place-items: center; width: 34px; padding: 4px 0; }
+.eye-btn svg { width: 17px; height: 17px; }
+body.privacy .total, body.privacy .sticky-total, body.privacy .row .a, body.privacy .dtotal, body.privacy .cf-amount,
+body.privacy .fc-row strong, body.privacy .wal-bal, body.privacy .udh-fig-v, body.privacy .mo-hero *, body.privacy .hx-bank,
+body.privacy .inc-sum-total, body.privacy .settle-stat-num, body.privacy .proj-tot-amt, body.privacy .ppb-amt, body.privacy .atb-spent,
+body.privacy .ans-big, body.privacy .ans-sub, body.privacy .ans-pace, body.privacy .sa-a, body.privacy .wal-amt, body.privacy .mo-row b,
+body.privacy .hx-chip, body.privacy .dn-v, body.privacy .budget-head span:first-child { filter: blur(8px); transition: filter 0.2s ease; user-select: none; }
+.search-all { margin: 8px 0 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
+.sa-head { font-size: 0.78rem; font-weight: 700; color: var(--muted); margin-bottom: 6px; }
+.sa-row { display: grid; grid-template-columns: 74px 1fr auto; gap: 8px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 0.88rem; align-items: center; }
+.sa-d { color: var(--muted); font-size: 0.78rem; } .sa-a { font-weight: 700; font-variant-numeric: tabular-nums; } .sa-a.in { color: #059669; }
+.sa-more { font-size: 0.78rem; color: var(--muted); padding-top: 6px; }
+.tour { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; padding: 20px; background: rgba(2, 6, 23, 0.62); }
+.tour-card { width: 100%; max-width: 22rem; padding: 26px 22px 20px; border-radius: 26px; background: var(--surface); color: var(--ink); text-align: center; box-shadow: var(--shadow-lg); }
+.tour-e { font-size: 2.6rem; line-height: 1; margin-bottom: 8px; }
+.tour-card h3 { margin: 6px 0 8px; font-size: 1.15rem; } .tour-card p { margin: 0 0 14px; font-size: 0.92rem; color: var(--muted); line-height: 1.45; }
+.tour-dots { display: flex; justify-content: center; gap: 6px; margin-bottom: 16px; } .tour-dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--line); } .tour-dots i.on { background: var(--accent, #0284c7); width: 18px; border-radius: 4px; }
+.tour-btns { display: flex; gap: 10px; justify-content: space-between; }
+.hero .eye-btn { flex: none; width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: rgba(255,255,255,0.14); color: var(--hero-ink); border: 1px solid var(--hero-line); padding: 0; }
+.hero .eye-btn:active { transform: scale(0.94); }
+body.privacy .hero .eye-btn { filter: none; }

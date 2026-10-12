@@ -645,6 +645,34 @@
     sel.value = value;
     return sel;
   }
+  /* ---------- Home: what you can spend today ---------- */
+  function startOfDay(ts) { var d = new Date(ts); return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(); }
+  function getHomeFacts() {
+    var KL = window.KharchaLedger, now = Date.now(), d = new Date(now), nowKey = monthKey(now);
+    var dim = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    var spendNow = function (e) { return e && !e.synthetic && isExpense(e); };
+    var spent = sumRupees(state.entries.filter(function (e) { return spendNow(e) && monthKey(e.ts) === nowKey; }));
+    var since7 = startOfDay(now) - 6 * 86400000;
+    var avg7 = sumRupees(state.entries.filter(function (e) { return spendNow(e) && e.ts >= since7; })) / 7;
+    var budget = getBudget(), bank = KL ? getBankTotals() : { has: false }, f = { viewingCurrent: state.sel === nowKey, spent: spent, avg7: avg7, budget: budget, mode: 'none', ratio: null };
+    if (!KL) return f;
+    var pay = KL.nextPayday(now), untilMs = pay.date.getTime();
+    f.payDays = pay.days; f.payDate = untilMs;
+    if (bank.has) {
+      var up = KL.upcomingRules(loadRules(), state.entries, now, untilMs), upSum = up.reduce(function (n, u) { return n + paise(u.amount); }, 0) / 100;
+      f.mode = 'bank'; f.bankTotal = bank.total; f.upcoming = up; f.upSum = upSum;
+      f.avail = Math.max(0, bank.total - upSum);
+      f.days = Math.max(1, pay.days);
+      f.safe = f.avail / f.days;
+      f.ratio = f.safe > 0 ? avg7 / f.safe : (avg7 > 0 ? 9 : 0);
+    } else if (budget > 0) {
+      f.mode = 'budget'; f.left = budget - spent; f.days = Math.max(1, dim - d.getDate() + 1);
+      f.safe = Math.max(0, f.left) / f.days;
+      f.ratio = (spent / budget) / (d.getDate() / dim);
+    }
+    return f;
+  }
+
   function getBankTotals() {
     var KL = window.KharchaLedger, accts = loadBank(), p = 0;
     if (!KL) return { has: false, total: 0, count: 0 };
@@ -1034,7 +1062,7 @@
     enterApp: enterApp,
     getSb: function () { return sb; },
     getEntries: function () { return state.entries; },
-    getMonthlySummary: getMonthlySummary, getMonthlyHistory: getMonthlyHistory, monthsWithAnyEntry: monthsWithAnyEntry, getPeriodSummary: getPeriodSummary, isBankIn: isBankIn, isBankOut: isBankOut, getBankTotals: getBankTotals,
+    getMonthlySummary: getMonthlySummary, getMonthlyHistory: getMonthlyHistory, monthsWithAnyEntry: monthsWithAnyEntry, getPeriodSummary: getPeriodSummary, isBankIn: isBankIn, isBankOut: isBankOut, getBankTotals: getBankTotals, getHomeFacts: getHomeFacts, isIncome: isIncome,
     parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, parseSMSDate: parseSMSDate, findDuplicate: findDuplicate, categoryBreakdown: categoryBreakdown, monthCompare: monthCompare,
     isIncome: isIncome, isMotherSettlement: isMotherSettlement, isMotherPension: isMotherPension, isSalary: isSalary, isExpense: isExpense, isInvestment: isInvestment, getFamilySettlement: getFamilySettlement, getPersonalCashFlow: getPersonalCashFlow,
     isProjectEntry: isProjectEntry, isProjectMotherPaid: isProjectMotherPaid, getProjectSummary: getProjectSummary,
