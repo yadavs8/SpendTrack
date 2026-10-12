@@ -109,6 +109,27 @@ object SmsBackfillManager {
         return newCount
     }
 
+    /**
+     * Once a day, reads every bank SMS since the 1st of the month. Recurring payments (the EMI, the
+     * niece allowance, the milk vendor, the LIC premium...) are certain to happen: if the phone was
+     * off, the listener was killed or an SMS slipped past, this still files them -- by the same
+     * rules, through the same duplicate check, so nothing is ever entered twice. Old messages never
+     * pop a "where should this go?" prompt (they wait in Needs Review).
+     */
+    suspend fun catchUpMonthIfDue(context: Context): Int {
+        val prefs = context.applicationContext.getSharedPreferences("kharcha_catchup", Context.MODE_PRIVATE)
+        val cal = java.util.Calendar.getInstance()
+        val today = "${cal.get(java.util.Calendar.YEAR)}-${cal.get(java.util.Calendar.DAY_OF_YEAR)}"
+        if (prefs.getString("last_day", null) == today) return 0
+        cal.set(java.util.Calendar.DAY_OF_MONTH, 1)
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0); cal.set(java.util.Calendar.MINUTE, 0)
+        cal.set(java.util.Calendar.SECOND, 0); cal.set(java.util.Calendar.MILLISECOND, 0)
+        val window = maxOf(System.currentTimeMillis() - cal.timeInMillis, 24 * 60 * 60 * 1000L)
+        val n = backfillMissedSms(context, window)
+        prefs.edit().putString("last_day", today).apply()
+        return n
+    }
+
     private fun isBankSender(address: String): Boolean {
         val lower = address.lowercase()
         return lower.contains("bank") ||

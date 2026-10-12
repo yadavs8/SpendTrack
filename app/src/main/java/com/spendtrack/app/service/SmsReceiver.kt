@@ -7,6 +7,7 @@ import android.provider.Telephony
 import com.spendtrack.app.core.deduplication.DeduplicationEngine
 import com.spendtrack.app.core.logger.SafeLogger
 import com.spendtrack.app.core.notification.ExpensePromptNotifier
+import com.spendtrack.app.core.notification.PromptReconciler
 import com.spendtrack.app.core.nudge.NudgeScheduler
 import com.spendtrack.app.core.parser.TransactionParser
 import com.spendtrack.app.data.di.ServiceLocator
@@ -61,14 +62,19 @@ class SmsReceiver : BroadcastReceiver() {
 
                 SafeLogger.i("Parsed transaction from SMS ($sender): Amount=${parsed.amount}, Type=${parsed.transactionType}")
                 val result = ServiceLocator.transactionRepository.ingestTransaction(parsed)
+                PromptReconciler.clearPaired(context.applicationContext)
                 if (result is DeduplicationEngine.DeduplicationResult.NewTransaction) {
                     val txn = result.transaction
                     if (txn.transactionType == com.spendtrack.app.core.model.TransactionType.INCOME && !txn.isExcluded) {
                         com.spendtrack.app.core.automation.AutomationRunner.onIncomeLogged(context.applicationContext, txn)
-                    } else if (txn.needsReview) {
-                        val activeTrip = ServiceLocator.settingsManager.activeTripNameFlow.first()
-                        ExpensePromptNotifier.show(context.applicationContext, txn, activeTrip)
-                        NudgeScheduler.scheduleFirst(context.applicationContext, txn.id)
+                    } else {
+                        // Already entered in Kharcha Book by hand? Then there is nothing to ask.
+                        val answered = txn.needsReview && !txn.isExcluded &&
+                            PromptReconciler.resolveIfEnteredByHand(context.applicationContext, txn.id)
+                        if (!answered) {
+                            val activeTrip = ServiceLocator.settingsManager.activeTripNameFlow.first()
+                            ExpensePromptNotifier.announce(context.applicationContext, txn, activeTrip)
+                        }
                     }
                     runCatching { com.spendtrack.app.widget.KharchaWidget.refresh(context.applicationContext) }
                     ServiceLocator.cloudSyncRepository.syncPending()

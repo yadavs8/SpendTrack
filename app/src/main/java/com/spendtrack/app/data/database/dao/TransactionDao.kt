@@ -80,6 +80,16 @@ interface TransactionDao {
     """)
     suspend fun findPotentialDuplicates(amount: Double, startWindow: Long, endWindow: Long, upiRef: String?): List<TransactionEntity>
 
+    /** Money-in / money-out entries of exactly [amount] around a time: the other half of an own-account transfer. */
+    @Query("""
+        SELECT * FROM transactions
+        WHERE amount = :amount AND dateTime BETWEEN :startWindow AND :endWindow
+            AND isDemo = 0 AND id != :excludeId AND transactionType IN ('EXPENSE', 'INCOME')
+        ORDER BY dateTime ASC
+        LIMIT 20
+    """)
+    suspend fun findSameAmountNear(amount: Double, startWindow: Long, endWindow: Long, excludeId: String): List<TransactionEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTransaction(transaction: TransactionEntity): Long
 

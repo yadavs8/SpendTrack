@@ -26,6 +26,11 @@ class NudgeWorker(
             return Result.success()
         }
 
+        // Entered in Kharcha Book in the meantime (Family / Personal / a trip)? Then stop asking.
+        if (com.spendtrack.app.core.notification.PromptReconciler.resolveIfEnteredByHand(applicationContext, transactionId)) {
+            return Result.success()
+        }
+
         SafeLogger.i("Re-prompting for uncategorized expense $transactionId (stage $stage)")
         val activeTrip = ServiceLocator.settingsManager.activeTripNameFlow.first()
         ExpensePromptNotifier.show(applicationContext, transaction, activeTrip)

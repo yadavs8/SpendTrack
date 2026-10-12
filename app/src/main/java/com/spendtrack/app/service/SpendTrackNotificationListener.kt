@@ -11,6 +11,7 @@ import com.spendtrack.app.R
 import com.spendtrack.app.core.deduplication.DeduplicationEngine
 import com.spendtrack.app.core.logger.SafeLogger
 import com.spendtrack.app.core.notification.ExpensePromptNotifier
+import com.spendtrack.app.core.notification.PromptReconciler
 import com.spendtrack.app.core.nudge.NudgeScheduler
 import com.spendtrack.app.core.parser.TransactionParser
 import com.spendtrack.app.data.di.ServiceLocator
@@ -109,6 +110,7 @@ class SpendTrackNotificationListener : NotificationListenerService() {
 
                 val result = ServiceLocator.transactionRepository.ingestTransaction(parsed)
 
+                PromptReconciler.clearPaired(applicationContext)
                 when (result) {
                     is DeduplicationEngine.DeduplicationResult.NewTransaction -> {
                         val txn = result.transaction
@@ -119,18 +121,16 @@ class SpendTrackNotificationListener : NotificationListenerService() {
                                 com.spendtrack.app.core.automation.AutomationRunner.onIncomeLogged(applicationContext, txn)
                             // ATM cash: goes to the cash wallet; the evening nudge asks what it was spent on.
                             txn.transactionType == com.spendtrack.app.core.model.TransactionType.CASH_WITHDRAWAL -> Unit
-                            txn.needsReview -> {
-                                // Ask right away, then keep reminding until answered.
-                                val activeTrip = ServiceLocator.settingsManager.activeTripNameFlow.first()
-                                ExpensePromptNotifier.show(applicationContext, txn, activeTrip)
-                                NudgeScheduler.scheduleFirst(applicationContext, txn.id)
+                            else -> {
+                                // Already entered in Kharcha Book by hand? Then there is nothing to ask.
+                                val answered = txn.needsReview &&
+                                    PromptReconciler.resolveIfEnteredByHand(applicationContext, txn.id)
+                                if (!answered && (txn.needsReview || ServiceLocator.settingsManager.showConfirmationNotifs.first())) {
+                                    // Ask right away (and keep reminding until answered), or announce where it was filed.
+                                    val activeTrip = ServiceLocator.settingsManager.activeTripNameFlow.first()
+                                    ExpensePromptNotifier.announce(applicationContext, txn, activeTrip)
+                                }
                             }
-                            // Filed automatically (investment / remembered merchant): one quiet note.
-                            ServiceLocator.settingsManager.showConfirmationNotifs.first() ->
-                                ExpensePromptNotifier.showLogged(
-                                    applicationContext, txn,
-                                    ExpensePromptNotifier.labelForDescription(txn.description) + " (auto)"
-                                )
                         }
                         // Lands in Kharcha Book now if it has a bank/UPI ref (answering later
                         // updates the same row); see TransactionDao.getUnsyncedExpenses.
