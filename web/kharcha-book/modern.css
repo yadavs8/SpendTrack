@@ -221,3 +221,6 @@ form, .edit-btns, .add-foot { scroll-margin-bottom: 120px; }
 [hidden] { display: none !important; }
 
 .due-card .due-acts { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* v64: ash-logo canvas takes the same box as the image */
+.top .snap-logo { width: 36px; height: 36px; cursor: pointer; background: transparent; box-shadow: none; flex: none; }
