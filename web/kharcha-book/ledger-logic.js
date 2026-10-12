@@ -529,6 +529,23 @@
     return out.sort(function (a, b) { return b.ts - a.ts; });
   }
 
+  /* Rules that will fall due between now and `untilMs` and are not yet logged this month (overdue ones included). */
+  function upcomingRules(rules, entries, nowMs, untilMs) {
+    var now = new Date(nowMs), y = now.getFullYear(), m = now.getMonth(), out = [];
+    var today = new Date(y, m, now.getDate(), 0).getTime(), monthStart = new Date(y, m, 1).getTime();
+    (rules || []).forEach(function (r) {
+      if (!r.day) return;
+      var hits = (entries || []).filter(function (e) { return e && !e.synthetic && matchRule(e.desc, [r]); }).sort(function (a, b) { return b.ts - a.ts; });
+      var amount = r.amount || (hits[0] ? hits[0].amount : 0);
+      if (!amount) return;
+      var doneThisMonth = hits.some(function (e) { return e.ts >= monthStart; });
+      var dim = new Date(y, m + 1, 0).getDate(), due = new Date(y, m, Math.min(r.day, dim), 12).getTime();
+      if (doneThisMonth) { var dim2 = new Date(y, m + 2, 0).getDate(); due = new Date(y, m + 1, Math.min(r.day, dim2), 12).getTime(); }
+      if (due <= untilMs || due < today) out.push({ rule: r, date: due, amount: amount });
+    });
+    return out;
+  }
+
   /* Which tracked account an entry belongs to: an explicit choice (map) wins, then a rule's bank, then the main account.
      Returns null when it is not a bank movement of any tracked account (wallet, or a bank you do not track). */
   function routeAccount(entry, accts, map, rules, primaryId, own) {
@@ -552,7 +569,7 @@
   }
 
   return {
-    parseOwn: parseOwn, defaultOwn: defaultOwn, cardFor: cardFor, ownAccountFor: ownAccountFor, transferCandidates: transferCandidates, autoOwnTransfers: autoOwnTransfers, orphanTransfers: orphanTransfers, isOwnName: isOwnName, sourceAccountFromRaw: sourceAccountFromRaw,
+    upcomingRules: upcomingRules, parseOwn: parseOwn, defaultOwn: defaultOwn, cardFor: cardFor, ownAccountFor: ownAccountFor, transferCandidates: transferCandidates, autoOwnTransfers: autoOwnTransfers, orphanTransfers: orphanTransfers, isOwnName: isOwnName, sourceAccountFromRaw: sourceAccountFromRaw,
     parseRules: parseRules, defaultRules: defaultRules, matchRule: matchRule, dueRules: dueRules, routeAccount: routeAccount,
     splitPaise: splitPaise, tripItemLabel: tripItemLabel, tripSettlement: tripSettlement,
     cleanName: cleanName, nameKey: nameKey, parseLoans: parseLoans, repaid: repaid, outstanding: outstanding,

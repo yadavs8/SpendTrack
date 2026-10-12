@@ -94,3 +94,10 @@ When a bank SMS prints the balance ("Avl Bal Rs 12,345.67"), the app sets that a
 
 ### Ash logo
 The header logo turns to ash from left to right like a snap, drifts away, then pulls itself back together. It repeats for as long as the app is open (whole logo, ash, gone for a moment, back again) and a tap restarts it. It stays a still image when the phone asks for reduced motion. The home-screen app icon itself cannot animate.
+
+### v68: home answer card, pace colour, hide amounts, search everywhere, tour
+- **Safe to spend today** card under the total: bank balance minus bills still to come (from Auto rules), divided by the days to payday. Without a tracked bank it uses your monthly budget. It also says whether this week's pace is on track, close or over.
+- The total card colour follows that pace: teal, amber, red.
+- The eye on the total card blurs every amount (remembered on this device).
+- The search box finds entries in every month: by name, an exact amount (`906`) or a range (`>1000`, `<100`).
+- A three-step tour shows once; More > "Show the quick tour" replays it.
