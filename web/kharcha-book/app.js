@@ -673,6 +673,57 @@
     return f;
   }
 
+  /* ---------- Where this month's spending left from ---------- */
+  function getSpendSources(key) {
+    var KL = window.KharchaLedger, accts = loadBank(), map = loadJsonObj(ACCTMAP_KEY), rules = loadRules(), pid = primaryAcctId(accts), own = loadOwn(), out = {}, total = 0;
+    function add(name, icon, e) { var o = out[name] || (out[name] = { name: name, icon: icon, p: 0, count: 0 }); o.p += paise(e.amount); o.count++; total += paise(e.amount); }
+    state.entries.filter(function (e) { return e && !e.synthetic && monthKey(e.ts) === key && isExpense(e); }).forEach(function (e) {
+      if (isCardEntry(e)) add('Credit card', '💳', e);
+      else if (e.method === 'cash') add('Cash', '💵', e);
+      else if (e.method === 'wallet' || /^\s*\uD83D\uDC5B/.test(e.desc || '')) add('Wallet', '👛', e);
+      else if (parseTripPayer(e.desc) !== 'Me' || isProjectMotherPaid(e.desc)) add('Paid by someone else', '🤝', e);
+      else {
+        var id = KL && accts.length ? KL.routeAccount(e, accts, map, rules, pid, own) : null, a = accts.filter(function (x) { return x.id === id; })[0];
+        add(a ? a.name : 'Bank or UPI (not tracked)', '🏦', e);
+      }
+    });
+    var list = Object.keys(out).map(function (k) { var o = out[k]; return { name: o.name, icon: o.icon, total: o.p / 100, count: o.count, pct: total ? Math.round(o.p / total * 100) : 0 }; })
+      .sort(function (a, b) { return b.total - a.total; });
+    return { list: list, total: total / 100 };
+  }
+
+  /* ---------- Backup and restore ---------- */
+  function backupData() {
+    return {
+      app: 'kharcha-book', format: 1, exportedAt: new Date().toISOString(),
+      entries: state.entries.filter(function (e) { return e && !e.synthetic; }).map(function (e) {
+        return { amount: e.amount, desc: e.desc, ts: e.ts, refNo: e.refNo || null, kind: e.kind || null, method: e.method || null };
+      }),
+      settings: kv.localSharedValues()
+    };
+  }
+  function entryKey(amount, desc, ts) { return Math.round(ts / 1000) + '|' + paise(amount) + '|' + String(desc || '').trim(); }
+  function inspectBackup(obj) {
+    if (!obj || obj.app !== 'kharcha-book' || !Array.isArray(obj.entries)) return null;
+    var have = {}; state.entries.forEach(function (e) { have[entryKey(e.amount, e.desc, e.ts)] = 1; });
+    var missing = obj.entries.filter(function (e) { return e && isFinite(e.amount) && isFinite(e.ts) && typeof e.desc === 'string' && !have[entryKey(e.amount, e.desc, e.ts)]; });
+    var keys = Object.keys(obj.settings || {}).filter(isSharedKey);
+    return { total: obj.entries.length, missing: missing, settingKeys: keys };
+  }
+  async function restoreData(obj, withSettings) {
+    var info = inspectBackup(obj);
+    if (!info) throw new Error('This file is not a Kharcha Book backup.');
+    var added = 0, skipped = 0;
+    for (var i = 0; i < info.missing.length && i < 3000; i++) {
+      var e = info.missing[i];
+      try { await store.add({ amount: e.amount, desc: e.desc, spent_at: new Date(e.ts).toISOString(), ref_no: e.refNo || undefined, method: e.method || undefined, kind: e.kind || undefined }); added++; }
+      catch (err) { skipped++; }
+    }
+    if (withSettings) info.settingKeys.forEach(function (k) { if (obj.settings[k] != null) kv.set(k, obj.settings[k]); });
+    render();
+    return { added: added, skipped: skipped, settings: withSettings ? info.settingKeys.length : 0 };
+  }
+
   /* ---------- Net worth: what you hold minus what you owe ---------- */
   function getNetWorthParts() {
     var KL = window.KharchaLedger, parts = { hasBank: false, bank: 0, cash: 0, wallets: 0, owedToMe: 0, iOwe: 0, total: 0, trend: [] };
@@ -1090,7 +1141,7 @@
     enterApp: enterApp,
     getSb: function () { return sb; },
     getEntries: function () { return state.entries; },
-    getMonthlySummary: getMonthlySummary, getMonthlyHistory: getMonthlyHistory, monthsWithAnyEntry: monthsWithAnyEntry, getPeriodSummary: getPeriodSummary, isBankIn: isBankIn, isBankOut: isBankOut, getBankTotals: getBankTotals, getHomeFacts: getHomeFacts, isIncome: isIncome, getNetWorthParts: getNetWorthParts, kvGet: function (k) { return kv.get(k); }, kvSet: function (k, v) { kv.set(k, v); }, toast: function (m, u) { toast(m, u); }, confirmBox: function (o) { showConfirmModal(o); }, startOfDay: startOfDay,
+    getMonthlySummary: getMonthlySummary, getMonthlyHistory: getMonthlyHistory, monthsWithAnyEntry: monthsWithAnyEntry, getPeriodSummary: getPeriodSummary, isBankIn: isBankIn, isBankOut: isBankOut, getBankTotals: getBankTotals, getHomeFacts: getHomeFacts, isIncome: isIncome, getNetWorthParts: getNetWorthParts, getSpendSources: getSpendSources, backupData: backupData, inspectBackup: inspectBackup, restoreData: restoreData, loadRules: loadRules, kvGet: function (k) { return kv.get(k); }, kvSet: function (k, v) { kv.set(k, v); }, toast: function (m, u) { toast(m, u); }, confirmBox: function (o) { showConfirmModal(o); }, startOfDay: startOfDay,
     parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, parseSMSDate: parseSMSDate, findDuplicate: findDuplicate, categoryBreakdown: categoryBreakdown, monthCompare: monthCompare,
     isIncome: isIncome, isMotherSettlement: isMotherSettlement, isMotherPension: isMotherPension, isSalary: isSalary, isExpense: isExpense, isInvestment: isInvestment, getFamilySettlement: getFamilySettlement, getPersonalCashFlow: getPersonalCashFlow,
     isProjectEntry: isProjectEntry, isProjectMotherPaid: isProjectMotherPaid, getProjectSummary: getProjectSummary,
@@ -2950,6 +3001,7 @@
       add.addEventListener('click', function () { rulesUi.editing = 'new'; renderRules(); });
       root.appendChild(add);
     }
+    try { document.dispatchEvent(new Event('kharcha:rules')); } catch (e) {}
   }
   function ruleForm(r, accts) {
     var KL = window.KharchaLedger, f = el('form', 'udh-editform'); f.noValidate = true;

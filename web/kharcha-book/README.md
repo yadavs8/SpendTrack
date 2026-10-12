@@ -116,3 +116,9 @@ The header logo turns to ash from left to right like a snap, drifts away, then p
 - **Streak**: consecutive days under your daily limit (monthly budget / 30, or the safe-to-spend figure from your bank).
 - **Savings goal**: a ring, "Add money", edit and remove with Undo (stored with your other settings).
 - **Heatmap**: a calendar shaded by what you spent each day; tap a day to see it.
+
+### v71: bills calendar, spend sources, month report, backup
+- **Bills calendar** at the top of More > Auto rules: each rule with a day of the month shows on a month calendar (paid, coming up, not logged yet).
+- **Where it left from** (Insights): this month or last month split by bank account, credit card, cash, wallet and what others paid.
+- **Month report** (Insights): a picture of the month (spent, salary and saved, where it went, day by day) to share or save.
+- **Your data** (Insights): download every entry and setting as one file; restore it later. Restoring skips entries you already have.

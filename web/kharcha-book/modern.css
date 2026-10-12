@@ -328,3 +328,11 @@ i.hm-cell { width: 14px; aspect-ratio: 1; display: inline-block; }
 .hm-cell.sel { outline: 2px solid var(--ink); outline-offset: 1px; }
 .hm-legend { display: flex; align-items: center; gap: 5px; justify-content: flex-end; font-size: 0.7rem; color: var(--muted); margin: 8px 0 4px; }
 .hm-day { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+
+/* v71: bills calendar, spend sources, report, backup */
+.cat-row.dk { color: var(--ink); } .cat-bar.dk { background: var(--line); } .cat-bar.dk i { background: var(--accent); }
+.hm-cell.bill { position: relative; } .hm-cell.bill .bill-dot { position: absolute; bottom: 4px; left: 50%; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%; background: currentColor; }
+.hm-cell.bill.paid { background: rgba(16,185,129,0.22); color: #047857; } .hm-cell.bill.soon { background: rgba(245,158,11,0.22); color: #b45309; } .hm-cell.bill.late { background: rgba(239,68,68,0.22); color: #b91c1c; }
+i.hm-cell.bill { width: 14px; aspect-ratio: 1; border-radius: 4px; } .bills-cal { margin-bottom: 12px; }
+.sa-a.paid { color: #059669; } .sa-a.late { color: #dc2626; } .sa-a.soon { color: #b45309; }
+.rep-box { max-width: 24rem; padding: 14px; } .rep-img { width: 100%; max-height: 62vh; object-fit: contain; border-radius: 14px; margin-bottom: 12px; background: #0f172a; }
