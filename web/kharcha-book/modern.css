@@ -223,7 +223,7 @@ form, .edit-btns, .add-foot { scroll-margin-bottom: 120px; }
 .due-card .due-acts { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
 
 /* v64: ash-logo canvas takes the same box as the image */
-.top .snap-logo { width: 36px; height: 36px; cursor: pointer; background: transparent; box-shadow: none; flex: none; }
+.top .snap-logo { width: 64px; height: 100px; margin: -32px -14px -32px 0; cursor: pointer; background: transparent; box-shadow: none; border-radius: 0; flex: none; position: relative; z-index: 3; }
 
 /* v68: pace colour on the total card, the answer card, privacy, search everywhere, tour */
 .hero { transition: box-shadow 0.4s ease; }

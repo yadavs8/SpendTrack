@@ -359,85 +359,95 @@
     extra.parentNode.insertBefore(btn, extra);
   }
 
-  /* ---------- ash dust: shared by the header logo and the splash screen ---------- */
-  function makeDust(img, S) {
-    var parts = [], off = document.createElement('canvas'); off.width = S; off.height = S;
-    var oc = off.getContext('2d'), data;
-    if (!oc) return null;
-    try {
-      oc.beginPath();
-      if (oc.roundRect) oc.roundRect(0, 0, S, S, S * 0.3); else oc.rect(0, 0, S, S);
-      oc.clip(); oc.drawImage(img, 0, 0, S, S);
-      data = oc.getImageData(0, 0, S, S).data;
-    } catch (e) { return null; }
-    for (var y = 0; y < S; y += 2) {
-      for (var x = 0; x < S; x += 2) {
-        var i = (y * S + x) * 4;
-        if (data[i + 3] < 40) continue;
-        parts.push({ x: x, y: y, r: data[i], g: data[i + 1], b: data[i + 2],
-          d: (x / S) * 0.55 + Math.random() * 0.3, vx: 10 + Math.random() * 46, vy: -(8 + Math.random() * 38), ph: Math.random() * 6.28 });
-      }
-    }
-    if (!parts.length) return null;
-    var k0 = S / 96;
-    return { S: S, draw: function (ctx, prog) {
-      ctx.clearRect(0, 0, S, S);
-      for (var k = 0; k < parts.length; k++) {
-        var p = parts[k], q = (prog - p.d) / 0.4;
-        q = q < 0 ? 0 : q > 1 ? 1 : q;
-        var e = 1 - (1 - q) * (1 - q), a = q === 0 ? 1 : Math.pow(1 - q, 1.3);
-        if (a < 0.02) continue;
-        var m = Math.min(1, q * 1.7), px = p.x + (p.vx * e + Math.sin(q * 7 + p.ph) * 3.2 * q) * k0, py = p.y + (p.vy * e + Math.cos(q * 5 + p.ph) * 2 * q) * k0;
-        ctx.fillStyle = 'rgba(' + Math.round(p.r + (105 - p.r) * m) + ',' + Math.round(p.g + (105 - p.g) * m) + ',' + Math.round(p.b + (105 - p.b) * m) + ',' + a.toFixed(2) + ')';
-        var sz = (2 - 0.9 * q) * k0;
-        ctx.fillRect(px, py, sz, sz);
-      }
-    } };
+  /* ---------- the winged rupee: flaps, lifts off through the top, comes back ---------- */
+  function accentColor() {
+    var v = ''; try { v = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(); } catch (e) {}
+    return v || '#0284C7';
   }
-  function tweenTo(drawFn, from, to, ms, done) {
-    var t0 = 0;
-    function step(t) {
-      if (!t0) t0 = t;
-      var f = Math.min(1, (t - t0) / ms);
-      drawFn(from + (to - from) * f);
-      if (f < 1) raf(step); else if (done) done();
+  // Draws the rupee tile with a pair of feathered wings. All numbers are in "logo units" (the tile is 36 wide).
+  // st: dy (up is negative), scale, alpha, phase (flap clock, radians), amp (flap degrees), open (1 spread, 0 folded)
+  function drawWinged(ctx, img, W, H, unit, st, feathers) {
+    var T = 36, col = accentColor();
+    ctx.clearRect(0, 0, W * unit, H * unit);
+    ctx.save();
+    ctx.scale(unit, unit);
+    // falling feathers (not tied to the body)
+    (feathers || []).forEach(function (f) {
+      ctx.save(); ctx.globalAlpha = Math.max(0, f.a); ctx.translate(f.x, f.y); ctx.rotate(f.r);
+      ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(0, -4); ctx.quadraticCurveTo(2.2, 0, 0, 5); ctx.quadraticCurveTo(-2.2, 0, 0, -4); ctx.fill(); ctx.restore();
+    });
+    ctx.globalAlpha = Math.max(0, Math.min(1, st.alpha));
+    ctx.translate(W / 2, H / 2 + st.dy);
+    ctx.scale(st.scale, st.scale);
+    var flap = Math.sin(st.phase) * st.amp, ANG = [-58, -38, -18, 2], LEN = [15, 19, 21, 17];
+    [1, -1].forEach(function (side) {
+      ctx.save(); ctx.translate(side * (T / 2 - 3), -1); ctx.scale(side, 1);
+      for (var i = ANG.length - 1; i >= 0; i--) {
+        var open = Math.max(0, st.open), ang = (ANG[i] * (0.25 + 0.75 * open) + 20 * (1 - open) + flap * (0.6 + i * 0.15)) * Math.PI / 180, len = LEN[i] * (0.55 + 0.45 * open);
+        ctx.save(); ctx.rotate(ang);
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.quadraticCurveTo(len * 0.45, -3.4, len, -0.4); ctx.quadraticCurveTo(len * 0.5, 3.2, 0, 0); ctx.closePath();
+        ctx.fillStyle = col; ctx.globalAlpha = Math.max(0, Math.min(1, st.alpha)) * (0.62 + 0.1 * i); ctx.fill();
+        ctx.lineWidth = 0.7; ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.stroke();
+        ctx.restore();
+      }
+      ctx.restore();
+    });
+    ctx.globalAlpha = Math.max(0, Math.min(1, st.alpha));
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(-T / 2, -T / 2, T, T, 11); else ctx.rect(-T / 2, -T / 2, T, T);
+    ctx.save(); ctx.clip(); ctx.drawImage(img, -T / 2, -T / 2, T, T); ctx.restore();
+    ctx.restore();
+  }
+  function ease(t) { return t < 0 ? 0 : t > 1 ? 1 : t * t * (3 - 2 * t); }
+  function easeOut(t) { t = t < 0 ? 0 : t > 1 ? 1 : t; return 1 - Math.pow(1 - t, 3); }
+  // One run of the flight as a function of time: perch, take off through the top, gone, drop back in, settle.
+  var FLIGHT = { perch: 1800, up: 1100, gone: 700, down: 1000 };
+  function flightState(t, rise) {
+    var P = FLIGHT.perch, U = P + FLIGHT.up, G = U + FLIGHT.gone, D = G + FLIGHT.down, st = { dy: 0, scale: 1, alpha: 1, phase: t / 95, amp: 11, open: 1 };
+    if (t < P) { st.phase = t / 110; st.amp = 9; }
+    else if (t < U) { var k = (t - P) / FLIGHT.up; st.phase = P / 110 + (t - P) / 55; st.amp = 20; st.dy = -rise * ease(k) * ease(k); st.scale = 1 - 0.5 * ease(k); st.alpha = 1 - ease((k - 0.45) / 0.55); }
+    else if (t < G) { st.alpha = 0; }
+    else if (t < D) { var m = (t - G) / FLIGHT.down; st.phase = (t - G) / 60; st.amp = 22 * (1 - m) + 6 * m; st.dy = -rise * (1 - easeOut(m)); st.scale = 0.6 + 0.4 * easeOut(m); st.alpha = ease(m / 0.45); st.open = 0.55 + 0.45 * ease(m); }
+    return st;
+  }
+  function makeFeathers(t) {                       // feathers shed during take-off
+    var P = FLIGHT.perch, out = [];
+    for (var i = 0; i < 7; i++) {
+      var born = P + 80 + i * 110, age = (t - born) / 1000;
+      if (age < 0 || age > 1.5) continue;
+      out.push({ x: 10 + (i % 2 ? 24 : 0) + Math.sin(i * 2.1) * 6 + Math.sin(age * 4 + i) * 5, y: 12 + age * (18 + i * 2) - age * 4, r: age * (1.5 + i * 0.4) + i, a: 0.85 * (1 - age / 1.5) });
     }
-    raf(step);
+    return out;
   }
 
-  /* ---------- logo: turns to ash like a snap, drifts away, then pulls itself back together ---------- */
+  /* ---------- header logo ---------- */
   function snapLogo() {
     var img = document.querySelector('.top .logo');
     if (!img || reduceMotion || !img.parentNode) return;
-    var S = 96, cv = el('canvas', 'logo snap-logo'), ctx, dust, busy = false, timer = 0;
-    cv.width = S; cv.height = S; cv.setAttribute('aria-hidden', 'true'); cv.title = 'Tap';
-    var HOLD = 2200, GONE = 900;
-    function next(ms) { clearTimeout(timer); timer = setTimeout(play, ms); }
-    function draw(prog) { dust.draw(ctx, prog); }
-    function play() {
-      if (busy) return;
-      if (document.hidden) { next(1500); return; }          // wait while the app is in the background
-      busy = true;
-      tweenTo(draw, 0, 1.4, 3400, function () {                 // turns to ash and blows away
-        setTimeout(function () {
-          tweenTo(draw, 1.4, 0, 1900, function () { busy = false; draw(0); next(HOLD); });   // and comes back
-        }, GONE);
-      });
+    var W = 64, H = 100, DPR = Math.min(3, window.devicePixelRatio || 2), cv = el('canvas', 'logo snap-logo');
+    cv.width = W * DPR; cv.height = H * DPR; cv.setAttribute('aria-hidden', 'true'); cv.title = 'Tap';
+    var ctx, running = false, t0 = 0, skip = 0, raf0 = 0;
+    function frame(now) {
+      if (!t0) t0 = now;
+      var t = now - t0 + skip, total = FLIGHT.perch + FLIGHT.up + FLIGHT.gone + FLIGHT.down;
+      if (document.hidden) { t0 = 0; running = false; setTimeout(go, 1500); return; }
+      if (t >= total) { drawWinged(ctx, img, W, H, DPR, { dy: 0, scale: 1, alpha: 1, phase: 0, amp: 0, open: 1 }, []); running = false; skip = 0; setTimeout(go, 600); return; }
+      drawWinged(ctx, img, W, H, DPR, flightState(t, 56), makeFeathers(t));
+      raf0 = raf(frame);
     }
+    function go() { if (running) return; running = true; t0 = 0; raf0 = raf(frame); }
     function init() {
-      dust = makeDust(img, S);
-      if (!dust) return;
-      ctx = cv.getContext('2d');
-      draw(0);
+      ctx = cv.getContext('2d'); if (!ctx) return;
+      drawWinged(ctx, img, W, H, DPR, { dy: 0, scale: 1, alpha: 1, phase: 0, amp: 0, open: 1 }, []);
       img.style.display = 'none';
       img.parentNode.insertBefore(cv, img);
-      cv.addEventListener('click', function () { if (!busy) { clearTimeout(timer); play(); } });
-      next(1400);
+      cv.addEventListener('click', function () { if (!running) { skip = FLIGHT.perch - 500; go(); } });
+      setTimeout(go, 900);
     }
     if (img.complete && img.naturalWidth) init(); else img.addEventListener('load', init);
   }
 
-  /* ---------- opening splash: the rupee gathers itself out of dust ---------- */
+  /* ---------- opening splash: the winged rupee drops in from the top and lands ---------- */
   function runSplash() {
     var sp = $('splash');
     if (!sp) return;
@@ -447,14 +457,17 @@
     if (reduceMotion || !cv) { leave(); return; }
     var img = new Image();
     img.onload = function () {
-      var dust = makeDust(img, 192);
-      if (!dust) { leave(); return; }
-      var ctx = cv.getContext('2d');
-      dust.draw(ctx, 1.4);
-      tweenTo(function (p) { dust.draw(ctx, p); }, 1.4, 0, 1500, function () { setTimeout(leave, 700); });
+      var W = 64, H = 100, unit = cv.width / W, ctx = cv.getContext('2d'), t0 = 0, G = FLIGHT.perch + FLIGHT.up + FLIGHT.gone;
+      function frame(now) {
+        if (!t0) t0 = now;
+        var t = now - t0, tt = G + Math.min(t, FLIGHT.down + 600);
+        drawWinged(ctx, img, W, H, unit, tt >= G + FLIGHT.down ? { dy: 0, scale: 1, alpha: 1, phase: (t) / 140, amp: 5 * Math.max(0, 1 - (t - FLIGHT.down) / 600), open: 1 } : flightState(tt, 60), []);
+        if (t < FLIGHT.down + 700) raf(frame); else setTimeout(leave, 350);
+      }
+      raf(frame);
     };
     img.onerror = leave;
-    img.src = 'logo-mark.png?v=69';
+    img.src = 'logo-mark.png?v=73';
     setTimeout(leave, 4200);                                        // never keeps you waiting
   }
 
