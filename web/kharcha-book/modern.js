@@ -63,7 +63,7 @@
     ['My money', [['monthly', '📊', 'Monthly', 'Savings'], ['bank', '🏦', 'Bank', 'Balance, cash'], ['card', '💳', 'Credit card', 'Owed, spends'], ['insights', '✨', 'Insights', 'Week, goals, net worth'], ['wallet', '👛', 'Wallet', 'Amazon Pay'], ['rules', '⚙️', 'Auto rules', 'Payees, monthly bills']]],
     ['People', [['udhaar', '🤝', 'Udhaar', 'Who owes you'], ['settlement', '👵', 'Settle', "Mother's money"]]],
     ['Plans', [['investments', '📈', 'Invest', 'SIPs and savings'], ['projects', '🔨', 'Projects', 'Home work costs']]],
-    ['Account', [['__settings', '⚙️', 'Phone settings', 'SMS access, sync, lock'], ['__signout', '🚪', 'Sign out', '']]]
+    ['Account', [['phone', '📡', 'Phone connection', 'SMS, sync, settings'], ['__settings', '⚙️', 'Phone settings', 'SMS access, sync, lock'], ['__signout', '🚪', 'Sign out', '']]]
   ];
   var TITLES = {};
   MORE_GROUPS.forEach(function (g) { g[1].forEach(function (t) { TITLES[t[0]] = t[1] + ' ' + t[2]; }); });
@@ -155,7 +155,7 @@
     var key = NAV_OF[stream] || 'more';
     // Tool screens (Bank, Udhaar, Wallet, Auto rules, Monthly) have their own numbers: the month card would only be noise there.
     var heroEl = document.querySelector('.hero');
-    var tool = ['udhaar', 'wallet', 'bank', 'rules', 'monthly', 'insights', 'card'].indexOf(stream) >= 0;
+    var tool = ['udhaar', 'wallet', 'bank', 'rules', 'monthly', 'insights', 'card', 'phone'].indexOf(stream) >= 0;
     if (heroEl) heroEl.hidden = tool;
     var stk = $('sticky-month-bar'); if (stk) stk.style.display = tool ? 'none' : '';
     if (backbar) {
@@ -469,7 +469,7 @@
       raf(frame);
     };
     img.onerror = leave;
-    img.src = 'logo-mark.png?v=78';
+    img.src = 'logo-mark.png?v=79';
     setTimeout(leave, 4200);                                        // never keeps you waiting
   }
 

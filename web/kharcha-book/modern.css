@@ -359,3 +359,6 @@ i.hm-cell.bill { width: 14px; aspect-ratio: 1; border-radius: 4px; } .bills-cal 
 .top .snap-logo { margin-right: -12px; }
 .top h1 { font-size: 1.04rem; gap: 6px; }
 #app-settings-btn { font-size: 1.05rem; color: var(--ink); }
+.ph-row { display: flex; gap: 10px; align-items: flex-start; }
+.ph-i { flex: none; width: 1.6rem; text-align: center; font-size: 1.1rem; }
+.ph-t { display: grid; gap: 2px; min-width: 0; } .ph-t b { font-weight: 700; } .ph-t span { color: var(--muted); font-size: 0.86rem; line-height: 1.4; overflow-wrap: anywhere; }
