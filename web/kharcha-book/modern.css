@@ -261,3 +261,31 @@ body.privacy .hx-chip, body.privacy .dn-v, body.privacy .budget-head span:first-
 .hero .eye-btn { flex: none; width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: rgba(255,255,255,0.14); color: var(--hero-ink); border: 1px solid var(--hero-line); padding: 0; }
 .hero .eye-btn:active { transform: scale(0.94); }
 body.privacy .hero .eye-btn { filter: none; }
+
+/* v69: Thanos theme, money chips, view transitions, empty states, press feel */
+:root[data-theme="thanos"] {
+  --bg: #120a1f; --surface: #1b1030; --surface-glass: rgba(27, 16, 48, 0.85); --ink: #f3e8ff; --muted: #b9a6d6; --line: #2e1f4a;
+  --accent: #f5c542; --accent-ink: #1a0b2e; --accent-soft: rgba(245, 197, 66, 0.14);
+  --hero-grad: linear-gradient(135deg, #2e1065 0%, #5b21b6 55%, #a16207 130%); --hero-bg: #5b21b6; --hero-ink: #faf5ff; --hero-muted: #d8b4fe; --hero-line: rgba(255, 255, 255, 0.2);
+  --danger: #fb7185; --success: #5eead4; --warning: #fbbf24;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4); --shadow-md: 0 4px 20px -2px rgba(0, 0, 0, 0.5); --shadow-lg: 0 10px 30px -3px rgba(91, 33, 182, 0.45);
+  color-scheme: dark;
+}
+:root[data-theme="thanos"] .scopetab.active { color: #5b21b6; }
+.theme-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 6px; }
+.theme-pill, .fx-pill { font-size: 0.82rem; }
+.coin { position: fixed; z-index: 9990; pointer-events: none; padding: 8px 14px; border-radius: 999px; font: 800 1rem var(--f-display, system-ui); color: #fff; box-shadow: 0 8px 24px rgba(0,0,0,0.3); white-space: nowrap; }
+.coin.out { background: linear-gradient(135deg, #ef4444, #b91c1c); }
+.coin.in { background: linear-gradient(135deg, #10b981, #047857); }
+.spark { position: fixed; z-index: 9989; pointer-events: none; width: 7px; height: 7px; border-radius: 50%; background: #fbbf24; box-shadow: 0 0 6px #fbbf24; }
+@keyframes kb-view { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+#spends-view:not([hidden]), .incomings-sec:not([hidden]), .udhaar-sec:not([hidden]), .settlement-sec:not([hidden]), .project-sec:not([hidden]), .investments-sec:not([hidden]), .trips-sec:not([hidden]) { animation: kb-view 0.28s ease both; }
+.row, .wal-card, .ans-card, .mtile, .due-card, .mo-row, .scope-pill, .streambtn { transition: transform 0.12s ease, box-shadow 0.15s ease; }
+.row:active, .wal-card:active, .ans-card:active, .mtile:active, .due-card:active { transform: scale(0.985); }
+@media (prefers-reduced-motion: reduce) { #spends-view, .incomings-sec, .udhaar-sec, .settlement-sec, .project-sec, .investments-sec, .trips-sec { animation: none !important; } }
+.empty { text-align: center; }
+.empty-ill { width: 76px; height: 76px; margin: 4px auto 10px; border-radius: 50%; display: grid; place-items: center; font-size: 2.2rem; background: var(--accent-soft, rgba(2,132,199,0.1)); }
+.empty .primary { margin-top: 10px; }
+:root[data-theme="thanos"] .hero[data-pace="good"] { --hero-grad: linear-gradient(135deg, #2e1065 0%, #5b21b6 55%, #a16207 130%); }
+:root[data-theme="thanos"] .hero[data-pace="warn"] { --hero-grad: linear-gradient(135deg, #4c1d95 0%, #b45309 120%); }
+:root[data-theme="thanos"] .hero[data-pace="bad"]  { --hero-grad: linear-gradient(135deg, #4c1d95 0%, #b91c1c 120%); }

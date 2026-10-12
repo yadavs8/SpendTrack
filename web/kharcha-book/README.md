@@ -101,3 +101,11 @@ The header logo turns to ash from left to right like a snap, drifts away, then p
 - The eye on the total card blurs every amount (remembered on this device).
 - The search box finds entries in every month: by name, an exact amount (`906`) or a range (`>1000`, `<100`).
 - A three-step tour shows once; More > "Show the quick tour" replays it.
+
+### v69: feel
+- Opening splash: the rupee gathers itself out of ash (once per session; tap to skip; never longer than about 4 seconds).
+- Money flies to the total when you add a spend (red) or an income (green with a coin burst).
+- Soft sound and vibration on save, income and delete. More > Look and feel turns each off.
+- Themes: Light, Midnight, Thanos (purple and gold). More > Look and feel.
+- Screens fade in; cards and buttons press down; empty screens get a picture and a next step.
+- Tool screens (Bank, Udhaar, Wallet, Auto rules, Monthly) no longer show the month card above them.

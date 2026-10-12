@@ -1,6 +1,6 @@
 // Caches the app shell so it opens offline. Supabase calls are never cached.
-var CACHE = 'kharcha-shell-v68';
-var SHELL = ['./', './index.html', './styles.css?v=68', './modern.css?v=68', './modern.js?v=68', './ledger-logic.js?v=68', './app.js?v=68', './config.js?v=68', './manifest.webmanifest', './icon-192.png?v=68', './logo-mark.png?v=68', './icon-512.png?v=68'];
+var CACHE = 'kharcha-shell-v69';
+var SHELL = ['./', './index.html', './styles.css?v=69', './modern.css?v=69', './modern.js?v=69', './ledger-logic.js?v=69', './app.js?v=69', './config.js?v=69', './manifest.webmanifest', './icon-192.png?v=69', './logo-mark.png?v=69', './icon-512.png?v=69'];
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(SHELL); }).then(function () { return self.skipWaiting(); }));
 });

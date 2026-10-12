@@ -17,17 +17,18 @@
   var SUN = svg('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>');
   function effectiveTheme() {
     var t = document.documentElement.getAttribute('data-theme');
-    if (t === 'dark' || t === 'light') return t;
+    if (t === 'dark' || t === 'light' || t === 'thanos') return t;
     return window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }
   function paintThemeButton() {
     var b = $('theme-btn'); if (!b) return;
-    var dark = effectiveTheme() === 'dark';
+    var dark = effectiveTheme() !== 'light';
     b.innerHTML = dark ? SUN : MOON;                 // shows what a tap switches to
     b.setAttribute('aria-pressed', dark ? 'true' : 'false');
     b.title = dark ? 'Switch to day mode' : 'Switch to night mode';
     var m = document.querySelector('meta[name="theme-color"]');
-    if (m) m.setAttribute('content', dark ? '#0B1120' : '#0369A1');
+    if (m) m.setAttribute('content', effectiveTheme() === 'thanos' ? '#1a0b2e' : dark ? '#0B1120' : '#0369A1');
+    document.querySelectorAll('.theme-pill').forEach(function (x) { x.classList.toggle('active', x.dataset.theme === effectiveTheme()); });
   }
   function setTheme(t) {
     document.documentElement.setAttribute('data-theme', t);
@@ -39,7 +40,7 @@
     if (!top) return;
     var b = el('button', 'installbtn theme-btn'); b.type = 'button'; b.id = 'theme-btn';
     b.setAttribute('aria-label', 'Night mode');
-    b.addEventListener('click', function () { setTheme(effectiveTheme() === 'dark' ? 'light' : 'dark'); });
+    b.addEventListener('click', function () { setTheme(effectiveTheme() === 'light' ? 'dark' : 'light'); });
     top.insertBefore(b, top.firstChild);
     paintThemeButton();
     if (window.matchMedia) {
@@ -116,6 +117,22 @@
       });
       card.appendChild(grid);
     });
+    card.appendChild(el('div', 'msheet-h', 'Look and feel'));
+    var tp = el('div', 'theme-row');
+    [['light', '☀️ Light'], ['dark', '🌙 Midnight'], ['thanos', '🟣 Thanos']].forEach(function (t) {
+      var pb = el('button', 'scope-pill theme-pill', t[1]); pb.type = 'button'; pb.dataset.theme = t[0];
+      pb.addEventListener('click', function () { setTheme(t[0]); }); tp.appendChild(pb);
+    });
+    card.appendChild(tp);
+    var fxr = el('div', 'theme-row');
+    [['s', 'Sound'], ['h', 'Vibration']].forEach(function (f) {
+      var fb = el('button', 'scope-pill fx-pill'); fb.type = 'button'; fb.dataset.fx = f[0];
+      function paintFx() { var on = fxOn(f[0]); fb.textContent = (f[0] === 's' ? '🔊 ' : '📳 ') + f[1] + ': ' + (on ? 'On' : 'Off'); fb.classList.toggle('active', on); }
+      fb.addEventListener('click', function () { setFx(f[0], !fxOn(f[0])); paintFx(); if (fxOn(f[0])) feedback('save'); });
+      paintFx(); fxr.appendChild(fb);
+    });
+    card.appendChild(fxr);
+    paintThemeButton();
     var tl = el('button', 'linkbtn', '✨ Show the quick tour'); tl.type = 'button'; tl.addEventListener('click', function () { closeSheet(); showTour(true); }); card.appendChild(tl);
     sheet.appendChild(card);
     backbar = el('div', 'backbar'); backbar.hidden = true;
@@ -134,6 +151,11 @@
     var act = document.querySelector('.streambtn.active');
     var stream = act ? act.dataset.stream : 'spends';
     var key = NAV_OF[stream] || 'more';
+    // Tool screens (Bank, Udhaar, Wallet, Auto rules, Monthly) have their own numbers: the month card would only be noise there.
+    var heroEl = document.querySelector('.hero');
+    var tool = ['udhaar', 'wallet', 'bank', 'rules', 'monthly'].indexOf(stream) >= 0;
+    if (heroEl) heroEl.hidden = tool;
+    var stk = $('sticky-month-bar'); if (stk) stk.style.display = tool ? 'none' : '';
     if (backbar) {
       var other = key === 'more' && TITLES[stream];
       backbar.hidden = !other || bnav.hidden;
@@ -337,74 +359,74 @@
     extra.parentNode.insertBefore(btn, extra);
   }
 
-  /* ---------- logo: turns to ash like a snap, drifts away, then pulls itself back together ---------- */
-  function snapLogo() {
-    var img = document.querySelector('.top .logo');
-    if (!img || reduceMotion || !img.parentNode) return;
-    var probe = document.createElement('canvas');
-    if (!probe.getContext) return;
-    var S = 96, parts = [], cv = el('canvas', 'logo snap-logo'), ctx, busy = false, timer = 0;
-    cv.width = S; cv.height = S; cv.setAttribute('aria-hidden', 'true'); cv.title = 'Tap';
-    function build() {
-      var off = document.createElement('canvas'); off.width = S; off.height = S;
-      var oc = off.getContext('2d'), data;
-      try {
-        oc.beginPath();
-        if (oc.roundRect) oc.roundRect(0, 0, S, S, S * 0.3); else oc.rect(0, 0, S, S);
-        oc.clip(); oc.drawImage(img, 0, 0, S, S);
-        data = oc.getImageData(0, 0, S, S).data;
-      } catch (e) { return false; }
-      for (var y = 0; y < S; y += 2) {
-        for (var x = 0; x < S; x += 2) {
-          var i = (y * S + x) * 4;
-          if (data[i + 3] < 40) continue;
-          parts.push({
-            x: x, y: y, r: data[i], g: data[i + 1], b: data[i + 2],
-            d: (x / S) * 0.55 + Math.random() * 0.3,           // the dust starts at the left and sweeps right
-            vx: 10 + Math.random() * 46, vy: -(8 + Math.random() * 38), ph: Math.random() * 6.28
-          });
-        }
+  /* ---------- ash dust: shared by the header logo and the splash screen ---------- */
+  function makeDust(img, S) {
+    var parts = [], off = document.createElement('canvas'); off.width = S; off.height = S;
+    var oc = off.getContext('2d'), data;
+    if (!oc) return null;
+    try {
+      oc.beginPath();
+      if (oc.roundRect) oc.roundRect(0, 0, S, S, S * 0.3); else oc.rect(0, 0, S, S);
+      oc.clip(); oc.drawImage(img, 0, 0, S, S);
+      data = oc.getImageData(0, 0, S, S).data;
+    } catch (e) { return null; }
+    for (var y = 0; y < S; y += 2) {
+      for (var x = 0; x < S; x += 2) {
+        var i = (y * S + x) * 4;
+        if (data[i + 3] < 40) continue;
+        parts.push({ x: x, y: y, r: data[i], g: data[i + 1], b: data[i + 2],
+          d: (x / S) * 0.55 + Math.random() * 0.3, vx: 10 + Math.random() * 46, vy: -(8 + Math.random() * 38), ph: Math.random() * 6.28 });
       }
-      return parts.length > 0;
     }
-    function draw(prog) {
+    if (!parts.length) return null;
+    var k0 = S / 96;
+    return { S: S, draw: function (ctx, prog) {
       ctx.clearRect(0, 0, S, S);
       for (var k = 0; k < parts.length; k++) {
         var p = parts[k], q = (prog - p.d) / 0.4;
         q = q < 0 ? 0 : q > 1 ? 1 : q;
         var e = 1 - (1 - q) * (1 - q), a = q === 0 ? 1 : Math.pow(1 - q, 1.3);
         if (a < 0.02) continue;
-        var m = Math.min(1, q * 1.7), px = p.x + p.vx * e + Math.sin(q * 7 + p.ph) * 3.2 * q, py = p.y + p.vy * e + Math.cos(q * 5 + p.ph) * 2 * q;
+        var m = Math.min(1, q * 1.7), px = p.x + (p.vx * e + Math.sin(q * 7 + p.ph) * 3.2 * q) * k0, py = p.y + (p.vy * e + Math.cos(q * 5 + p.ph) * 2 * q) * k0;
         ctx.fillStyle = 'rgba(' + Math.round(p.r + (105 - p.r) * m) + ',' + Math.round(p.g + (105 - p.g) * m) + ',' + Math.round(p.b + (105 - p.b) * m) + ',' + a.toFixed(2) + ')';
-        var sz = 2 - 0.9 * q;
+        var sz = (2 - 0.9 * q) * k0;
         ctx.fillRect(px, py, sz, sz);
       }
+    } };
+  }
+  function tweenTo(drawFn, from, to, ms, done) {
+    var t0 = 0;
+    function step(t) {
+      if (!t0) t0 = t;
+      var f = Math.min(1, (t - t0) / ms);
+      drawFn(from + (to - from) * f);
+      if (f < 1) raf(step); else if (done) done();
     }
-    function tween(from, to, ms, done) {
-      var t0 = 0;
-      function step(t) {
-        if (!t0) t0 = t;
-        var f = Math.min(1, (t - t0) / ms);
-        draw(from + (to - from) * f);
-        if (f < 1) raf(step); else if (done) done();
-      }
-      raf(step);
-    }
-    // Keeps going for as long as the app is open: whole logo, turns to ash, gone for a moment, pulls back together, repeat.
+    raf(step);
+  }
+
+  /* ---------- logo: turns to ash like a snap, drifts away, then pulls itself back together ---------- */
+  function snapLogo() {
+    var img = document.querySelector('.top .logo');
+    if (!img || reduceMotion || !img.parentNode) return;
+    var S = 96, cv = el('canvas', 'logo snap-logo'), ctx, dust, busy = false, timer = 0;
+    cv.width = S; cv.height = S; cv.setAttribute('aria-hidden', 'true'); cv.title = 'Tap';
     var HOLD = 2200, GONE = 900;
     function next(ms) { clearTimeout(timer); timer = setTimeout(play, ms); }
+    function draw(prog) { dust.draw(ctx, prog); }
     function play() {
       if (busy) return;
       if (document.hidden) { next(1500); return; }          // wait while the app is in the background
       busy = true;
-      tween(0, 1.4, 3400, function () {                         // turns to ash and blows away
+      tweenTo(draw, 0, 1.4, 3400, function () {                 // turns to ash and blows away
         setTimeout(function () {
-          tween(1.4, 0, 1900, function () { busy = false; draw(0); next(HOLD); });   // and comes back
+          tweenTo(draw, 1.4, 0, 1900, function () { busy = false; draw(0); next(HOLD); });   // and comes back
         }, GONE);
       });
     }
     function init() {
-      if (!build()) return;
+      dust = makeDust(img, S);
+      if (!dust) return;
       ctx = cv.getContext('2d');
       draw(0);
       img.style.display = 'none';
@@ -413,6 +435,117 @@
       next(1400);
     }
     if (img.complete && img.naturalWidth) init(); else img.addEventListener('load', init);
+  }
+
+  /* ---------- opening splash: the rupee gathers itself out of dust ---------- */
+  function runSplash() {
+    var sp = $('splash');
+    if (!sp) return;
+    function leave() { sp.classList.add('out'); setTimeout(function () { if (sp.parentNode) sp.remove(); }, 500); try { sessionStorage.setItem('kharcha_splash', '1'); } catch (e) {} }
+    var cv = $('splash-cv');
+    sp.addEventListener('click', leave);                              // tap to skip
+    if (reduceMotion || !cv) { leave(); return; }
+    var img = new Image();
+    img.onload = function () {
+      var dust = makeDust(img, 192);
+      if (!dust) { leave(); return; }
+      var ctx = cv.getContext('2d');
+      dust.draw(ctx, 1.4);
+      tweenTo(function (p) { dust.draw(ctx, p); }, 1.4, 0, 1500, function () { setTimeout(leave, 700); });
+    };
+    img.onerror = leave;
+    img.src = 'logo-mark.png?v=69';
+    setTimeout(leave, 4200);                                        // never keeps you waiting
+  }
+
+  /* ---------- feel: sound, vibration, money flying to the total ---------- */
+  var fxState = null;
+  function fxOn(k) {
+    if (!fxState) { try { fxState = JSON.parse(localStorage.getItem('kharcha_fx') || '{}') || {}; } catch (e) { fxState = {}; } }
+    return fxState[k] !== 0;
+  }
+  function setFx(k, on) { fxOn(k); fxState[k] = on ? 1 : 0; try { localStorage.setItem('kharcha_fx', JSON.stringify(fxState)); } catch (e) {} }
+  var audio = null;
+  function tone(freq, start, dur, vol) {
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+      if (!audio) audio = new AC();
+      if (audio.state === 'suspended') audio.resume();
+      var o = audio.createOscillator(), g = audio.createGain(), t0 = audio.currentTime + start;
+      o.type = 'sine'; o.frequency.value = freq;
+      g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(vol || 0.08, t0 + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      o.connect(g); g.connect(audio.destination); o.start(t0); o.stop(t0 + dur + 0.02);
+    } catch (e) {}
+  }
+  function feedback(kind) {
+    if (fxOn('h') && navigator.vibrate) { try { navigator.vibrate(kind === 'delete' ? [10, 30, 10] : kind === 'income' ? [14, 40, 14] : 12); } catch (e) {} }
+    if (!fxOn('s')) return;
+    if (kind === 'income') { tone(784, 0, 0.14); tone(988, 0.1, 0.14); tone(1319, 0.2, 0.22); }
+    else if (kind === 'delete') { tone(392, 0, 0.12); tone(262, 0.09, 0.18); }
+    else { tone(660, 0, 0.09); tone(880, 0.07, 0.13); }
+  }
+  function flyChip(text, income) {
+    if (reduceMotion) return;
+    var tot = $('mtotal'), chip = el('div', 'coin ' + (income ? 'in' : 'out'), text);
+    document.body.appendChild(chip);
+    var from = { x: window.innerWidth / 2, y: window.innerHeight - 110 }, to = { x: window.innerWidth / 2, y: 120 };
+    if (tot) { var r = tot.getBoundingClientRect(); if (r.height) { to = { x: r.left + Math.min(r.width, 160) / 2, y: r.top + r.height / 2 }; } }
+    var dx = to.x - from.x, dy = to.y - from.y;
+    chip.style.left = from.x + 'px'; chip.style.top = from.y + 'px';
+    if (!chip.animate) { setTimeout(function () { chip.remove(); }, 900); return; }
+    var an = chip.animate([
+      { transform: 'translate(-50%,-50%) scale(0.6)', opacity: 0 },
+      { transform: 'translate(-50%,-50%) scale(1.15)', opacity: 1, offset: 0.18 },
+      { transform: 'translate(calc(-50% + ' + dx * 0.5 + 'px), calc(-50% + ' + dy * 0.45 + 'px)) scale(1)', opacity: 1, offset: 0.55 },
+      { transform: 'translate(calc(-50% + ' + dx + 'px), calc(-50% + ' + dy + 'px)) scale(0.55)', opacity: 0 }
+    ], { duration: 1000, easing: 'cubic-bezier(.3,.7,.3,1)' });
+    an.onfinish = function () { chip.remove(); };
+    if (income) {                                                       // a small burst of coins
+      for (var i = 0; i < 14; i++) {
+        var d = el('i', 'spark'); d.style.left = from.x + 'px'; d.style.top = from.y + 'px'; document.body.appendChild(d);
+        var ang = (i / 14) * 6.283 + Math.random() * 0.4, dist = 50 + Math.random() * 60;
+        if (d.animate) {
+          var a2 = d.animate([{ transform: 'translate(-50%,-50%) scale(1)', opacity: 1 }, { transform: 'translate(calc(-50% + ' + Math.cos(ang) * dist + 'px), calc(-50% + ' + (Math.sin(ang) * dist - 20) + 'px)) scale(0.2)', opacity: 0 }], { duration: 700 + Math.random() * 300, easing: 'ease-out' });
+          a2.onfinish = (function (n) { return function () { n.remove(); }; })(d);
+        } else d.remove();
+      }
+    }
+  }
+  var seenIds = null;
+  function watchNewEntries() {
+    var list = K.getEntries ? K.getEntries() : [];
+    if (!seenIds) { seenIds = {}; list.forEach(function (e) { seenIds[e.id] = 1; }); return; }
+    var fresh = list.filter(function (e) { return e && !e.synthetic && !seenIds[e.id]; });
+    list.forEach(function (e) { seenIds[e.id] = 1; });
+    var mine = fresh.filter(function (e) { return e.ts > Date.now() - 180000 && String(e.desc || '').indexOf('🔁') !== 0; }).slice(0, 2);
+    mine.forEach(function (e, i) {
+      var inc = K.isIncome && K.isIncome(e);
+      setTimeout(function () { flyChip((inc ? '+ ' : '− ') + K.money(e.amount), inc); feedback(inc ? 'income' : 'save'); }, i * 350);
+    });
+  }
+  (function watchToast() {
+    var t = $('toast'); if (!t || !window.MutationObserver) return;
+    new MutationObserver(function () { if (!t.hidden && /^Deleted/.test(t.textContent || '')) feedback('delete'); }).observe(t, { childList: true, characterData: true, subtree: true });
+  })();
+
+  /* ---------- friendlier empty screens ---------- */
+  function decorateEmpty() {
+    document.querySelectorAll('.empty').forEach(function (e) {
+      if (e.querySelector('.empty-ill') || e.closest('[hidden]')) return;
+      var t = (e.textContent || '').toLowerCase(), ic = '📭', cta = false;
+      if (t.indexOf('nothing logged') >= 0 || t.indexOf('no expenses') >= 0) { ic = '🧾'; cta = true; }
+      else if (t.indexOf('udhaar') >= 0 || t.indexOf('lent') >= 0) ic = '🤝';
+      else if (t.indexOf('bank') >= 0) ic = '🏦';
+      else if (t.indexOf('wallet') >= 0) ic = '👛';
+      else if (t.indexOf('trip') >= 0) ic = '✈️';
+      else if (t.indexOf('invest') >= 0) ic = '📈';
+      var ill = el('div', 'empty-ill', ic); e.insertBefore(ill, e.firstChild);
+      if (cta) {
+        var b = el('button', 'primary small', '+ Add a spend'); b.type = 'button';
+        b.addEventListener('click', function () { var a = $('amt'); if (a) { a.scrollIntoView({ behavior: 'smooth', block: 'center' }); setTimeout(function () { a.focus(); }, 300); } });
+        e.appendChild(b);
+      }
+    });
   }
 
   /* ---------- home: "How am I doing?" card, pace colour on the total card ---------- */
@@ -547,17 +680,18 @@
   var scheduled = false;
   function refresh() {
     scheduled = false;
-    syncNav(); decorateRows(); renderAnswerCard();
+    syncNav(); decorateRows(); decorateEmpty(); renderAnswerCard();
   }
   function schedule() { if (!scheduled) { scheduled = true; raf(refresh); } }
 
   buildNav();
+  runSplash();
   snapLogo();
   tuckExtras();
   attachSuggest($('desc'), $('amt'));
   attachSuggest($('trip-exp-desc'), $('trip-exp-amt'));
   document.addEventListener('kharcha:render', function () {
-    pool = null; countUpTotal(); renderHeroExtras(); decorateRows(); syncNav(); renderAnswerCard();
+    pool = null; countUpTotal(); renderHeroExtras(); decorateRows(); syncNav(); renderAnswerCard(); watchNewEntries(); decorateEmpty();
     var m0 = $('main'); if (m0 && !m0.hidden) setTimeout(function () { showTour(false); }, 900);
   });
   var main = $('main');
