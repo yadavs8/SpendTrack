@@ -366,6 +366,36 @@
   }
   // Draws the rupee tile with a pair of feathered wings. All numbers are in "logo units" (the tile is 36 wide).
   // st: dy (up is negative), scale, alpha, phase (flap clock, radians), amp (flap degrees), open (1 spread, 0 folded)
+  function flameShape(ctx, x, y, w, h, sway, inner) {   // one flame tongue, base at (x,y), pointing up
+    var g = ctx.createLinearGradient(0, y, 0, y - h);
+    g.addColorStop(0, inner ? '#fff2a8' : '#ff5a00'); g.addColorStop(0.55, inner ? '#ffd23c' : '#ff9a1f'); g.addColorStop(1, inner ? 'rgba(255,210,60,0)' : 'rgba(255,120,0,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(x - w, y);
+    ctx.quadraticCurveTo(x - w * 0.9, y - h * 0.55, x + sway, y - h);
+    ctx.quadraticCurveTo(x + w * 0.9, y - h * 0.5, x + w, y); ctx.closePath(); ctx.fill();
+  }
+  function drawFire(ctx, T, st) {                     // flames licking round the tile + rising embers
+    var p = st.phase, boost = 1 + Math.max(0, st.amp - 9) / 14, a = Math.max(0, Math.min(1, st.alpha));
+    ctx.save(); ctx.globalAlpha = a;
+    var base = T / 2 + 5, n = 7;
+    for (var i = 0; i < n; i++) {                     // bottom edge
+      var x = -T / 2 + 4 + i * (T - 8) / (n - 1), f = 0.5 + 0.5 * Math.sin(p * 0.9 + i * 1.9), h = (7 + 8 * f + (i % 2 ? 3 : 0)) * boost;
+      flameShape(ctx, x, base + 3, 4.6, h + 8, Math.sin(p * 0.7 + i) * 2.2, false);
+      flameShape(ctx, x, base + 3, 2.4, (h + 8) * 0.6, Math.sin(p * 0.7 + i) * 1.4, true);
+    }
+    [-1, 1].forEach(function (side) {                 // up the sides
+      for (var j = 0; j < 3; j++) {
+        var yy = base - 6 - j * 9, f2 = 0.5 + 0.5 * Math.sin(p * 1.1 + j * 2.3 + side);
+        ctx.save(); ctx.translate(side * (T / 2 - 0.5), yy); ctx.rotate(side * (0.9 + 0.2 * f2));
+        flameShape(ctx, 0, 0, 2.6, 8 + 5 * f2, 0, false); ctx.restore();
+      }
+    });
+    for (var k = 0; k < 8; k++) {                     // embers
+      var life = ((p * 0.18 + k * 0.137) % 1), ex = Math.sin(k * 5.1 + p * 0.3) * (T / 2 + 2), ey = base + 2 - life * (T + 16) * boost;
+      ctx.globalAlpha = a * (1 - life) * 0.9; ctx.fillStyle = k % 2 ? '#ffd23c' : '#ff7a00';
+      ctx.beginPath(); ctx.arc(ex, ey, 1.1 * (1 - life * 0.5), 0, 6.3); ctx.fill();
+    }
+    ctx.restore();
+  }
   function drawWinged(ctx, img, W, H, unit, st, feathers) {
     var T = 36, col = accentColor();
     ctx.clearRect(0, 0, W * unit, H * unit);
@@ -396,6 +426,7 @@
     ctx.beginPath();
     if (ctx.roundRect) ctx.roundRect(-T / 2, -T / 2, T, T, 11); else ctx.rect(-T / 2, -T / 2, T, T);
     ctx.save(); ctx.clip(); ctx.drawImage(img, -T / 2, -T / 2, T, T); ctx.restore();
+    drawFire(ctx, T, st);
     ctx.restore();
   }
   function ease(t) { return t < 0 ? 0 : t > 1 ? 1 : t * t * (3 - 2 * t); }
@@ -467,7 +498,7 @@
       raf(frame);
     };
     img.onerror = leave;
-    img.src = 'logo-mark.png?v=73';
+    img.src = 'logo-mark.png?v=74';
     setTimeout(leave, 4200);                                        // never keeps you waiting
   }
 
