@@ -75,6 +75,9 @@ object ServiceLocator {
         )
     }
 
+    /** Application context once [init] has run (null before), for code that has none of its own. */
+    fun contextOrNull(): Context? = appContext
+
     fun init(context: Context) {
         if (appContext == null) {
             appContext = context.applicationContext
