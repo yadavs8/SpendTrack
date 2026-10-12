@@ -336,3 +336,7 @@ i.hm-cell { width: 14px; aspect-ratio: 1; display: inline-block; }
 i.hm-cell.bill { width: 14px; aspect-ratio: 1; border-radius: 4px; } .bills-cal { margin-bottom: 12px; }
 .sa-a.paid { color: #059669; } .sa-a.late { color: #dc2626; } .sa-a.soon { color: #b45309; }
 .rep-box { max-width: 24rem; padding: 14px; } .rep-img { width: 100%; max-height: 62vh; object-fit: contain; border-radius: 14px; margin-bottom: 12px; background: #0f172a; }
+
+/* v72: receipts */
+.receipt-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 14px; }
+.receipt-l { flex: 1 1 100%; font-size: 0.84rem; font-weight: 600; color: var(--muted); }
