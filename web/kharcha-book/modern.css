@@ -348,3 +348,6 @@ i.hm-cell.bill { width: 14px; aspect-ratio: 1; border-radius: 4px; } .bills-cal 
 .cc-day { font-size: 0.74rem; font-weight: 800; letter-spacing: 0.06em; color: var(--muted); margin-top: 6px; text-transform: uppercase; }
 .cc-chip { border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 999px; padding: 7px 14px; font: 600 0.84rem var(--f-body, inherit); cursor: pointer; }
 .cc-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.in-split { display: grid; gap: 8px; margin: 4px 0 12px; }
+.in-split-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 0.84rem; }
+.in-chip { background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; font-variant-numeric: tabular-nums; }

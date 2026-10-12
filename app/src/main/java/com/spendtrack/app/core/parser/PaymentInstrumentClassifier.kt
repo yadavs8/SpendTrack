@@ -32,13 +32,13 @@ object PaymentInstrumentClassifier {
     private val DEBIT_CARD = Regex("""(?i)\bdebit\s*card\b|\batm\s*cum\s*debit\b|\brupay\s*debit\b""")
     private val POS_ECOM = Regex("""(?i)\b(?:pos|ecom|e-com)\b""")
     private val CARD = Regex("""(?i)\bcard\b""")
-    private val BANK_ACCOUNT = Regex("""(?i)\b(?:a/c|acct|account|savings)\b|\b(?:avl|avail(?:able)?)\.?\s*bal""")
+    private val BANK_ACCOUNT = Regex("""(?i)\b(?:a/c|acct?|account|savings)\b|\b(?:avl|avail(?:able)?)\.?\s*bal""")
     private val UPI = Regex("""(?i)\bupi\b|[a-z0-9._-]{2,}@[a-z]{2,}\b|\bvpa\b""")
     private val NET_BANKING = Regex("""(?i)\b(?:neft|imps|rtgs|nach|ecs|net\s*banking|netbanking|internet\s*banking|auto[- ]?debit|si\s+debit|standing\s+instruction)\b""")
     private val WALLET = Regex("""(?i)\bwallet\b|\bamazon\s*pay\s*balance\b|\bpaytm\s*balance\b""")
 
     private val CARD_LAST4 = Regex("""(?i)\bcard\b[^0-9]{0,25}?(?:ending\s*(?:in|with)?\s*|no\.?\s*|[x*]+\s*)(\d{4})\b|\bcard\s+(\d{4})\b|\bcc\s*(?:no\.?|ending|xx|\*+)\s*(\d{4})\b""")
-    private val ACCOUNT_LAST4 = Regex("""(?i)(?:a/c|acct|account)\s*(?:no\.?)?\s*[*xX]{0,12}(\d{3,6})\b""")
+    private val ACCOUNT_LAST4 = Regex("""(?i)(?:a/c|acct?|account)\s*(?:no\.?)?\s*[*xX]{0,12}(\d{3,6})\b""")
 
     private val BANKS = listOf(
         "HDFC" to Regex("""(?i)\bhdfc"""),

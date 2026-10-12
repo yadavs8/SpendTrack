@@ -22,7 +22,7 @@ object IncomeParser {
 
     // Our account / card is the one credited.
     private val OUR_ACCOUNT_CREDITED = Regex(
-        """(?i)(?:a/c|acct|account|wallet)\b[^.;]{0,45}?\b(?:is\s+|has\s+been\s+|was\s+)?credited\b|\bcredited\s+(?:to|in|into)\s+(?:your\s+)?(?:a/c|acct|account|wallet|bank)|\b(?:deposited|added)\s+(?:to|in|into)\s+(?:your\s+)?(?:a/c|acct|account|wallet)|\bcredited\s*(?:with|by|for|:)?\s*(?:rs\.?|inr|₹)"""
+        """(?i)(?:a/c|acct?|account|wallet)\b[^.;]{0,45}?\b(?:is\s+|has\s+been\s+|was\s+)?credited\b|\bcredited\s+(?:to|in|into)\s+(?:your\s+)?(?:a/c|acct?|account|wallet|bank)|\b(?:deposited|added)\s+(?:to|in|into)\s+(?:your\s+)?(?:a/c|acct?|account|wallet)|\bcredited\s*(?:with|by|for|:)?\s*(?:rs\.?|inr|₹)"""
     )
     // App notifications: "Rahul paid you ₹500", "You received ₹500 from Rahul".
     private val RECEIVED_BY_YOU = Regex("""(?i)\b(?:paid|sent)\s+you\b|\byou(?:'ve| have)?\s+received\b|\breceived\s+(?:rs\.?|inr|₹)|\bmoney\s+received\b""")
@@ -46,7 +46,8 @@ object IncomeParser {
         Regex("""(?i);\s*([A-Za-z][A-Za-z0-9 .'&-]{1,40}?)\s+debited\b"""),                         // ICICI: "...credited ...; RAHUL debited"
         Regex("""(?i)\bfrom\s+(?:vpa\s+)?([A-Za-z][A-Za-z0-9 .'&-]{1,40}?)(?=\s+(?:on|via|ref|upi|utr|imps|neft|to|in|a/c|acct|is|has)\b|[.;,(]|\s*$)"""),
         Regex("""(?i)\bby\s+(?!upi\b|neft\b|imps\b|rtgs\b|transfer\b|cash\b)([A-Za-z][A-Za-z0-9 .'&-]{1,40}?)(?=\s+(?:on|via|ref|upi|utr|imps|neft|is|has)\b|[.;,(]|\s*$)"""),
-        Regex("""(?i)\b(?:upi|imps|neft)[/-](?:cr[/-])?\d{6,}[/-]([A-Za-z][A-Za-z .]{1,30})""")  // "Info: UPI/CR/123456/RAHUL"
+        Regex("""(?i)\b(?:upi|imps|neft)[/-](?:cr[/-])?\d{6,}[/-]([A-Za-z][A-Za-z .]{1,30})"""),  // "Info: UPI/CR/123456/RAHUL"
+        Regex("""(?i)\b(?:nach|ach|ecs)\s*[*/-]\s*([A-Za-z][A-Za-z0-9 .&']{2,40}?)(?=\s*[*/-]|\.\s|\s*$)""")  // "Info: NACH*IRCON INTERNATIONAL LTD*DIVIDEND"
     )
     private val PAYER_STOP = Regex("""(?i)^(?:your|you|a/c|account|acct|bank|upi|vpa|the|rs|inr|self)\b""")
     private val VPA = Regex("""\b([a-zA-Z0-9.\-_]{2,64}@[a-zA-Z]{2,32})\b""")

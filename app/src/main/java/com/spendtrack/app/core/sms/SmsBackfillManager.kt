@@ -83,12 +83,19 @@ object SmsBackfillManager {
                         com.spendtrack.app.core.automation.AutomationRunner.onCardPayment(it)
                     }
 
-                        val parsed = TransactionParser.parseAny(
+                    val parsed = TransactionParser.parseAny(
                         title = address,
                         text = body,
                         sourcePackage = null,
                         timestamp = date
-                    ) ?: continue
+                    )
+                    if (parsed == null) {
+                        // Old messages are kept quietly; only the last two days are announced.
+                        com.spendtrack.app.core.notification.MissedMessages.noteIfMoney(
+                            appContext, address, body, date, notify = date > System.currentTimeMillis() - 2L * 24 * 3600 * 1000
+                        )
+                        continue
+                    }
 
                     processedCount++
                     val result = ServiceLocator.transactionRepository.ingestTransaction(parsed)

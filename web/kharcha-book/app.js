@@ -3496,6 +3496,37 @@
   });
 
   /* ---------- Incomings View Rendering ---------- */
+  // Where this month's credits landed (all of them go to your main bank; only own transfers reach the other) and what they were.
+  function renderIncomeSplit(daysBox, list) {
+    var KL = window.KharchaLedger;
+    if (!KL || !list.length) return;
+    var box = el('div', 'in-split'); box.id = 'inc-split';
+    var accts = loadBank();
+    if (accts.length) {
+      var map = loadJsonObj(ACCTMAP_KEY), rules = loadRules(), pid = primaryAcctId(accts), own = loadOwn(), by = {};
+      list.forEach(function (e) {
+        var id = (isBankIn(e) ? KL.routeAccount(e, accts, map, rules, pid, own) : null) || 'x';
+        by[id] = (by[id] || 0) + paise(e.amount);
+      });
+      var row = el('div', 'in-split-row'); row.appendChild(el('b', null, '🏦 Credited to'));
+      Object.keys(by).forEach(function (id) {
+        var a = accts.filter(function (x) { return x.id === id; })[0];
+        row.appendChild(el('span', 'in-chip', (a ? a.name : 'Cash / other') + ' ' + money(by[id] / 100)));
+      });
+      box.appendChild(row);
+    }
+    var kinds = [['💼 Salary', /💼|salary/i], ['👵 Family', /👵|withdrawn from mother|pension/i], ['📈 Dividend', /dividend/i], ['💹 Interest', /interest/i], ['🎁 Cashback', /cashback/i]], tot = {}, other = 0;
+    list.forEach(function (e) {
+      var k = kinds.filter(function (x) { return x[1].test(e.desc || ''); })[0];
+      if (k) tot[k[0]] = (tot[k[0]] || 0) + paise(e.amount); else other += paise(e.amount);
+    });
+    var row2 = el('div', 'in-split-row'); row2.appendChild(el('b', null, '🧾 From'));
+    kinds.forEach(function (k) { if (tot[k[0]]) row2.appendChild(el('span', 'in-chip', k[0] + ' ' + money(tot[k[0]] / 100))); });
+    if (other) row2.appendChild(el('span', 'in-chip', '💰 Other ' + money(other / 100)));
+    box.appendChild(row2);
+    daysBox.appendChild(box);
+  }
+
   function renderIncomingsView(monthIncomings) {
     var totalInc = sumRupees(monthIncomings);
     var salaries = monthIncomings.filter(isSalary).reduce(function (s, e) { return s + paise(e.amount); }, 0) / 100;
@@ -3515,6 +3546,7 @@
     var daysBox = $('income-days');
     if (!daysBox) return;
     daysBox.textContent = '';
+    renderIncomeSplit(daysBox, monthIncomings);
 
     if (!monthIncomings.length) {
       var em = el('div', 'empty');

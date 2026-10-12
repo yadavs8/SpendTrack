@@ -23,6 +23,7 @@ class QuickActionReceiver : BroadcastReceiver() {
         const val ACTION_NOTIFICATION_DISMISSED = "com.spendtrack.app.ACTION_NOTIFICATION_DISMISSED"
         const val ACTION_REPROMPT_NUDGE = "com.spendtrack.app.ACTION_REPROMPT_NUDGE"
         const val ACTION_NOT_INCOME = "com.spendtrack.app.ACTION_NOT_INCOME"
+        const val ACTION_LOG_MISSED = "com.spendtrack.app.ACTION_LOG_MISSED"
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -67,6 +68,11 @@ class QuickActionReceiver : BroadcastReceiver() {
                         NudgeScheduler.cancel(appContext, transactionId)
                         ExpensePromptNotifier.dismiss(appContext, transactionId)
                         ServiceLocator.cloudSyncRepository.syncPending()
+                    }
+                    ACTION_LOG_MISSED -> {
+                        // A bank message the parser could not read, filed by the user's choice.
+                        val asIncome = intent.getStringExtra(com.spendtrack.app.core.notification.MissedMessages.EXTRA_KIND) == com.spendtrack.app.core.notification.MissedMessages.KIND_INCOME
+                        com.spendtrack.app.core.notification.MissedMessages.log(appContext, transactionId, asIncome)
                     }
                     ACTION_NOT_INCOME -> {
                         // "That wasn't income" (e.g. money back from a friend for a shared bill):

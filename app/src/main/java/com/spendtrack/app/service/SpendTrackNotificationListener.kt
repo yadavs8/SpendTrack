@@ -100,7 +100,14 @@ class SpendTrackNotificationListener : NotificationListenerService() {
                     text = fullText,
                     sourcePackage = packageName,
                     timestamp = sbn.postTime
-                ) ?: return@launch
+                )
+                if (parsed == null) {
+                    // A bank message the parser could not read must not vanish: keep it and ask.
+                    if (packageName in TransactionParser.MESSAGING_PACKAGES || packageName.contains("bank", ignoreCase = true)) {
+                        com.spendtrack.app.core.notification.MissedMessages.noteIfMoney(applicationContext, title, cardText, sbn.postTime)
+                    }
+                    return@launch
+                }
 
                 SafeLogger.i("Parsed transaction from notification ($packageName): Amount=${parsed.amount}, Type=${parsed.transactionType}")
 

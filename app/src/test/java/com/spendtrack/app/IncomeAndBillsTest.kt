@@ -37,6 +37,33 @@ class IncomeAndBillsTest {
         assertEquals("664409999999", r.upiReference)
     }
 
+    @Test fun iciciDividendCredit_acc_wording_throughSmsApp() {
+        val text = "ICICI Bank Acc XX602 credited:Rs. 161.00 on 12-Oct-26. Info: NACH*IRCON INTERNATIONAL LTD*DIVIDEND. Avl Bal Rs 50,161.00"
+        // As a notification from the SMS app (the strictest path) and as a raw SMS.
+        for (pkg in listOf("com.google.android.apps.messaging", null)) {
+            val r = TransactionParser.parseAny("ICICIB", text, pkg)
+            assertNotNull("path $pkg", r); r!!
+            assertEquals(TransactionType.INCOME, r.transactionType)
+            assertEquals(161.0, r.amount, 0.01)
+            assertEquals("DIVIDEND", r.incomeKind)
+            assertEquals("IRCON INTERNATIONAL LTD", r.merchantRaw)
+        }
+    }
+
+    @Test fun accWording_debitStillAnExpense() {
+        val r = TransactionParser.parseAny("ICICIB", "ICICI Bank Acc XX602 debited Rs. 90.00 on 12-Oct-26 Info: UPI/123456789012/ZOMATO. Avl Bal Rs 500")
+        assertNotNull(r); assertEquals(TransactionType.EXPENSE, r!!.transactionType)
+    }
+
+    @Test fun unreadableMoneyMessagesAreNeverSilent() {
+        val odd = "A/c XX602: Rs 250.00 deposit received via cheque clearing on 12-Oct-26"
+        assertNull(TransactionParser.parseAny("ICICIB", odd))
+        assertTrue(com.spendtrack.app.core.notification.MissedMessages.looksLikeMoney(odd, "ICICIB"))
+        assertFalse(com.spendtrack.app.core.notification.MissedMessages.looksLikeMoney("Your OTP is 123456. Rs 500 will be debited from A/c XX602", "ICICIB"))
+        assertFalse(com.spendtrack.app.core.notification.MissedMessages.looksLikeMoney("Flat Rs 500 off offer on your A/c XX602 shopping", "ICICIB"))
+        assertFalse(com.spendtrack.app.core.notification.MissedMessages.looksLikeMoney("See you at 5, I sent you Rs 200", "Rahul"))
+    }
+
     @Test fun gpayPaidYou() {
         val r = IncomeParser.parse("Google Pay", "Rahul Sharma paid you ₹500", "com.google.android.apps.nbu.paisa.user")
         assertNotNull(r); r!!
