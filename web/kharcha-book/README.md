@@ -132,3 +132,16 @@ The in-app header logo and splash now show a winged ₹ that flaps, lifts off th
 
 ## v75 – Fire removed
 Flames taken off the winged ₹ (back to the v73 look).
+
+## v76 – No more repeated questions, no duplicates, credit card tab
+**Phone (SpendTrack app, needs a fresh install from `main`):**
+- A payment you already entered in Kharcha Book (Family, Personal, a trip…) no longer asks "where should this go?". Matching is by amount and time (±36 h); it is checked when the SMS arrives, before every reminder, every ~30 min in the background and when the app opens, and the notification and its reminders disappear.
+- Known payees are filed by themselves and the notification says where: "🤖 Auto-logged under 🏠 Family". They come from the Auto rules screen (shared with the web app): niece allowance, milk vendor (Family), LIC premium on the 22nd (Investment), small insurance premium on the 16th (Personal), flat EMI.
+- A debit from one of your bank accounts and a credit into another a few minutes apart (even Rs 2, even with no shared reference) is one own transfer: one 🔁 entry, no questions.
+- Once a day the phone reads every bank SMS since the 1st of the month and files anything it missed, through the same rules and duplicate check. Old messages never pop a prompt.
+
+**Kharcha Book (web):**
+- Duplicate check runs every time entries load or refresh: the same payment twice (same SMS text, or a copy without the bank reference) is removed by itself with Undo; likely duplicates are only suggested ("Remove one" / "Keep both"). A row that carries a bank reference is never deleted.
+- Own transfers between your two banks are found from the two bank SMS even when no name is mentioned; the credit side no longer becomes a second, reversed transfer.
+- Auto rules: new built-in rules LIC premium (22nd, ₹5,000) and Insurance premium (16th, up to ₹2,000), added once to your list (delete one and it stays deleted). Rules can have an amount cap and "only near its day".
+- 💳 **Credit card** screen (More > Credit card): what the card owes and what is available (exact from the card SMS "Avl Limit" once you type the limit; otherwise your starting figure + spends − bill payments), usage bar, and every card spend by day for this month / last month / all time.

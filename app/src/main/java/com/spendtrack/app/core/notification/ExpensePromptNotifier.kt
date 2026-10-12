@@ -112,6 +112,47 @@ object ExpensePromptNotifier {
         NotificationManagerCompat.from(context).notify(notificationId, builder.build())
     }
 
+    /**
+     * An expense that was filed without asking (a known payee like the milk vendor or the niece
+     * allowance, an investment, a merchant answered the same way before). It replaces any prompt for
+     * the same payment, says where it went, and tapping it opens the picker to move it.
+     */
+    fun showAutoLogged(context: Context, transaction: TransactionEntity) {
+        ensureChannel(context)
+        val label = labelForDescription(transaction.description)
+        val what = transaction.description?.takeIf { it.isNotBlank() }?.let { stripLabelPrefix(it) }
+            ?: transaction.merchantName?.takeIf { it.isNotBlank() }
+        val notificationId = notificationIdFor(transaction.id)
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(com.spendtrack.app.R.drawable.ic_notification)
+            .setColor(0xFF0B5D75.toInt())
+            .setContentTitle("🤖 Auto-logged under $label")
+            .setContentText("${amountLabel(transaction.amount)}${if (what != null) " · $what" else ""} · ${whenLabel(transaction.dateTime)}")
+            .setContentIntent(pickerIntent(context, transaction.id, notificationId))
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+        NotificationManagerCompat.from(context).notify(notificationId, builder.build())
+    }
+
+    private fun stripLabelPrefix(description: String): String =
+        com.spendtrack.app.core.model.ExpenseScope.stripScope(description).take(60)
+
+    /**
+     * Call after a new payment was ingested: asks if it still needs an answer, otherwise announces
+     * where it was filed. Nothing for transfers, income, refunds and cash withdrawals.
+     */
+    fun announce(context: Context, txn: TransactionEntity, activeTripName: String?) {
+        if (txn.isExcluded || txn.transactionType != com.spendtrack.app.core.model.TransactionType.EXPENSE) return
+        if (txn.needsReview) {
+            show(context, txn, activeTripName)
+            com.spendtrack.app.core.nudge.NudgeScheduler.scheduleFirst(context, txn.id)
+        } else if (txn.isEdited) {
+            showAutoLogged(context, txn)
+        }
+    }
+
     /** Replaces the prompt with a silent confirmation that disappears on its own. */
     fun showLogged(context: Context, transaction: TransactionEntity, label: String) {
         ensureChannel(context)

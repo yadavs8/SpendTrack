@@ -344,4 +344,68 @@ t('bills still to come before payday', () => {
   assert.strictEqual(L.upcomingRules(rules, [{ id: '2', desc: 'Milk', amount: 2400, ts: D(2026, 10, 2) }], NOW, D(2026, 11, 6)).length, 2);
 });
 
+t('LIC on the 22nd and small insurance on the 16th are recognised; look-alikes are not', () => {
+  const rules = L.parseRules(JSON.stringify(L.defaultRules()));
+  const on = (d, day, amount) => L.matchRule(d, rules, { amount, ts: D(2026, 10, day) });
+  assert.strictEqual(on('LIC of India', 22, 5000).scope, 'investment');
+  assert.strictEqual(on('LIC of India', 9, 5000), null);                 // not near its day
+  assert.strictEqual(on('Star Health Insurance Premium', 16, 1800).scope, 'personal');
+  assert.strictEqual(on('Star Health Insurance Premium', 16, 9000), null); // above the cap
+  assert.strictEqual(on('Zomato', 16, 300), null);
+});
+t('new built-in rules are added once, never over the ones you have', () => {
+  const mine = L.parseRules(JSON.stringify([{ id: 'r-emi', name: 'Flat EMI', words: ['emi'], day: 7, amount: 31000, scope: 'personal', acct: 'HDFC' }]));
+  const a = L.seedRules(mine, []);
+  assert.ok(a.rules.some(r => r.id === 'r-lic')); assert.strictEqual(a.rules.filter(r => r.id === 'r-emi')[0].day, 7);
+  const b = L.seedRules(a.rules.filter(r => r.id !== 'r-lic'), a.seeded);   // you deleted LIC: it stays deleted
+  assert.ok(!b.rules.some(r => r.id === 'r-lic'));
+});
+t('duplicates: the same SMS twice goes; two real payments and rows with a bank reference stay', () => {
+  const NOW = D(2026, 10, 11);
+  const raw = 'ICICI Bank Acct XX602 debited for Rs 2.00';
+  const sure = L.findDuplicates([{ id: 'a', amount: 2, desc: 'Sanjeev', raw, refNo: '665', ts: NOW - 60000 }, { id: 'b', amount: 2, desc: 'Sanjeev', raw, ts: NOW - 30000 }], NOW);
+  assert.strictEqual(sure.sure.length, 1); assert.strictEqual(sure.sure[0].drop.id, 'b'); assert.strictEqual(sure.sure[0].keep.id, 'a');
+  const two = L.findDuplicates([{ id: 'a', amount: 90, desc: 'Chai', raw: 'x', refNo: '1', ts: NOW - 60000 }, { id: 'b', amount: 90, desc: 'Chai', raw: 'x', refNo: '2', ts: NOW - 30000 }], NOW);
+  assert.strictEqual(two.sure.length + two.maybe.length, 0);
+  const hand = L.findDuplicates([{ id: 'a', amount: 50, desc: 'Auto', ts: NOW - 60000 }, { id: 'b', amount: 50, desc: '👤 Auto', ts: NOW - 30000 }], NOW);
+  assert.strictEqual(hand.sure.length, 0); assert.strictEqual(hand.maybe.length, 1);
+  const far = L.findDuplicates([{ id: 'a', amount: 50, desc: 'Auto', raw: 'x', ts: NOW - 3600000 }, { id: 'b', amount: 50, desc: 'Auto', raw: 'x', ts: NOW }], NOW);
+  assert.strictEqual(far.sure.length + far.maybe.length, 0);
+  const copyNoRef = L.findDuplicates([{ id: 'a', amount: 450, desc: 'Zomato', refNo: '9', ts: NOW - 60000 }, { id: 'b', amount: 450, desc: 'Zomato', raw: 'SMS', ts: NOW - 20000 }], NOW);
+  assert.strictEqual(copyNoRef.sure.length, 1); assert.strictEqual(copyNoRef.sure[0].drop.id, 'b');
+});
+t('a Rs 2 test transfer between your two banks is one transfer, found without any name', () => {
+  const NOW = D(2026, 10, 11);
+  const pred = { isTransfer: e => /^🔁/.test(e.desc), isExpense: e => e.kind === 'spend', isIncome: e => e.kind === 'income', isCard: () => false, isRule: () => false, route: () => 'i' };
+  const rows = [
+    { id: 'o', kind: 'spend', amount: 2, desc: 'Rahul K', raw: 'ICICI Bank Acct XX602 debited for Rs 2.00 on 11-Oct; UPI:111', ts: NOW - 120000 },
+    { id: 'n', kind: 'income', amount: 2, desc: 'UPI credit', raw: 'HDFC Bank: Rs 2.00 credited to a/c XX749 on 11-10-26. Info: UPI-222', ts: NOW - 100000 }];
+  const r = L.autoTransferPairs(rows, accts2, own, NOW, pred);
+  assert.strictEqual(r.length, 1); assert.strictEqual(r[0].from, 'i'); assert.strictEqual(r[0].to, 'h'); assert.deepStrictEqual(r[0].ids, ['o', 'n']);
+  assert.strictEqual(L.autoTransferPairs([rows[0], Object.assign({}, rows[1], { raw: 'Bank: Rs 2.00 credited' })], accts2, own, NOW, pred).length, 0);
+  assert.strictEqual(L.autoTransferPairs([rows[0], Object.assign({}, rows[1], { ts: NOW - 5400000 })], accts2, own, NOW, pred).length, 0);
+});
+t('the credit leg of a transfer, marked 🔁, does not become a second transfer the other way', () => {
+  const NOW = D(2026, 10, 11);
+  const pred = { isTransfer: e => /^🔁/.test(e.desc), isExpense: () => false, isIncome: () => false, isCard: () => false, isRule: () => false, route: e => (e.id === 'n' ? 'h' : 'i') };
+  const marked = [{ id: 'n', amount: 2, desc: '🔁 UPI credit', raw: 'HDFC Bank: Rs 2.00 credited to a/c XX749', ts: NOW - 1000 }];
+  assert.strictEqual(L.orphanTransfers(marked, [{ ref: 'o', from: 'i', to: 'h', amount: 2, ts: NOW - 5000 }], accts2, own, NOW, pred).length, 0);
+});
+t('credit card: the SMS available limit gives the amount owed; else your starting figure plus spends minus payments', () => {
+  assert.strictEqual(L.parseCardLimit('Rs 450 spent on ICICI Card XX1014 at Zomato. Avl Limit: Rs 1,23,456.78'), 123456.78);
+  assert.strictEqual(L.parseCardLimit('Available credit limit is INR 90000'), 90000);
+  assert.strictEqual(L.parseCardLimit('Rs 450 spent'), null);
+  const card = { kind: 'credit', last4: '1014' };
+  const pred = { onCard: e => /1014/.test(e.desc + (e.raw || '')), isSpend: e => e.kind === 'spend' && !/card bill/i.test(e.desc), isPayment: e => /card bill/i.test(e.desc) };
+  const rows = [
+    { id: 'a', kind: 'spend', amount: 450, desc: 'Zomato XX1014', raw: 'Spent on Card XX1014. Avl Limit: Rs 99,550', ts: 1000 },
+    { id: 'b', kind: 'spend', amount: 550, desc: 'Amazon XX1014', ts: 2000 },
+    { id: 'p', kind: 'spend', amount: 200, desc: 'Card bill payment 1014', ts: 3000 }];
+  const viaSms = L.cardState(rows, card, { limit: 100000 }, pred);
+  assert.strictEqual(viaSms.outstanding, 450 + 550 - 200); assert.strictEqual(viaSms.available, 100000 - 800); assert.strictEqual(viaSms.source, 'sms');
+  const viaBase = L.cardState(rows.map(r => Object.assign({}, r, { raw: undefined })), card, { limit: 100000, base: { ts: 500, outstanding: 5000 } }, pred);
+  assert.strictEqual(viaBase.outstanding, 5000 + 450 + 550 - 200); assert.strictEqual(viaBase.source, 'manual');
+  assert.strictEqual(L.cardState(rows.map(r => Object.assign({}, r, { raw: undefined })), card, {}, pred).outstanding, null);
+});
+
 console.log(n + ' tests passed');

@@ -55,8 +55,10 @@ class MainActivity : FragmentActivity() {
         // Background backfill for missed SMS and self-healing auto-route for investments
         lifecycleScope.launch(Dispatchers.IO) {
             val repaired = ServiceLocator.transactionRepository.repairAndAutoRouteInvestments()
-            val newEntries = SmsBackfillManager.backfillMissedSms(applicationContext)
-            if (repaired > 0 || newEntries > 0) {
+            val newEntries = SmsBackfillManager.backfillMissedSms(applicationContext) +
+                SmsBackfillManager.catchUpMonthIfDue(applicationContext)
+            val answered = runCatching { com.spendtrack.app.core.notification.PromptReconciler.reconcileAll(applicationContext) }.getOrDefault(0)
+            if (repaired > 0 || newEntries > 0 || answered > 0) {
                 ServiceLocator.cloudSyncRepository.syncPending()
                 withContext(Dispatchers.Main) {
                     activeWebView?.evaluateJavascript(

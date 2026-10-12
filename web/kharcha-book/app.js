@@ -605,6 +605,18 @@
     return KL.parseRules(kv.get(RULES_KEY)) || KL.parseRules(JSON.stringify(KL.defaultRules()));
   }
   function saveRules(list) { kv.set(RULES_KEY, JSON.stringify(list)); }
+  // Built-in rules added in a later version (LIC premium, insurance) reach existing users once; deleting one keeps it deleted.
+  function ensureRulesSeeded() {
+    var KL = window.KharchaLedger;
+    if (!KL || !KL.seedRules) return;
+    var cur = KL.parseRules(kv.get(RULES_KEY));
+    if (!cur) return;
+    var seeded = []; try { seeded = JSON.parse(kv.get('kharcha_rules_seeded') || '[]'); } catch (e) {}
+    if (!Array.isArray(seeded)) seeded = [];
+    var r = KL.seedRules(cur, seeded);
+    if (r.rules.length !== cur.length) saveRules(r.rules);
+    if (r.seeded.length !== seeded.length) kv.set('kharcha_rules_seeded', JSON.stringify(r.seeded));
+  }
   function loadJsonObj(k) { try { var o = JSON.parse(kv.get(k) || '{}'); return o && typeof o === 'object' && !Array.isArray(o) ? o : {}; } catch (e) { return {}; } }
   function primaryAcctId(accts) {
     var id = kv.get(PRIMARY_KEY);
@@ -1235,7 +1247,8 @@
     recentSpendsForTrip: recentSpendsForTrip, recurringBills: recurringBills, monthForecast: monthForecast,
     upiPayLink: upiPayLink, settleMessage: settleMessage, whatsappLink: whatsappLink,
     isCashWithdrawal: isCashWithdrawal, cashSummary: cashSummary, unaccountedCashEntry: unaccountedCashEntry,
-    methodBreakdown: methodBreakdown, methodLabel: methodLabel
+    methodBreakdown: methodBreakdown, methodLabel: methodLabel,
+    isCardEntry: isCardEntry, isCardBillEntry: isCardBillEntry, isTransferEntry: isTransferEntry, loadOwn: loadOwn
   };
 
   var TABLE = 'daily_expenses';
@@ -1284,7 +1297,7 @@
      localStorage stays as the offline cache, and is all there is until the v4 SQL has been run. */
   var SHARED_KEYS = ['kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
     'kharcha_active_trip_name', 'kharcha_all_trips_list', 'kharcha_category_budgets', 'kharcha_merchant_memory',
-    'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers', 'kharcha_loans', 'kharcha_wallets', 'kharcha_bank', 'kharcha_cycle', 'kharcha_rules', 'kharcha_acctmap', 'kharcha_primary_acct', 'kharcha_rule_skips', 'kharcha_transfers', 'kharcha_own', 'kharcha_xfer_dismissed', 'kharcha_goal', 'kharcha_receipts'];
+    'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers', 'kharcha_loans', 'kharcha_wallets', 'kharcha_bank', 'kharcha_cycle', 'kharcha_rules', 'kharcha_acctmap', 'kharcha_primary_acct', 'kharcha_rule_skips', 'kharcha_transfers', 'kharcha_own', 'kharcha_xfer_dismissed', 'kharcha_goal', 'kharcha_receipts', 'kharcha_rules_seeded', 'kharcha_card', 'kharcha_dup_dismissed'];
   var SHARED_PREFIXES = ['kharcha_trip_friends_', 'kharcha_trip_budget_'];
   function isSharedKey(k) {
     return SHARED_KEYS.indexOf(k) >= 0 || SHARED_PREFIXES.some(function (p) { return k.indexOf(p) === 0; });
@@ -2832,7 +2845,7 @@
     for (var i = 0; i < state.entries.length && n < 40; i++) {
       var e = state.entries[i];
       if (!e || e.synthetic || e.ts < since || !isExpense(e) || scopeWord(e.desc)) continue;
-      var r = KL.matchRule(e.desc, rules);
+      var r = KL.matchRule(e.desc, rules, { amount: e.amount, ts: e.ts });
       if (!r || String(e.desc).toLowerCase().indexOf(r.name.toLowerCase()) >= 0) continue;
       var nd = shiftScopeDesc(r.name + ' (' + String(e.desc).replace(/\s+/g, ' ').trim() + ')', r.scope);
       try { await store.update(e.id, { amount: e.amount, desc: nd, spent_at: new Date(e.ts).toISOString() }); n++; done[r.name] = (done[r.name] || 0) + 1; } catch (err) { break; }
@@ -2847,8 +2860,10 @@
     var due = KL.dueRules(loadRules(), state.entries, Date.now(), loadJsonObj(SKIPS_KEY));
     var accts = loadBank(), sugg = [];
     if (accts.length > 1) sugg = KL.transferCandidates(state.entries, accts, loadOwn(), Date.now(), loadJsonObj('kharcha_xfer_dismissed'), transferPred(accts)).slice(0, 3);
-    if ((!due.length && !sugg.length) || (state.activeStream || 'spends') !== 'spends') { box.hidden = true; return; }
+    var dups = (state.dupMaybe || []).filter(function (m) { return state.entries.indexOf(m.drop) >= 0 && state.entries.indexOf(m.keep) >= 0; }).slice(0, 2);
+    if ((!due.length && !sugg.length && !dups.length) || (state.activeStream || 'spends') !== 'spends') { box.hidden = true; return; }
     box.hidden = false;
+    dups.forEach(function (m) { box.appendChild(dupSuggestion(m)); });
     sugg.forEach(function (c) { box.appendChild(transferSuggestion(c, accts)); });
     due.slice(0, 3).forEach(function (d) {
       var r = d.rule, row = el('div', 'due-card');
@@ -2906,6 +2921,58 @@
     toast('Balance from your bank SMS: ' + names.join(', '));
   }
 
+  /* ---------- Duplicate check: runs whenever entries load or refresh ---------- */
+  var dupBusy = false;
+  function reAdd(e) {
+    return store.add({ amount: e.amount, desc: e.desc, spent_at: new Date(e.ts).toISOString(), method: e.method || null, kind: e.kind || null, raw_sms: e.raw || null });
+  }
+  // The same payment twice (bank SMS + app notification, a copy without the bank reference, a double tap) is removed by itself, with Undo.
+  // A likely duplicate with nothing from the phone to prove it is only suggested (see renderDue).
+  async function applyDuplicateCheck() {
+    var KL = window.KharchaLedger;
+    if (!KL || !KL.findDuplicates || dupBusy || state.mode !== 'db') return;
+    dupBusy = true;
+    try {
+      var res = KL.findDuplicates(state.entries, Date.now(), 45), gone = [];
+      for (var i = 0; i < res.sure.length; i++) {
+        var d = res.sure[i].drop;
+        try { await store.remove(d.id); gone.push(d); } catch (err) { break; }
+      }
+      var dismissed = loadJsonObj('kharcha_dup_dismissed');
+      state.dupMaybe = res.maybe.filter(function (m) { return !dismissed[m.drop.id]; });
+      if (gone.length) {
+        render();
+        toast('Removed ' + gone.length + ' duplicate ' + (gone.length === 1 ? 'entry' : 'entries') + ' (' + money(gone[0].amount) + ')', function () {
+          Promise.all(gone.map(reAdd)).then(function () { render(); toast('Restored'); }).catch(function () { toast('Could not undo. Try again.'); });
+        });
+      } else renderDue();
+    } catch (err) { console.warn('Kharcha: duplicate check failed', err); }
+    finally { dupBusy = false; }
+  }
+  function tidyUp() { return applyOwnTransfers().then(applyBalanceFromSms, applyBalanceFromSms).then(applyDuplicateCheck, applyDuplicateCheck); }
+  function dupSuggestion(m) {
+    var row = el('div', 'due-card'), txt = el('div', 'due-txt');
+    txt.appendChild(el('b', null, '👯 ' + money(m.drop.amount) + ' may be entered twice'));
+    txt.appendChild(el('span', null, (m.keep.desc || 'Entry') + ' · ' + tFmt.format(m.keep.ts) + ' and ' + tFmt.format(m.drop.ts)));
+    row.appendChild(txt);
+    var rm = el('button', 'primary small', 'Remove one'); rm.type = 'button';
+    rm.addEventListener('click', function () {
+      rm.disabled = true;
+      var gone = m.drop;
+      store.remove(gone.id).then(function () {
+        state.dupMaybe = (state.dupMaybe || []).filter(function (x) { return x !== m; }); render();
+        toast('Duplicate removed', function () { reAdd(gone).then(function () { render(); toast('Restored'); }).catch(function () { toast('Could not undo. Try again.'); }); });
+      }).catch(function () { toast('Could not remove it. Try again.'); render(); });
+    });
+    var keep = el('button', 'ghost', 'Keep both'); keep.type = 'button';
+    keep.addEventListener('click', function () {
+      var d = loadJsonObj('kharcha_dup_dismissed'); d[m.drop.id] = 1; kv.set('kharcha_dup_dismissed', JSON.stringify(d));
+      state.dupMaybe = (state.dupMaybe || []).filter(function (x) { return x !== m; }); renderDue();
+    });
+    row.appendChild(rm); row.appendChild(keep);
+    return row;
+  }
+
   var ownXferBusy = false;
   async function applyOwnTransfers() {
     var KL = window.KharchaLedger, accts = loadBank();
@@ -2925,6 +2992,12 @@
       }
       // 2) New payments to yourself.
       var found = KL.autoOwnTransfers(state.entries, accts, own, Date.now(), pred, refs);
+      // A debit from one of your accounts and a credit into another a few minutes apart: one transfer, found without any name.
+      var taken = {}; found.forEach(function (c) { c.ids.forEach(function (id) { taken[id] = 1; }); });
+      KL.autoTransferPairs(state.entries, accts, own, Date.now(), pred).forEach(function (c) {
+        if (c.ids.some(function (id) { return taken[id] || refs[id]; })) return;
+        found.push(c);
+      });
       // 3) Entries marked 🔁 (by hand or by the phone's notification button) that have no record yet.
       var orphans = KL.orphanTransfers(state.entries, existing.concat(found.map(function (c) { return { ref: c.id, from: c.from, to: c.to, amount: c.amount, ts: c.ts }; })), accts, own, Date.now(), pred);
       // 4) Your own-name credit that mirrors a transfer is the other half of it, not income.
@@ -3386,6 +3459,7 @@
     var bankSec = $('bank-sec');
     var rulesSec = $('rules-sec');
     var insightsSec = $('insights-sec');
+    var cardSec = $('card-sec');
 
     var stream = state.activeStream || 'spends';
     if (spendsView) spendsView.hidden = (stream !== 'spends');
@@ -3401,6 +3475,8 @@
     if (bankSec) bankSec.hidden = (stream !== 'bank');
     if (rulesSec) rulesSec.hidden = (stream !== 'rules');
     if (insightsSec) insightsSec.hidden = (stream !== 'insights');
+    if (cardSec) cardSec.hidden = (stream !== 'card');
+    if (stream === 'card') { try { document.dispatchEvent(new Event('kharcha:card')); } catch (e) {} }
     if (stream === 'insights') { try { document.dispatchEvent(new Event('kharcha:insights')); } catch (e) {} }
     if (stream === 'rules') renderRules();
     if (stream === 'bank') renderBank();
@@ -5475,7 +5551,7 @@
       // Pick up trips/budgets changed on the phone -- unless a local change is still waiting to save.
       if (!kv.timer) await kv.load();
       render();
-      applyOwnTransfers().then(applyBalanceFromSms, applyBalanceFromSms);
+      tidyUp();
     } catch (e) {
       console.warn('Kharcha: background refresh failed', e);
     }
@@ -5573,6 +5649,7 @@
       console.log('Kharcha: store.loadAll completed with ' + state.entries.length + ' entries');
       state.mode = 'db';
       await kv.load();
+      ensureRulesSeeded();
     } catch (err) {
       console.error('Kharcha: store.loadAll failed:', err);
       state.mode = 'error';
@@ -5584,7 +5661,7 @@
     isLoadingApp = false;
     render();
     applyRulesToEntries().then(function () { render(); }).catch(function () {});
-    applyOwnTransfers().then(applyBalanceFromSms, applyBalanceFromSms);
+    tidyUp();
     console.log('Kharcha: render completed successfully, total entries=' + state.entries.length);
   }
 

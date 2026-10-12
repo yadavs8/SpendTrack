@@ -365,7 +365,9 @@
         id: r.id, name: cleanName(r.name), day: day, amount: amt,
         words: (Array.isArray(r.words) ? r.words : []).map(function (w) { return String(w).toLowerCase().replace(/\s+/g, ' ').trim(); }).filter(Boolean).slice(0, 8),
         scope: ['personal', 'family', 'investment'].indexOf(r.scope) >= 0 ? r.scope : 'personal',
-        acct: cleanName(r.acct)
+        acct: cleanName(r.acct),
+        max: Number(r.max) > 0 ? Number(r.max) : 0,          // never more than this (insurance under ₹2,000)
+        strict: !!r.strict                                    // only counts near its day of the month
       };
     });
   }
@@ -373,20 +375,39 @@
     return [
       { id: 'r-emi', name: 'Flat EMI', words: ['emi', 'flat emi', 'home loan'], day: 5, amount: 0, scope: 'personal', acct: 'HDFC' },
       { id: 'r-niece', name: 'Niece allowance', words: ['priyanka mehta', 'priyanka', 'bhabi'], day: 1, amount: 5000, scope: 'family', acct: '' },
-      { id: 'r-milk', name: 'Milk vendor', words: ['jagroop', 'shoshri chand'], day: 1, amount: 0, scope: 'family', acct: '' }
+      { id: 'r-milk', name: 'Milk vendor', words: ['jagroop', 'shoshri chand'], day: 1, amount: 0, scope: 'family', acct: '' },
+      { id: 'r-lic', name: 'LIC premium', words: ['lic', 'lic of india', 'life insurance corporation'], day: 22, amount: 5000, scope: 'investment', acct: '', strict: true },
+      { id: 'r-insurance', name: 'Insurance premium', words: ['insurance premium', 'life insurance', 'health insurance', 'hdfc life', 'icici pru', 'max life', 'star health', 'bajaj allianz', 'tata aia', 'sbi life'], day: 16, amount: 0, max: 2000, scope: 'personal', acct: '', strict: true }
     ];
   }
   function wordIn(text, w) {
     var esc = w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     return new RegExp('(^|[^a-z0-9])' + esc + '([^a-z0-9]|$)').test(text);
   }
-  function matchRule(desc, rules) {
+  // ctx ({ amount, ts }) is optional; with it a rule's amount cap and "near its day" limit are enforced.
+  function nearDay(ts, day, slack) {
+    var d = new Date(ts), dim = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+    return Math.abs(d.getDate() - Math.min(day, dim)) <= slack;
+  }
+  function matchRule(desc, rules, ctx) {
     var d = String(desc || '').toLowerCase();
     for (var i = 0; i < (rules || []).length; i++) {
       var r = rules[i], keys = r.words.concat([r.name.toLowerCase()]);
+      if (ctx) {
+        if (r.max && Number(ctx.amount) > r.max + 0.005) continue;
+        if (r.strict && r.day && ctx.ts && !nearDay(ctx.ts, r.day, 2)) continue;
+      }
       for (var j = 0; j < keys.length; j++) if (keys[j] && wordIn(d, keys[j])) return r;
     }
     return null;
+  }
+  // Rules the user has never seen get added once (new built-in rules like the LIC premium) without touching their own.
+  function seedRules(rules, seeded) {
+    var have = {}; (rules || []).forEach(function (r) { have[r.id] = 1; });
+    var gone = {}; (seeded || []).forEach(function (id) { gone[id] = 1; });
+    var add = defaultRules().filter(function (r) { return !have[r.id] && !gone[r.id]; });
+    defaultRules().forEach(function (r) { gone[r.id] = 1; });   // from now on every built-in rule you do not have is one you removed
+    return { rules: (rules || []).concat(add), seeded: Object.keys(gone) };
   }
   // Rules with a day of the month that are due now and have no matching entry yet this month.
   function dueRules(rules, entries, nowMs, skips) {
@@ -395,7 +416,7 @@
     (rules || []).forEach(function (r) {
       if (!r.day || (skips && skips[r.id] === mk)) return;
       if (now.getDate() < Math.min(r.day, dim)) return;
-      var hits = (entries || []).filter(function (e) { return e && !e.synthetic && matchRule(e.desc, [r]); }).sort(function (a, b) { return b.ts - a.ts; });
+      var hits = (entries || []).filter(function (e) { return e && !e.synthetic && matchRule(e.desc, [r], { amount: e.amount, ts: e.ts }); }).sort(function (a, b) { return b.ts - a.ts; });
       if (hits.some(function (e) { return e.ts >= start; })) return;
       out.push({ rule: r, amount: r.amount || (hits[0] ? hits[0].amount : 0), monthKey: mk });
     });
@@ -474,7 +495,7 @@
       if (!to) { var others = accts.filter(function (a) { return a.id !== from; }); if (others.length === 1) to = others[0].id; }
       if (!from || !to || from === to) return;
       // A second copy of the same payment (SMS and notification, different refs) hides with the first and adds no second transfer.
-      var twin = out.filter(function (o) { return o.from === from && o.to === to && toPaise(o.amount) === toPaise(e.amount) && Math.abs(o.ts - e.ts) <= 600000; })[0];
+      var twin = out.filter(function (o) { return ((o.from === from && o.to === to) || (o.from === to && o.to === from)) && toPaise(o.amount) === toPaise(e.amount) && Math.abs(o.ts - e.ts) <= 600000; })[0];
       if (twin) { twin.ids.push(e.id); return; }
       out.push({ id: e.id, amount: e.amount, ts: e.ts, from: from, to: to, ids: [e.id], reason: 'Sent to yourself' });
     });
@@ -493,8 +514,9 @@
       var to = ownAccountFor(e.desc, own, accts);
       if (!to) { var others = accts.filter(function (a) { return a.id !== from; }); if (others.length === 1) to = others[0].id; }
       if (!from || !to || from === to) return;
-      var twin = out.filter(function (o) { return o.from === from && o.to === to && toPaise(o.amount) === toPaise(e.amount) && Math.abs(o.ts - e.ts) <= 600000; })[0] ||
-        (transfers || []).filter(function (t) { return t.from === from && t.to === to && toPaise(t.amount) === toPaise(e.amount) && Math.abs(t.ts - e.ts) <= 600000; })[0];
+      // The other leg of a transfer (the credit side, marked 🔁 too) runs the opposite way: it is the same transfer, not a second one.
+      var sameMove = function (o) { return ((o.from === from && o.to === to) || (o.from === to && o.to === from)) && toPaise(o.amount) === toPaise(e.amount) && Math.abs(o.ts - e.ts) <= 600000; };
+      var twin = out.filter(sameMove)[0] || (transfers || []).filter(sameMove)[0];
       if (twin) return;
       out.push({ id: e.id, amount: e.amount, ts: e.ts, from: from, to: to, ids: [e.id] });
     });
@@ -568,7 +590,103 @@
     return ids.indexOf(primaryId) >= 0 ? primaryId : (ids[0] || null);
   }
 
+  /* ---------- duplicates ----------
+     The same payment can reach Kharcha Book twice: the bank SMS and the app notification, a second copy without the bank
+     reference, or two taps on Save. A "sure" duplicate is dropped automatically (the entry without a bank reference goes);
+     a "maybe" (same amount and text a minute apart, nothing from the phone to prove it) is only suggested. */
+  function dupText(desc) {
+    return String(desc || '').replace(/^\s*(?:[\u{1F3E0}\u{1F464}\u{1F4C8}\u{1F528}\u{1F501}✈️]\s*)+/u, '').replace(/^[^:]{0,40}:\s*(?=.)/, function (m) { return /trip|goa|[a-z]/i.test(m) && m.length < 30 ? '' : m; })
+      .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  }
+  function richness(e) { return (e.refNo ? 4 : 0) + (e.raw ? 2 : 0) + (/^\s*[\u{1F3E0}\u{1F464}\u{1F4C8}\u{1F528}\u{1F501}✈]/u.test(e.desc || '') ? 1 : 0); }
+  function findDuplicates(entries, nowMs, windowDays) {
+    var since = nowMs - (windowDays || 45) * 86400000;
+    var list = (entries || []).filter(function (e) { return e && !e.synthetic && e.ts >= since; }).sort(function (a, b) { return a.ts - b.ts; });
+    var dropped = {}, sure = [], maybe = [];
+    for (var i = 0; i < list.length; i++) {
+      var a = list[i]; if (dropped[a.id]) continue;
+      for (var j = i + 1; j < list.length; j++) {
+        var b = list[j]; if (dropped[b.id] || dropped[a.id]) continue;
+        if (b.ts - a.ts > 180000) break;
+        if (toPaise(a.amount) !== toPaise(b.amount)) continue;
+        if (a.refNo && b.refNo && a.refNo !== b.refNo) continue;           // two different bank references = two real payments
+        var sameRaw = a.raw && b.raw && String(a.raw).replace(/\s+/g, ' ').trim() === String(b.raw).replace(/\s+/g, ' ').trim();
+        var ta = dupText(a.desc), tb = dupText(b.desc), sameText = ta && ta === tb;
+        var phone = !!(a.refNo || b.refNo || a.raw || b.raw);
+        var keep = richness(b) > richness(a) ? b : a, drop = keep === a ? b : a;
+        if (sameRaw || (sameText && phone && b.ts - a.ts <= 120000)) {
+          if (drop.refNo) maybe.push({ keep: keep, drop: drop });          // never delete a row that carries the bank reference
+          else { dropped[drop.id] = 1; sure.push({ keep: keep, drop: drop }); }
+        } else if (sameText) {
+          maybe.push({ keep: keep, drop: drop });
+        }
+      }
+    }
+    return { sure: sure, maybe: maybe };
+  }
+
+  /* Money that left one of your accounts and arrived in another a few minutes apart is ONE own transfer, even when the
+     two bank messages share no reference and name nobody. Both messages must name (by last digits) two different accounts of yours. */
+  function accountsInRaw(raw, own, accts) {
+    var out = [];
+    (own && own.banks || []).forEach(function (b) { var a = acctByKey(accts, b.key); if (a && hasDigits(String(raw || ''), b.last4) && out.indexOf(a.id) < 0) out.push(a.id); });
+    return out;
+  }
+  function autoTransferPairs(entries, accts, own, nowMs, pred) {
+    if (!own || accts.length < 2) return [];
+    var since = nowMs - 14 * 86400000, used = {}, out = [];
+    var list = (entries || []).filter(function (e) { return e && !e.synthetic && e.ts >= since && !pred.isTransfer(e) && e.raw; });
+    var outs = list.filter(function (e) { return pred.isExpense(e) && !pred.isCard(e) && !pred.isRule(e); });
+    var ins = list.filter(function (e) { return pred.isIncome(e) && !/salary|pension|mother|withdrawn/i.test(e.desc || ''); });
+    outs.forEach(function (e) {
+      var from = sourceAccountFromRaw(e.raw, own, accts) || pred.route(e);
+      if (!from) return;
+      var x = ins.filter(function (i) {
+        if (used[i.id] || toPaise(i.amount) !== toPaise(e.amount) || Math.abs(i.ts - e.ts) > 900000) return false;
+        return accountsInRaw(i.raw, own, accts).some(function (id) { return id !== from; });
+      })[0];
+      if (!x) return;
+      var to = accountsInRaw(x.raw, own, accts).filter(function (id) { return id !== from; })[0];
+      if (!to || used[e.id]) return;
+      used[e.id] = 1; used[x.id] = 1;
+      out.push({ id: e.id, amount: e.amount, ts: e.ts, from: from, to: to, ids: [e.id, x.id], reason: 'Left one of your accounts and arrived in another' });
+    });
+    return out;
+  }
+
+  /* ---------- credit card ----------
+     The card SMS prints what is still available ("Avl Limit Rs 1,23,456"). With the card's total limit that is the exact amount owed;
+     without it, the owed amount is whatever you said it was on a date, plus card spends since, minus bill payments since. */
+  function parseCardLimit(raw) {
+    var t = String(raw || '');
+    var m = t.match(/(?:avl|avail(?:able)?)\.?\s*(?:credit\s*)?(?:limit|lmt|cr\.?\s*limit)\s*(?:is|:|-)?\s*(?:rs\.?|inr|₹)?\s*([\d,]+(?:\.\d+)?)/i);
+    if (!m) return null;
+    var v = Number(m[1].replace(/,/g, ''));
+    return v >= 0 && isFinite(v) ? v : null;
+  }
+  // setup: { limit, base: { ts, outstanding } }
+  function cardState(entries, card, setup, pred) {
+    var mine = (entries || []).filter(function (e) { return e && !e.synthetic && pred.onCard(e, card); });
+    var spends = mine.filter(function (e) { return pred.isSpend(e); });
+    var pays = (entries || []).filter(function (e) { return e && !e.synthetic && pred.isPayment(e, card); });
+    var snap = null;
+    mine.forEach(function (e) { var v = parseCardLimit(e.raw); if (v != null && (!snap || e.ts > snap.ts)) snap = { ts: e.ts, avail: v }; });
+    var limit = setup && setup.limit > 0 ? Number(setup.limit) : 0;
+    var sumAfter = function (list, ts) { return list.filter(function (e) { return e.ts > ts; }).reduce(function (n, e) { return n + toPaise(e.amount); }, 0) / 100; };
+    var out = { limit: limit, outstanding: null, available: null, source: null, since: null, availableSms: snap, spends: spends, payments: pays };
+    if (snap && limit) {
+      out.outstanding = Math.round((limit - snap.avail + sumAfter(spends, snap.ts) - sumAfter(pays, snap.ts)) * 100) / 100;
+      out.source = 'sms'; out.since = snap.ts;
+    } else if (setup && setup.base && setup.base.ts) {
+      out.outstanding = Math.round((Number(setup.base.outstanding) + sumAfter(spends, setup.base.ts) - sumAfter(pays, setup.base.ts)) * 100) / 100;
+      out.source = 'manual'; out.since = setup.base.ts;
+    }
+    if (out.outstanding != null && limit) out.available = Math.round((limit - out.outstanding) * 100) / 100;
+    return out;
+  }
+
   return {
+    findDuplicates: findDuplicates, autoTransferPairs: autoTransferPairs, parseCardLimit: parseCardLimit, cardState: cardState, seedRules: seedRules,
     upcomingRules: upcomingRules, parseOwn: parseOwn, defaultOwn: defaultOwn, cardFor: cardFor, ownAccountFor: ownAccountFor, transferCandidates: transferCandidates, autoOwnTransfers: autoOwnTransfers, orphanTransfers: orphanTransfers, isOwnName: isOwnName, sourceAccountFromRaw: sourceAccountFromRaw,
     parseRules: parseRules, defaultRules: defaultRules, matchRule: matchRule, dueRules: dueRules, routeAccount: routeAccount,
     splitPaise: splitPaise, tripItemLabel: tripItemLabel, tripSettlement: tripSettlement,

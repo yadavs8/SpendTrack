@@ -155,6 +155,35 @@ class CloudSyncRepository(
         }
     }
 
+
+    private val SCOPE_MARKS = listOf("🏠", "👤", "📈", "✈", "🔨", "🔁", "💼", "👵")
+
+    /**
+     * The Kharcha Book row the user already entered by hand for this payment (same amount, within
+     * 36 hours), or null. Rows that came from this phone (same bank/UPI ref) only count once the
+     * user has moved them somewhere (Family / Trip / ...), because an untouched push is just the
+     * phone's own copy. Hand rows already used by an earlier, answered payment of the same amount
+     * are not counted twice.
+     */
+    suspend fun findHandEntry(txn: com.spendtrack.app.data.database.entity.TransactionEntity): SupabaseSyncClient.CloudRow? {
+        val window = 36L * 3600 * 1000
+        val rows = fetchCloudRows(txn.dateTime - window, txn.dateTime + window) ?: return null
+        val ref = (txn.upiReference ?: txn.bankReference)?.take(40)
+        val amount = Math.round((txn.amount - txn.refundedAmount) * 100) / 100.0
+        val sameAmount = rows.filter { r ->
+            Math.abs(r.amount - amount) < 0.01 && (r.kind == null || r.kind == "expense" || r.kind == "transfer")
+        }
+        sameAmount.firstOrNull { r -> r.refNo != null && r.refNo == ref && SCOPE_MARKS.any { r.description.trimStart().startsWith(it) } }
+            ?.let { return it }
+        val byHand = sameAmount.filter { it.refNo == null }
+        if (byHand.isEmpty()) return null
+        val alreadyUsed = transactionDao.findSameAmountNear(txn.amount, txn.dateTime - window, txn.dateTime + window, txn.id)
+            .count { it.syncedToCloud && it.transactionType == com.spendtrack.app.core.model.TransactionType.EXPENSE &&
+                it.upiReference.isNullOrBlank() && it.bankReference.isNullOrBlank() }
+        if (byHand.size <= alreadyUsed) return null
+        return byHand.minByOrNull { Math.abs(it.spentAt - txn.dateTime) }
+    }
+
     /** Signed-in access token, refreshed if needed; null when Cloud Sync is off or signed out. */
     suspend fun freshToken(): String? {
         if (!settingsManager.isCloudSyncEnabled.first()) return null

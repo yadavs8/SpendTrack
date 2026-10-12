@@ -46,7 +46,8 @@ class QuickActionReceiver : BroadcastReceiver() {
                     }
                     ACTION_REPROMPT_NUDGE -> {
                         val txn = repo.getTransactionById(transactionId)
-                        if (txn != null && txn.needsReview && !txn.isExcluded) {
+                        if (txn != null && txn.needsReview && !txn.isExcluded &&
+                            !com.spendtrack.app.core.notification.PromptReconciler.resolveIfEnteredByHand(appContext, txn.id)) {
                             val activeTrip = ServiceLocator.settingsManager.activeTripNameFlow.first()
                             ExpensePromptNotifier.show(appContext, txn, activeTrip)
                             NudgeScheduler.scheduleNext(appContext, txn.id, previousStage = 0)

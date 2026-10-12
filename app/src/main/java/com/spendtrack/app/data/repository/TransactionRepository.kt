@@ -1,5 +1,6 @@
 package com.spendtrack.app.data.repository
 
+import com.spendtrack.app.core.automation.KnownPayees
 import com.spendtrack.app.core.categorizer.CategoryEngine
 import com.spendtrack.app.core.deduplication.DeduplicationEngine
 import com.spendtrack.app.core.model.ExpenseScope
@@ -33,6 +34,8 @@ class TransactionRepository(
     companion object {
         /** A merchant is filed automatically once answered the same way this many times in a row. */
         const val AUTO_FILE_AFTER_ANSWERS = 2
+        /** Shared setting holding Kharcha Book's rules (payee words, day, amount, scope). */
+        const val KNOWN_PAYEES_KEY = "kharcha_rules"
     }
 
     val allExpenses: Flow<List<TransactionEntity>> = transactionDao.getAllExpenses()
@@ -113,6 +116,9 @@ class TransactionRepository(
 
         if (result !is DeduplicationEngine.DeduplicationResult.NewTransaction) return@withLock result
 
+        // Money out of one of your accounts and into another a few minutes apart is one own-account transfer.
+        pairAsOwnTransfer(result.transaction)?.let { return@withLock DeduplicationEngine.DeduplicationResult.NewTransaction(it) }
+
         when (result.transaction.transactionType) {
             TransactionType.INCOME -> return@withLock DeduplicationEngine.DeduplicationResult.NewTransaction(fileIncome(result.transaction, parsed.incomeKind))
             TransactionType.REFUND -> return@withLock DeduplicationEngine.DeduplicationResult.NewTransaction(fileRefund(result.transaction))
@@ -143,11 +149,25 @@ class TransactionRepository(
         val merchantKey = txn.merchantName ?: txn.merchantVpa
         val rule = if (!merchantKey.isNullOrBlank()) merchantRuleRepository.findMatchingRule(merchantKey) else null
 
+        val knownPayee = KnownPayees.match(
+            txn.merchantName, txn.merchantVpa, raw, txn.amount, txn.dateTime,
+            KnownPayees.parse(runCatching { settingsManager?.sharedValueFlow(KNOWN_PAYEES_KEY)?.first() }.getOrNull())
+        )
         val updated = when {
             ExpenseScope.isSelfPayment(txn.merchantName, txn.merchantVpa, raw, owners) -> txn.copy(
                 transactionType = TransactionType.INTERNAL_TRANSFER,
                 isExcluded = true,
                 needsReview = false,
+                updatedAt = now
+            )
+            knownPayee != null -> txn.copy(
+                description = ExpenseScope.describe(
+                    null, "${knownPayee.name} (${ExpenseScope.stripScope(txn.merchantName ?: txn.merchantVpa ?: "payee")})",
+                    true, knownPayee.scope
+                ),
+                categoryId = if (knownPayee.scope == "investment") "cat_financial" else txn.categoryId,
+                needsReview = false,
+                isEdited = true,
                 updatedAt = now
             )
             ExpenseScope.isInvestment(txn.merchantName, txn.merchantVpa, raw) -> txn.copy(
@@ -168,6 +188,97 @@ class TransactionRepository(
         }
         transactionDao.updateTransaction(updated)
         DeduplicationEngine.DeduplicationResult.NewTransaction(updated)
+    }
+
+
+    // Ids whose "where should this go?" prompt must be removed because they were just paired into a transfer.
+    private val pairedIds = java.util.concurrent.ConcurrentLinkedQueue<String>()
+
+    /** Ids resolved behind the scenes since the last call (so their prompts and reminders can be cleared). */
+    fun drainPairedIds(): List<String> {
+        val out = ArrayList<String>()
+        var id = pairedIds.poll()
+        while (id != null) {
+            out.add(id)
+            id = pairedIds.poll()
+        }
+        return out
+    }
+
+    /**
+     * The debit leg and the credit leg of a transfer between your own bank accounts are separate
+     * messages (often without a shared reference). Same amount, opposite directions, within 15
+     * minutes, and both accounts are yours: the debit leg becomes the one "🔁" entry that Kharcha
+     * Book turns into a balance move, and the credit leg is dropped -- so it is never counted twice
+     * and nobody is asked anything. Returns the updated copy of [txn], or null when it is not a pair.
+     */
+    private suspend fun pairAsOwnTransfer(txn: TransactionEntity): TransactionEntity? {
+        if (txn.transactionType != TransactionType.EXPENSE && txn.transactionType != TransactionType.INCOME) return null
+        if (txn.accountLast4.isNullOrBlank()) return null
+        val own = com.spendtrack.app.core.automation.OwnAccounts.bankLast4s(
+            runCatching { settingsManager?.sharedValueFlow(com.spendtrack.app.core.automation.OwnAccounts.SHARED_KEY)?.first() }.getOrNull()
+        )
+        if (!com.spendtrack.app.core.automation.OwnAccounts.isOwn(txn.accountLast4, own)) return null
+        val window = 15 * 60 * 1000L
+        val other = transactionDao.findSameAmountNear(txn.amount, txn.dateTime - window, txn.dateTime + window, txn.id).firstOrNull { o ->
+            o.transactionType != txn.transactionType &&
+                !o.accountLast4.isNullOrBlank() &&
+                com.spendtrack.app.core.automation.OwnAccounts.isOwn(o.accountLast4, own) &&
+                !com.spendtrack.app.core.automation.OwnAccounts.sameAccount(o.accountLast4, txn.accountLast4)
+        } ?: return null
+
+        val now = System.currentTimeMillis()
+        val debit = if (txn.transactionType == TransactionType.EXPENSE) txn else other
+        val credit = if (txn.transactionType == TransactionType.INCOME) txn else other
+        val debitRef = debit.upiReference ?: debit.bankReference
+        val creditRef = credit.upiReference ?: credit.bankReference
+
+        val newDebit = debit.copy(
+            description = ExpenseScope.describe(debit.merchantName, debit.description, debit.isEdited, ExpenseScope.TRANSFER),
+            needsReview = false,
+            isEdited = true,
+            syncedToCloud = keepSyncedFlagAfterEdit(debit),
+            updatedAt = now
+        )
+        val pushedCredit = credit.syncedToCloud && !creditRef.isNullOrBlank() && creditRef != debitRef
+        val newCredit = credit.copy(
+            transactionType = TransactionType.INTERNAL_TRANSFER,
+            isExcluded = true,
+            needsReview = false,
+            needsCloudDelete = credit.needsCloudDelete || pushedCredit,
+            syncedToCloud = if (pushedCredit) false else credit.syncedToCloud,
+            updatedAt = now
+        )
+        transactionDao.updateTransaction(newDebit)
+        transactionDao.updateTransaction(newCredit)
+        // Only the leg that already existed may have a prompt on screen.
+        pairedIds.add(other.id)
+        pairedIds.add(txn.id)
+        return if (txn.id == debit.id) newDebit else newCredit
+    }
+
+
+    /**
+     * The user already entered this payment in Kharcha Book (Family / Personal / a trip...): take their
+     * answer instead of asking again, and never push our own copy on top of theirs.
+     */
+    suspend fun adoptCloudEntry(transactionId: String, description: String) {
+        val t = transactionDao.getTransactionById(transactionId) ?: return
+        transactionDao.updateTransaction(
+            t.copy(
+                description = description.take(60),
+                needsReview = false,
+                isEdited = true,
+                syncedToCloud = true,
+                updatedAt = System.currentTimeMillis()
+            )
+        )
+    }
+
+    /** Unanswered payments from the last two weeks (what the reconciler checks against Kharcha Book). */
+    suspend fun getRecentUnanswered(): List<TransactionEntity> {
+        val since = System.currentTimeMillis() - 14L * 24 * 3600 * 1000
+        return transactionDao.getNeedsReviewTransactionsSync().filter { it.dateTime >= since && !it.isDemo }
     }
 
     /** Undo an automatically logged income: excluded locally, and removed from Kharcha Book by ref. */
