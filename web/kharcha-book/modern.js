@@ -63,7 +63,7 @@
     ['My money', [['monthly', '📊', 'Monthly', 'Savings'], ['bank', '🏦', 'Bank', 'Balance, cash'], ['card', '💳', 'Credit card', 'Owed, spends'], ['insights', '✨', 'Insights', 'Week, goals, net worth'], ['wallet', '👛', 'Wallet', 'Amazon Pay'], ['rules', '⚙️', 'Auto rules', 'Payees, monthly bills']]],
     ['People', [['udhaar', '🤝', 'Udhaar', 'Who owes you'], ['settlement', '👵', 'Settle', "Mother's money"]]],
     ['Plans', [['investments', '📈', 'Invest', 'SIPs and savings'], ['projects', '🔨', 'Projects', 'Home work costs']]],
-    ['Account', [['__signout', '🚪', 'Sign out', '']]]
+    ['Account', [['__settings', '⚙️', 'Phone settings', 'SMS access, sync, lock'], ['__signout', '🚪', 'Sign out', '']]]
   ];
   var TITLES = {};
   MORE_GROUPS.forEach(function (g) { g[1].forEach(function (t) { TITLES[t[0]] = t[1] + ' ' + t[2]; }); });
@@ -105,11 +105,13 @@
       card.appendChild(el('div', 'msheet-h', g[0]));
       var grid = el('div', 'msheet-grid');
       g[1].forEach(function (t) {
+        if (t[0] === '__settings' && !(window.KharchaNative && window.KharchaNative.openSettings)) return;   // only inside the phone app
         var b = el('button', 'mtile'); b.type = 'button';
         b.appendChild(el('span', 'e', t[1]));
         var tx = el('span', 'mt'); tx.appendChild(el('b', null, t[2])); if (t[3]) tx.appendChild(el('small', null, t[3]));
         b.appendChild(tx);
         b.addEventListener('click', function () {
+          if (t[0] === '__settings') { closeSheet(); window.KharchaNative.openSettings(); return; }
           if (t[0] === '__signout') { closeSheet(); var so = $('signout'); if (so) so.click(); return; }
           goStream(t[0]);
         });
@@ -467,7 +469,7 @@
       raf(frame);
     };
     img.onerror = leave;
-    img.src = 'logo-mark.png?v=77';
+    img.src = 'logo-mark.png?v=78';
     setTimeout(leave, 4200);                                        // never keeps you waiting
   }
 

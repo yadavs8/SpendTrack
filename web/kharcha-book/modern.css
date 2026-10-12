@@ -351,3 +351,11 @@ i.hm-cell.bill { width: 14px; aspect-ratio: 1; border-radius: 4px; } .bills-cal 
 .in-split { display: grid; gap: 8px; margin: 4px 0 12px; }
 .in-split-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 0.84rem; }
 .in-chip { background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; font-variant-numeric: tabular-nums; }
+
+/* v78: keep every header button on screen (the phone app adds a gear) */
+.top { gap: 6px; }
+.top-r { gap: 5px; }
+.top .installbtn { min-width: 36px; height: 38px; padding: 0 8px; }
+.top .snap-logo { margin-right: -12px; }
+.top h1 { font-size: 1.04rem; gap: 6px; }
+#app-settings-btn { font-size: 1.05rem; color: var(--ink); }
