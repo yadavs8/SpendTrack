@@ -26,7 +26,7 @@
     if (last && now - last.ts < 3 * DAY) {
       line(c1, '✅', 'Messages are arriving', 'Latest: ' + fmt.format(last.ts) + ' · ' + n24 + ' in the last 24 hours, ' + n7 + ' this week.');
     } else if (last) {
-      line(c1, '⚠️', 'Nothing new for a while', 'The latest bank message here is from ' + fmt.format(last.ts) + '. If you have had payments since, the phone app is not sending them. Check the steps below.');
+      line(c1, '⚠️', 'Nothing new for a while', 'The latest bank message here is from ' + fmt.format(last.ts) + '. If you have had payments since, the phone app is not sending them. The most common cause: the phone app got signed out (for example after signing out on the web). Open the Android app > ⚙️ > Cloud Sync and sign in again; payments waiting on the phone are sent by themselves.');
     } else {
       line(c1, '⚠️', 'No bank message has reached Kharcha Book yet', 'Bank messages are read by the Kharcha Book Android app and sent here. Check the steps below.');
     }

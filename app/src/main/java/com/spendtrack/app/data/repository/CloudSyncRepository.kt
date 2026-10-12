@@ -208,13 +208,23 @@ class CloudSyncRepository(
                 session.accessToken
             },
             onFailure = { error ->
+                val signedOut = error is com.spendtrack.app.core.network.AuthRejectedException
                 settingsManager.setCloudSyncError(
-                    if (error is com.spendtrack.app.core.network.AuthRejectedException)
+                    if (signedOut)
                         // Usually a sign-out from Kharcha Book on an old version, which signed out every device.
                         "Signed out of Kharcha Book. Please sign in again here."
                     else
                         "Couldn't reach Kharcha Book (offline?). Will retry automatically."
                 )
+                // Silence is the worst outcome: payments keep piling up on the phone but never reach Kharcha Book.
+                // Say so loudly, at most twice a day.
+                if (signedOut && settingsManager.claimAlert("signedout|${System.currentTimeMillis() / (12L * 3600 * 1000)}")) {
+                    com.spendtrack.app.data.di.ServiceLocator.contextOrNull()?.let {
+                        com.spendtrack.app.core.notification.ExpensePromptNotifier.showSyncProblem(
+                            it, "You are signed out, so new payments are NOT reaching Kharcha Book. Open the app, tap ⚙️ > Cloud Sync and sign in again."
+                        )
+                    }
+                }
                 null
             }
         )
