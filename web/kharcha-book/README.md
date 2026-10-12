@@ -93,4 +93,4 @@ The phone's payment notification now has **↔ Own transfer** next to Personal a
 When a bank SMS prints the balance ("Avl Bal Rs 12,345.67"), the app sets that account's balance from it automatically (newest SMS wins, never older than a balance you typed later). Card SMS ("Avl Limit") are ignored. The Bank card says "Balance taken from your bank SMS". Banks whose SMS carry no balance (for example ICICI UPI debits) still need an occasional **Update balance**.
 
 ### Ash logo
-The header logo turns to ash from left to right like a snap, drifts away, then pulls itself back together. It plays once after the page opens, again every 45 seconds, and whenever you tap it. It stays a still image when the phone asks for reduced motion. The home-screen app icon itself cannot animate.
+The header logo turns to ash from left to right like a snap, drifts away, then pulls itself back together. It repeats for as long as the app is open (whole logo, ash, gone for a moment, back again) and a tap restarts it. It stays a still image when the phone asks for reduced motion. The home-screen app icon itself cannot animate.

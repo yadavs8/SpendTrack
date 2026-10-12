@@ -389,13 +389,17 @@
       }
       raf(step);
     }
+    // Keeps going for as long as the app is open: whole logo, turns to ash, gone for a moment, pulls back together, repeat.
+    var HOLD = 2200, GONE = 900;
+    function next(ms) { clearTimeout(timer); timer = setTimeout(play, ms); }
     function play() {
-      if (busy || document.hidden) return;
+      if (busy) return;
+      if (document.hidden) { next(1500); return; }          // wait while the app is in the background
       busy = true;
       tween(0, 1.4, 3400, function () {                         // turns to ash and blows away
         setTimeout(function () {
-          tween(1.4, 0, 1900, function () { busy = false; draw(0); });   // and comes back
-        }, 700);
+          tween(1.4, 0, 1900, function () { busy = false; draw(0); next(HOLD); });   // and comes back
+        }, GONE);
       });
     }
     function init() {
@@ -404,9 +408,8 @@
       draw(0);
       img.style.display = 'none';
       img.parentNode.insertBefore(cv, img);
-      cv.addEventListener('click', play);
-      setTimeout(play, 1400);
-      timer = setInterval(play, 45000);
+      cv.addEventListener('click', function () { if (!busy) { clearTimeout(timer); play(); } });
+      next(1400);
     }
     if (img.complete && img.naturalWidth) init(); else img.addEventListener('load', init);
   }
