@@ -58,7 +58,12 @@ class SmsReceiver : BroadcastReceiver() {
                     text = fullText,
                     sourcePackage = null,
                     timestamp = timestamp
-                ) ?: return@launch
+                )
+                if (parsed == null) {
+                    // Money moved but the parser could not read it: never stay silent about that.
+                    com.spendtrack.app.core.notification.MissedMessages.noteIfMoney(context.applicationContext, sender, fullText, timestamp)
+                    return@launch
+                }
 
                 SafeLogger.i("Parsed transaction from SMS ($sender): Amount=${parsed.amount}, Type=${parsed.transactionType}")
                 val result = ServiceLocator.transactionRepository.ingestTransaction(parsed)

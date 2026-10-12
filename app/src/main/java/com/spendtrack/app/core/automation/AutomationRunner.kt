@@ -103,10 +103,10 @@ object AutomationRunner {
         }
         AutomationNotifier.post(
             context, ID_INCOME + (txn.id.hashCode() and 0xFF),
-            "💰 ${Insights.rupees(txn.amount)} received — logged as income",
+            "💰 ${Insights.rupees(txn.amount)} credited" + (listOfNotNull(txn.bankName, txn.accountLast4?.let { "··$it" }).joinToString(" ").takeIf { it.isNotBlank() }?.let { " to $it" } ?: ""),
             txn.description ?: "Income",
             actions = listOf(AutomationNotifier.Action("Not income", AutomationNotifier.broadcast(context, txn.id.hashCode(), undo))),
-            silent = true
+            silent = false
         )
     }
 

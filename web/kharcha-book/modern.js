@@ -467,7 +467,7 @@
       raf(frame);
     };
     img.onerror = leave;
-    img.src = 'logo-mark.png?v=76';
+    img.src = 'logo-mark.png?v=77';
     setTimeout(leave, 4200);                                        // never keeps you waiting
   }
 

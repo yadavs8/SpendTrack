@@ -267,6 +267,8 @@ object ExpensePromptNotifier {
         return NotificationCompat.Action.Builder(0, "Add Note", pendingIntent).addRemoteInput(remoteInput).build()
     }
 
+    fun ensureChannelPublic(context: Context) = ensureChannel(context)
+
     private fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

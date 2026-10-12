@@ -28,7 +28,7 @@ object TransactionParser {
 
     // Regex for Account last 3-4 digits
     private val ACCOUNT_LAST4_REGEX = Regex(
-        """(?i)(?:A/c|Acct|Account|Card)\s*(?:no\.?)?\s*[*xX]{0,8}(\d{3,4})"""
+        """(?i)(?:A/c|Acct?|Account|Card)\s*(?:no\.?)?\s*[*xX]{0,8}(\d{3,4})"""
     )
 
     // Patterns for merchant extraction
@@ -105,10 +105,10 @@ object TransactionParser {
     // Only bank-shaped messages are taken from SMS apps, so a friend's "I paid Rs 500" text is never logged.
     // An account/card reference plus a bank verb: debits, card use, and (for income) credits.
     private val BANK_SMS_SHAPE_REGEX = Regex(
-        """(?i)(?:a/c|acct|account|card)[\s\S]*\b(?:debited|spent|withdrawn|used|purchase|txn)\b|\b(?:debited|spent|withdrawn|used|purchase|txn)\b[\s\S]*(?:a/c|acct|account|card)"""
+        """(?i)(?:a/c|acct?|account|card)[\s\S]*\b(?:debited|spent|withdrawn|used|purchase|txn)\b|\b(?:debited|spent|withdrawn|used|purchase|txn)\b[\s\S]*(?:a/c|acct?|account|card)"""
     )
     private val BANK_CREDIT_SHAPE_REGEX = Regex(
-        """(?i)(?:a/c|acct|account)[\s\S]*\b(?:credited|deposited)\b|\b(?:credited|deposited)\b[\s\S]*(?:a/c|acct|account)"""
+        """(?i)(?:a/c|acct?|account)[\s\S]*\b(?:credited|deposited)\b|\b(?:credited|deposited)\b[\s\S]*(?:a/c|acct?|account)"""
     )
 
     fun looksLikeBankSms(text: String): Boolean = BANK_SMS_SHAPE_REGEX.containsMatchIn(text)
