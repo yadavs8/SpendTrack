@@ -724,6 +724,89 @@
     return { added: added, skipped: skipped, settings: withSettings ? info.settingKeys.length : 0 };
   }
 
+  /* ---------- Receipt photos: a private Supabase Storage bucket, one folder per user ---------- */
+  var RECEIPT_BUCKET = 'kharcha-receipts', RECEIPTS_KEY = 'kharcha_receipts';
+  function receiptMap() { return loadJsonObj(RECEIPTS_KEY); }
+  function hasReceipt(id) { return !!receiptMap()[id]; }
+  function setReceiptFlag(id, on) { var m = receiptMap(); if (on) m[id] = 1; else delete m[id]; kv.set(RECEIPTS_KEY, JSON.stringify(m)); }
+  async function receiptPath(id) { var u = await sb.auth.getUser(); if (!u.data || !u.data.user) throw new Error('Sign in again to use receipts.'); return u.data.user.id + '/' + id + '.jpg'; }
+  function shrinkImage(file) {                      // keeps phone photos small: longest side 1280px, JPEG
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(file), img = new Image();
+      img.onload = function () {
+        var max = 1280, k = Math.min(1, max / Math.max(img.width, img.height)), c = document.createElement('canvas');
+        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        c.toBlob(function (b) { b ? resolve(b) : reject(new Error('Could not read that photo.')); }, 'image/jpeg', 0.72);
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('Could not read that photo.')); };
+      img.src = url;
+    });
+  }
+  async function uploadReceipt(id, file) {
+    if (isDemoMode) throw new Error('Receipts need a signed-in account.');
+    var blob = await shrinkImage(file), path = await receiptPath(id);
+    var res = await sb.storage.from(RECEIPT_BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: true });
+    if (res.error) throw res.error;
+    setReceiptFlag(id, true);
+  }
+  async function receiptUrl(id) {
+    var res = await sb.storage.from(RECEIPT_BUCKET).createSignedUrl(await receiptPath(id), 300);
+    if (res.error || !res.data) throw new Error('Could not open the receipt.');
+    return res.data.signedUrl;
+  }
+  async function removeReceipt(id) {
+    var res = await sb.storage.from(RECEIPT_BUCKET).remove([await receiptPath(id)]);
+    if (res.error) throw res.error;
+    setReceiptFlag(id, false);
+  }
+  async function moveReceipt(fromId, toId) {                       // after Undo of a delete the entry has a new id
+    var res = await sb.storage.from(RECEIPT_BUCKET).move(await receiptPath(fromId), await receiptPath(toId));
+    if (res.error) throw res.error;
+    setReceiptFlag(fromId, false); setReceiptFlag(toId, true);
+  }
+  function showReceipt(id) {
+    var back = el('div', 'tour'), box = el('div', 'tour-card rep-box'), img = el('img', 'rep-img'); img.alt = 'Receipt';
+    box.appendChild(img); back.appendChild(box);
+    var btns = el('div', 'tour-btns'), close = el('button', 'primary', 'Close'); close.type = 'button'; close.addEventListener('click', function () { back.remove(); });
+    btns.appendChild(close); box.appendChild(btns);
+    back.addEventListener('click', function (ev) { if (ev.target === back) back.remove(); });
+    document.body.appendChild(back);
+    receiptUrl(id).then(function (u) { img.src = u; }).catch(function (err) { back.remove(); toast(err.message || 'Could not open the receipt.'); });
+  }
+  function receiptRow(e, onChange) {
+    var box = el('div', 'receipt-row');
+    function paint() {
+      box.textContent = '';
+      var has = hasReceipt(e.id);
+      box.appendChild(el('span', 'receipt-l', has ? '📎 Receipt attached' : '📷 Receipt'));
+      var input = el('input'); input.type = 'file'; input.accept = 'image/*'; input.hidden = true;
+      input.addEventListener('change', function () {
+        var f = input.files && input.files[0]; if (!f) return;
+        toast('Uploading receipt…');
+        uploadReceipt(e.id, f).then(function () { toast('Receipt saved'); paint(); render(); }).catch(function (err) { toast(err && err.message ? err.message : 'Could not save the receipt.'); });
+      });
+      var add = el('button', 'ghost', has ? 'Replace' : 'Add photo'); add.type = 'button'; add.addEventListener('click', function () { input.click(); });
+      if (has) {
+        var view = el('button', 'ghost', 'View'); view.type = 'button'; view.addEventListener('click', function () { showReceipt(e.id); }); box.appendChild(view);
+      }
+      box.appendChild(add);
+      if (has) {
+        var rm = el('button', 'ghost', 'Remove'); rm.type = 'button';
+        rm.addEventListener('click', function () {
+          showConfirmModal({ title: 'Remove this receipt?', message: 'The photo is deleted from your account.', onConfirm: function () {
+            removeReceipt(e.id).then(function () { toast('Receipt removed'); paint(); render(); }).catch(function () { toast('Could not remove it. Try again.'); });
+          } });
+        });
+        box.appendChild(rm);
+      }
+      box.appendChild(input);
+    }
+    paint();
+    return box;
+  }
+
   /* ---------- Net worth: what you hold minus what you owe ---------- */
   function getNetWorthParts() {
     var KL = window.KharchaLedger, parts = { hasBank: false, bank: 0, cash: 0, wallets: 0, owedToMe: 0, iOwe: 0, total: 0, trend: [] };
@@ -1201,7 +1284,7 @@
      localStorage stays as the offline cache, and is all there is until the v4 SQL has been run. */
   var SHARED_KEYS = ['kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
     'kharcha_active_trip_name', 'kharcha_all_trips_list', 'kharcha_category_budgets', 'kharcha_merchant_memory',
-    'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers', 'kharcha_loans', 'kharcha_wallets', 'kharcha_bank', 'kharcha_cycle', 'kharcha_rules', 'kharcha_acctmap', 'kharcha_primary_acct', 'kharcha_rule_skips', 'kharcha_transfers', 'kharcha_own', 'kharcha_xfer_dismissed', 'kharcha_goal'];
+    'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers', 'kharcha_loans', 'kharcha_wallets', 'kharcha_bank', 'kharcha_cycle', 'kharcha_rules', 'kharcha_acctmap', 'kharcha_primary_acct', 'kharcha_rule_skips', 'kharcha_transfers', 'kharcha_own', 'kharcha_xfer_dismissed', 'kharcha_goal', 'kharcha_receipts'];
   var SHARED_PREFIXES = ['kharcha_trip_friends_', 'kharcha_trip_budget_'];
   function isSharedKey(k) {
     return SHARED_KEYS.indexOf(k) >= 0 || SHARED_PREFIXES.some(function (p) { return k.indexOf(p) === 0; });
@@ -4961,6 +5044,7 @@
     var dSpan = el('span', 'd', e.desc);
     var how = methodLabel(e);
     if (how) dSpan.appendChild(el('small', 'method-badge method-' + e.method, (METHOD_ICONS[e.method] || '') + ' ' + how));
+    if (hasReceipt(e.id)) dSpan.appendChild(el('small', 'method-badge', '📎'));
     b.appendChild(dSpan);
     b.appendChild(el('span', 'a', money(e.amount)));
 
@@ -5096,7 +5180,7 @@
     var cancel = el('button', 'ghost', 'Cancel'); cancel.type = 'button';
     var del = el('button', 'danger', 'Delete'); del.type = 'button';
     btns.appendChild(save); btns.appendChild(cancel); btns.appendChild(del);
-    f.appendChild(row1); f.appendChild(row2); f.appendChild(shiftRow); if (acctField) f.appendChild(acctField); if (xferBox) f.appendChild(xferBox); f.appendChild(msg); f.appendChild(btns);
+    f.appendChild(row1); f.appendChild(row2); f.appendChild(shiftRow); if (acctField) f.appendChild(acctField); if (xferBox) f.appendChild(xferBox); if (!isDemoMode) f.appendChild(receiptRow(e)); f.appendChild(msg); f.appendChild(btns);
 
     cancel.addEventListener('click', function () { state.editing = null; render(); });
     f.addEventListener('submit', function (ev) {
@@ -5130,11 +5214,14 @@
         return;
       }
       clearTimeout(armTimer);
+      var hadReceipt = hasReceipt(e.id), undone = false;
       store.remove(e.id).then(function () {
         state.editing = null; render();
+        if (hadReceipt) setTimeout(function () { if (!undone) removeReceipt(e.id).catch(function () {}); }, 9000);   // the photo goes with the entry unless Undo is used
         toast('Deleted ' + e.desc + ' ' + money(e.amount), function () {
+          undone = true;
           store.add({ amount: e.amount, desc: e.desc, spent_at: new Date(e.ts).toISOString(), method: e.method || undefined, kind: e.kind || undefined })
-            .then(function () { render(); toast('Restored'); }).catch(function () { toast('Could not undo. Try again.'); });
+            .then(function (ne) { if (hadReceipt && ne) moveReceipt(e.id, ne.id).catch(function () {}); render(); toast('Restored'); }).catch(function () { toast('Could not undo. Try again.'); });
         });
       }).catch(function () { msg.textContent = 'Could not delete. Try again.'; msg.hidden = false; });
     });
