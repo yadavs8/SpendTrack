@@ -11,6 +11,7 @@ class SpendTrackApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        installCrashReporter()
         ServiceLocator.init(this)
         // Morning/evening automations (bills, settle-up, cash, weekly summary, budgets).
         runCatching { com.spendtrack.app.core.automation.AutomationWorker.schedule(this) }
@@ -28,6 +29,32 @@ class SpendTrackApp : Application() {
             }
             // Trips / owner identity edited on the web since the app last ran.
             runCatching { ServiceLocator.cloudSyncRepository.refreshSharedSettings() }
+        }
+    }
+
+    /**
+     * So a crash is never silent again: write the stack trace to a plain file before the process
+     * dies, then hand off to whatever the OS would normally do (its own crash dialog, logcat's
+     * FATAL EXCEPTION, process death) so nothing about today's behaviour changes except that the
+     * next launch can show what happened. MainActivity checks for this file before doing anything
+     * else and, if present, opens the Compose/Room-free CrashActivity instead.
+     */
+    private fun installCrashReporter() {
+        val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            try {
+                val writer = java.io.StringWriter()
+                throwable.printStackTrace(java.io.PrintWriter(writer))
+                CrashActivity.crashFile(this).writeText(
+                    "Kharcha Book crashed\n" +
+                        "Time: ${java.util.Date()}\n" +
+                        "Thread: ${thread.name}\n\n" +
+                        writer.toString()
+                )
+            } catch (_: Throwable) {
+                // Writing the report must never itself throw into this handler.
+            }
+            previousHandler?.uncaughtException(thread, throwable)
         }
     }
 }

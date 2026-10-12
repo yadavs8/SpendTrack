@@ -1,6 +1,7 @@
 package com.spendtrack.app
 
 import android.Manifest
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.webkit.WebView
@@ -52,26 +53,39 @@ class MainActivity : FragmentActivity() {
             "if (typeof refreshData === 'function') { refreshData(); }",
             null
         )
-        // Background backfill for missed SMS and self-healing auto-route for investments
+        // Background backfill for missed SMS and self-healing auto-route for investments.
+        // Everything here is best-effort housekeeping -- never let it crash the app that's just
+        // come to the foreground, so it is all one guarded block, not individually-trusted calls.
         lifecycleScope.launch(Dispatchers.IO) {
-            val repaired = ServiceLocator.transactionRepository.repairAndAutoRouteInvestments()
-            val newEntries = SmsBackfillManager.backfillMissedSms(applicationContext) +
-                SmsBackfillManager.catchUpMonthIfDue(applicationContext)
-            val answered = runCatching { com.spendtrack.app.core.notification.PromptReconciler.reconcileAll(applicationContext) }.getOrDefault(0)
-            if (repaired > 0 || newEntries > 0 || answered > 0) {
-                ServiceLocator.cloudSyncRepository.syncPending()
-                withContext(Dispatchers.Main) {
-                    activeWebView?.evaluateJavascript(
-                        "if (typeof refreshData === 'function') { refreshData(); }",
-                        null
-                    )
+            try {
+                val repaired = ServiceLocator.transactionRepository.repairAndAutoRouteInvestments()
+                val newEntries = SmsBackfillManager.backfillMissedSms(applicationContext) +
+                    SmsBackfillManager.catchUpMonthIfDue(applicationContext)
+                val answered = runCatching { com.spendtrack.app.core.notification.PromptReconciler.reconcileAll(applicationContext) }.getOrDefault(0)
+                if (repaired > 0 || newEntries > 0 || answered > 0) {
+                    ServiceLocator.cloudSyncRepository.syncPending()
+                    withContext(Dispatchers.Main) {
+                        activeWebView?.evaluateJavascript(
+                            "if (typeof refreshData === 'function') { refreshData(); }",
+                            null
+                        )
+                    }
                 }
+            } catch (e: Exception) {
+                com.spendtrack.app.core.logger.SafeLogger.e("onResume housekeeping failed", e)
             }
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // A crash last time takes priority over everything else -- checked before any Compose,
+        // Room or ServiceLocator code runs, so a broken main screen can never hide this.
+        if (CrashActivity.hasPendingCrash(this)) {
+            startActivity(Intent(this, CrashActivity::class.java))
+            finish()
+            return
+        }
         enableEdgeToEdge()
 
         setContent {

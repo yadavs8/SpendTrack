@@ -37,6 +37,12 @@
             <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity>
 
+        <!-- Plain crash report screen shown instead of the main screen after a crash; deliberately
+             not Compose/Room so it can never itself be the thing that fails. -->
+        <activity
+            android:name=".CrashActivity"
+            android:exported="false" />
+
         <!-- "Log to…" sheet: files a detected payment, or adds a cash spend (widget / app shortcut).
              Exported for the launcher shortcut; it only ever lets the user choose where a spend goes. -->
         <activity
