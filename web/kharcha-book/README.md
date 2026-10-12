@@ -130,5 +130,5 @@ SQL used (already applied to the project): `insert into storage.buckets ... 'kha
 ## v73 – Winged logo
 The in-app header logo and splash now show a winged ₹ that flaps, lifts off through the top of the screen, vanishes, then drops back (tap to skip ahead). The home-screen / PWA icon is unchanged.
 
-## v74 – Burning rupee
-The winged ₹ now burns: flames lick up the tile and sides (stronger during take-off) with rising embers. Home-screen icon unchanged.
+## v75 – Fire removed
+Flames taken off the winged ₹ (back to the v73 look).
