@@ -40,9 +40,9 @@ jobs:
           fi
           printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=kharcha\nkeyPassword=%s\n' "$HOME/kharcha-signing/release.keystore" "$(cat ~/kharcha-signing/pass.txt)" "$(cat ~/kharcha-signing/pass.txt)" > keystore.properties
       - name: Unit tests
-        run: ./gradlew :app:testSideloadDebugUnitTest --no-daemon --stacktrace
+        run: bash ./gradlew :app:testSideloadDebugUnitTest --no-daemon --stacktrace
       - name: Build APK
-        run: ./gradlew :app:assembleSideloadDebug --no-daemon --stacktrace
+        run: bash ./gradlew :app:assembleSideloadDebug --no-daemon --stacktrace
       - name: Collect APK
         run: |
           mkdir -p out
