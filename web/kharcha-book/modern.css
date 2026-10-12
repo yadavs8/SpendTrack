@@ -6,7 +6,7 @@ body { padding-block-end: calc(var(--nav-h) + 24px + env(safe-area-inset-bottom,
 
 /* ---------- header ---------- */
 .top { flex-wrap: nowrap; gap: 10px; align-items: center; }
-.top h1 { font-size: 1.18rem; white-space: nowrap; gap: 9px; min-width: 0; flex: 1 1 auto; overflow: visible; }
+.top h1 { font-size: 1.18rem; white-space: nowrap; gap: 9px; min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; }
 .top .logo { width: 36px; height: 36px; border-radius: 11px; box-shadow: var(--shadow-sm); }
 .top-r { gap: 8px; flex-wrap: nowrap; margin-left: auto; }
 .sync { font-size: 0; gap: 0; }               /* the label hides, the status dot stays (hover or long-press shows it) */
