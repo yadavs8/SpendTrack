@@ -244,6 +244,183 @@
     return card;
   }
 
+
+  /* ---------- where the money left from (this month / last month) ---------- */
+  var srcUi = { back: 0 };
+  function mkey(offset) { var d = new Date(); d = new Date(d.getFullYear(), d.getMonth() - offset, 1); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }
+  function sourcesCard(rerender) {
+    var card = el('section', 'in-card'), head = el('div', 'hm-head');
+    head.appendChild(el('b', null, '🏦 Where it left from'));
+    var tog = el('div', 'theme-row');
+    [[0, 'This month'], [1, 'Last month']].forEach(function (o) {
+      var b = el('button', 'scope-pill' + (srcUi.back === o[0] ? ' active' : ''), o[1]); b.type = 'button';
+      b.addEventListener('click', function () { srcUi.back = o[0]; rerender(); }); tog.appendChild(b);
+    });
+    card.appendChild(head); card.appendChild(tog);
+    var d = K.getSpendSources(mkey(srcUi.back));
+    if (!d.list.length) { card.appendChild(el('div', 'in-sub', 'No spends in this month.')); return card; }
+    card.appendChild(el('div', 'in-sub', money(d.total) + ' spent in total'));
+    d.list.forEach(function (c) {
+      var r = el('div', 'cat-row dk'); r.appendChild(el('span', null, c.icon + ' ' + c.name)); r.appendChild(el('b', null, rupees(c.total) + ' · ' + c.pct + '%'));
+      var bar = el('div', 'cat-bar dk'), fill = el('i'); fill.style.width = Math.max(2, c.pct) + '%'; bar.appendChild(fill); card.appendChild(r); card.appendChild(bar);
+    });
+    return card;
+  }
+
+  /* ---------- month report as an image ---------- */
+  function wrapText(ctx, text, maxW) { var words = String(text).split(' '), line = '', out = []; words.forEach(function (w) { var t = line ? line + ' ' + w : w; if (ctx.measureText(t).width > maxW && line) { out.push(line); line = w; } else line = t; }); if (line) out.push(line); return out; }
+  function drawReport(key) {
+    var W = 1080, H = 1350, cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    var c = cv.getContext('2d'), entries = K.getEntries().filter(function (e) { return e && !e.synthetic; });
+    var parts = key.split('-'), y = +parts[0], m = +parts[1] - 1, label = mFmt.format(new Date(y, m, 1));
+    var spendList = entries.filter(function (e) { return K.isExpense(e) && new Date(e.ts).getFullYear() === y && new Date(e.ts).getMonth() === m; });
+    var total = sum(spendList), cats = spendList.length ? K.categoryBreakdown(spendList).categories : [];
+    var sm = K.getMonthlySummary(entries, key);
+    var g = c.createLinearGradient(0, 0, W, H); g.addColorStop(0, '#0f172a'); g.addColorStop(0.55, '#312e81'); g.addColorStop(1, '#0f766e'); c.fillStyle = g; c.fillRect(0, 0, W, H);
+    c.fillStyle = 'rgba(255,255,255,0.06)'; c.beginPath(); c.arc(W - 120, 160, 360, 0, 6.283); c.fill();
+    var F = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+    c.fillStyle = '#fff'; c.font = '700 44px ' + F; c.fillText('Kharcha Book', 70, 120);
+    c.fillStyle = 'rgba(255,255,255,0.7)'; c.font = '500 36px ' + F; c.fillText(label + ' report', 70, 176);
+    c.fillStyle = 'rgba(255,255,255,0.65)'; c.font = '600 28px ' + F; c.fillText('SPENT', 70, 290);
+    c.fillStyle = '#fff'; c.font = '800 120px ' + F; c.fillText(money(total), 70, 410);
+    var yy = 480;
+    if (sm.salaries > 0) {
+      c.fillStyle = 'rgba(255,255,255,0.12)'; c.fillRect(70, yy, W - 140, 150);
+      c.fillStyle = 'rgba(255,255,255,0.7)'; c.font = '600 26px ' + F; c.fillText('SALARY IN', 100, yy + 52); c.fillText('SAVED', 560, yy + 52);
+      c.fillStyle = '#fff'; c.font = '700 48px ' + F; c.fillText(rupees(sm.salaries), 100, yy + 112);
+      c.fillStyle = sm.savings >= 0 ? '#6ee7b7' : '#fca5a5'; c.fillText(rupees(sm.savings) + (sm.savingsRate != null ? '  (' + Math.round(sm.savingsRate) + '%)' : ''), 560, yy + 112);
+      yy += 200;
+    }
+    c.fillStyle = 'rgba(255,255,255,0.65)'; c.font = '600 28px ' + F; c.fillText('WHERE IT WENT', 70, yy + 20);
+    yy += 74;
+    cats.slice(0, 5).forEach(function (cat) {
+      c.fillStyle = '#fff'; c.font = '600 34px ' + F; c.fillText(String(cat.name).slice(0, 26), 70, yy);
+      c.textAlign = 'right'; c.fillText(rupees(cat.total) + '  ' + cat.pct + '%', W - 70, yy); c.textAlign = 'left';
+      c.fillStyle = 'rgba(255,255,255,0.18)'; c.fillRect(70, yy + 14, W - 140, 12); c.fillStyle = '#fbbf24'; c.fillRect(70, yy + 14, Math.max(8, (W - 140) * cat.pct / 100), 12);
+      yy += 70;
+    });
+    // daily bars
+    var dim = new Date(y, m + 1, 0).getDate(), per = [], mx = 1;
+    for (var d = 1; d <= dim; d++) { var t = sum(spendList.filter(function (e) { return new Date(e.ts).getDate() === d; })); per.push(t); if (t > mx) mx = t; }
+    var bx = 70, bw = (W - 140) / dim, base = H - 125;
+    per.forEach(function (t, i) { var h = Math.max(4, (t / mx) * 100); c.fillStyle = t ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.2)'; c.fillRect(bx + i * bw + 2, base - h, bw - 4, h); });
+    var big = spendList.slice().sort(function (a, b) { return b.amount - a.amount; })[0];
+    c.fillStyle = 'rgba(255,255,255,0.75)'; c.font = '500 28px ' + F;
+    if (big) { var line = 'Biggest: ' + money(big.amount) + ' · ' + String(big.desc).replace(/^[^\wऀ-ॿ]+/, '').slice(0, 30); wrapText(c, line, W - 140).slice(0, 1).forEach(function (l) { c.fillText(l, 70, H - 90); }); }
+    c.fillStyle = 'rgba(255,255,255,0.45)'; c.font = '500 24px ' + F; c.fillText('Made with Kharcha Book', 70, H - 40);
+    return cv;
+  }
+  function reportCard() {
+    var card = el('section', 'in-card');
+    card.appendChild(el('div', 'in-k', 'MONTH REPORT'));
+    card.appendChild(el('div', 'in-sub', 'A picture of the month to keep or share: spent, saved, where it went, day by day.'));
+    var row = el('div', 'theme-row');
+    [[0, 'This month'], [1, 'Last month']].forEach(function (o) {
+      var b = el('button', 'primary small', '📤 ' + o[1]); b.type = 'button'; b.addEventListener('click', function () { showReport(mkey(o[0])); }); row.appendChild(b);
+    });
+    card.appendChild(row);
+    return card;
+  }
+  function showReport(key) {
+    var cv = drawReport(key), back = el('div', 'tour'), box = el('div', 'tour-card rep-box');
+    back.appendChild(box);
+    var img = el('img', 'rep-img'); img.alt = 'Month report'; box.appendChild(img);
+    var btns = el('div', 'tour-btns'), close = el('button', 'ghost', 'Close'); close.type = 'button'; close.addEventListener('click', function () { back.remove(); });
+    var go = el('button', 'primary', 'Share or save'); go.type = 'button'; btns.appendChild(close); btns.appendChild(go); box.appendChild(btns);
+    cv.toBlob(function (blob) {
+      if (!blob) { K.toast('Could not make the picture'); back.remove(); return; }
+      var url = URL.createObjectURL(blob); img.src = url;
+      go.addEventListener('click', function () {
+        var file = null; try { file = new File([blob], 'kharcha-' + key + '.png', { type: 'image/png' }); } catch (e) {}
+        if (file && navigator.canShare && navigator.canShare({ files: [file] })) { navigator.share({ files: [file], title: 'Kharcha Book ' + key }).catch(function () {}); return; }
+        var a = document.createElement('a'); a.href = url; a.download = 'kharcha-' + key + '.png'; document.body.appendChild(a); a.click(); a.remove();
+      });
+    }, 'image/png');
+    back.addEventListener('click', function (ev) { if (ev.target === back) back.remove(); });
+    document.body.appendChild(back);
+  }
+
+  /* ---------- your data: backup and restore ---------- */
+  function dataCard() {
+    var card = el('section', 'in-card');
+    card.appendChild(el('div', 'in-k', 'YOUR DATA'));
+    card.appendChild(el('div', 'in-sub', 'Keep a copy of every entry and setting in one file, and put it back later. Restoring never duplicates entries you already have.'));
+    var row = el('div', 'theme-row');
+    var dl = el('button', 'primary small', '💾 Download backup'); dl.type = 'button';
+    dl.addEventListener('click', function () {
+      var blob = new Blob([JSON.stringify(K.backupData())], { type: 'application/json' }), a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = 'kharcha-backup-' + new Date().toISOString().slice(0, 10) + '.json'; document.body.appendChild(a); a.click(); a.remove();
+      K.toast('Backup downloaded');
+    });
+    var file = el('input'); file.type = 'file'; file.accept = 'application/json,.json'; file.hidden = true;
+    var rs = el('button', 'ghost', '♻️ Restore from file'); rs.type = 'button'; rs.addEventListener('click', function () { file.click(); });
+    file.addEventListener('change', function () {
+      var f = file.files && file.files[0]; if (!f) return;
+      var rd = new FileReader();
+      rd.onload = function () {
+        var obj; try { obj = JSON.parse(String(rd.result)); } catch (e) { K.toast('That file is not a backup.'); return; }
+        var info = K.inspectBackup(obj);
+        if (!info) { K.toast('That file is not a Kharcha Book backup.'); return; }
+        K.confirmBox({
+          title: 'Restore this backup?',
+          message: info.total + ' entries in the file, ' + info.missing.length + ' of them not in your book yet. ' + info.settingKeys.length + ' settings (bank accounts, rules, goal…) will be put back too.',
+          confirmText: 'Restore',
+          onConfirm: function () {
+            K.restoreData(obj, true).then(function (r) { K.toast('Restored ' + r.added + ' entries' + (r.skipped ? ' (' + r.skipped + ' skipped)' : '') + ' and ' + r.settings + ' settings'); render(); })
+              .catch(function (e) { K.toast('Could not restore: ' + (e && e.message || 'try again')); });
+          }
+        });
+      };
+      rd.readAsText(f); file.value = '';
+    });
+    row.appendChild(dl); row.appendChild(rs); row.appendChild(file); card.appendChild(row);
+    return card;
+  }
+
+  /* ---------- bills calendar (shown at the top of Auto rules) ---------- */
+  var cal = { month: null, day: null };
+  function billsCalendar() {
+    var root = $('rules-root'); if (!root || !K.loadRules || root.querySelector('.bills-cal')) return;
+    var KL = window.KharchaLedger, rules = K.loadRules().filter(function (r) { return r.day > 0; });
+    var card = el('section', 'in-card bills-cal'), now = new Date();
+    if (!cal.month) cal.month = { y: now.getFullYear(), m: now.getMonth() };
+    var y = cal.month.y, m = cal.month.m, dim = new Date(y, m + 1, 0).getDate(), lead = (new Date(y, m, 1).getDay() + 6) % 7, today = sod(Date.now());
+    var head = el('div', 'hm-head');
+    function nav(txt, delta) { var b = el('button', 'hm-nav', txt); b.type = 'button'; b.addEventListener('click', function () { var d = new Date(y, m + delta, 1); cal.month = { y: d.getFullYear(), m: d.getMonth() }; cal.day = null; var old = root.querySelector('.bills-cal'); if (old) old.remove(); billsCalendar(); }); return b; }
+    head.appendChild(nav('‹', -1)); head.appendChild(el('b', null, '📅 Bills in ' + mFmt.format(new Date(y, m, 1)))); head.appendChild(nav('›', 1)); card.appendChild(head);
+    var entries = K.getEntries().filter(function (e) { return e && !e.synthetic; }), mStart = new Date(y, m, 1).getTime(), mEnd = new Date(y, m + 1, 1).getTime();
+    var items = rules.map(function (r) {
+      var hit = entries.filter(function (e) { return e.ts >= mStart && e.ts < mEnd && KL.matchRule(e.desc, [r]); }).sort(function (a, b) { return a.ts - b.ts; })[0] || null;
+      var due = new Date(y, m, Math.min(r.day, dim), 12).getTime();
+      var last = entries.filter(function (e) { return KL.matchRule(e.desc, [r]); }).sort(function (a, b) { return b.ts - a.ts; })[0];
+      var status = hit ? 'paid' : (due < today ? 'late' : 'soon');
+      return { rule: r, day: Math.min(r.day, dim), status: status, hit: hit, amount: hit ? hit.amount : (r.amount || (last ? last.amount : 0)) };
+    });
+    var grid = el('div', 'hm-grid');
+    'MTWTFSS'.split('').forEach(function (cc) { grid.appendChild(el('span', 'hm-dow', cc)); });
+    for (var i = 0; i < lead; i++) grid.appendChild(el('span', 'hm-blank'));
+    for (var d = 1; d <= dim; d++) {
+      var its = items.filter(function (x) { return x.day === d; }), st = its.some(function (x) { return x.status === 'late'; }) ? 'late' : its.some(function (x) { return x.status === 'soon'; }) ? 'soon' : its.length ? 'paid' : '';
+      var cell = el('button', 'hm-cell bill ' + st + (cal.day === d ? ' sel' : ''), String(d)); cell.type = 'button';
+      if (its.length) cell.appendChild(el('i', 'bill-dot'));
+      cell.addEventListener('click', (function (dd) { return function () { cal.day = cal.day === dd ? null : dd; var old = root.querySelector('.bills-cal'); if (old) old.remove(); billsCalendar(); }; })(d));
+      grid.appendChild(cell);
+    }
+    card.appendChild(grid);
+    var lg = el('div', 'hm-legend'); [['paid', 'Paid'], ['soon', 'Coming up'], ['late', 'Not logged yet']].forEach(function (x) { lg.appendChild(el('i', 'hm-cell bill ' + x[0])); lg.appendChild(el('span', null, x[1])); }); card.appendChild(lg);
+    if (!items.length) card.appendChild(el('div', 'in-sub', 'Give a rule a day of the month and it shows here.'));
+    var shown = items.filter(function (x) { return cal.day ? x.day === cal.day : true; }).sort(function (a, b) { return a.day - b.day; });
+    shown.forEach(function (x) {
+      var r = el('div', 'sa-row bill-row');
+      r.appendChild(el('span', 'sa-d', x.day + ' ' + new Intl.DateTimeFormat('en-IN', { month: 'short' }).format(new Date(y, m, 1))));
+      r.appendChild(el('span', 'sa-t', x.rule.name));
+      r.appendChild(el('span', 'sa-a ' + x.status, (x.amount ? money(x.amount) + ' ' : '') + (x.status === 'paid' ? '✓' : x.status === 'late' ? '⚠️' : '⏳')));
+      card.appendChild(r);
+    });
+    root.insertBefore(card, root.firstChild);
+  }
+  document.addEventListener('kharcha:rules', billsCalendar);
+
   /* ---------- screen ---------- */
   function render() {
     var root = $('insights-root'); if (!root || !K.getNetWorthParts) return;
@@ -254,6 +431,9 @@
     root.appendChild(streakCard());
     root.appendChild(goalCard(render));
     root.appendChild(heatmapCard(render));
+    root.appendChild(sourcesCard(render));
+    root.appendChild(reportCard());
+    root.appendChild(dataCard());
     var rail = root.querySelector('.story-rail'); if (rail && keepScroll) rail.scrollLeft = keepScroll;
   }
   document.addEventListener('kharcha:insights', render);
