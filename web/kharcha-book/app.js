@@ -3460,6 +3460,7 @@
     var rulesSec = $('rules-sec');
     var insightsSec = $('insights-sec');
     var cardSec = $('card-sec');
+    var phoneSec = $('phone-sec');
 
     var stream = state.activeStream || 'spends';
     if (spendsView) spendsView.hidden = (stream !== 'spends');
@@ -3476,6 +3477,8 @@
     if (rulesSec) rulesSec.hidden = (stream !== 'rules');
     if (insightsSec) insightsSec.hidden = (stream !== 'insights');
     if (cardSec) cardSec.hidden = (stream !== 'card');
+    if (phoneSec) phoneSec.hidden = (stream !== 'phone');
+    if (stream === 'phone') { try { document.dispatchEvent(new Event('kharcha:phone')); } catch (e) {} }
     if (stream === 'card') { try { document.dispatchEvent(new Event('kharcha:card')); } catch (e) {} }
     if (stream === 'insights') { try { document.dispatchEvent(new Event('kharcha:insights')); } catch (e) {} }
     if (stream === 'rules') renderRules();

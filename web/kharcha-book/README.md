@@ -153,3 +153,6 @@ Flames taken off the winged ₹ (back to the v73 look).
 
 ## v78 – Gear always reachable
 The phone-app ⚙️ button was being squeezed off the right edge of the header; the header is now tighter so title, logo, theme, version and ⚙️ all fit. Inside the phone app, More > Phone settings opens the same screen (SMS and notification access, Cloud Sync, lock).
+
+## v79 – Phone connection
+More > 📡 Phone connection: shows whether bank messages are really reaching Kharcha Book (latest message, count for 24 h and the week), which email you are signed in with (the phone app must use the same one to sync), a button to open the phone app settings when you are inside the Android app, and a checklist (SMS permission, notification access, battery Unrestricted, Cloud Sync sign-in). Also in More: ⚙️ Phone settings (app only).
