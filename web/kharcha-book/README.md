@@ -109,3 +109,10 @@ The header logo turns to ash from left to right like a snap, drifts away, then p
 - Themes: Light, Midnight, Thanos (purple and gold). More > Look and feel.
 - Screens fade in; cards and buttons press down; empty screens get a picture and a next step.
 - Tool screens (Bank, Udhaar, Wallet, Auto rules, Monthly) no longer show the month card above them.
+
+### v70: Insights (More > Insights)
+- **Net worth**: banks + cash at home + wallets + what friends owe you − what you owe, with a 30-day line worked backwards from the bank movements (an estimate).
+- **Your week**: four swipeable cards: the week against the one before, where it went, the biggest moment, and one tip.
+- **Streak**: consecutive days under your daily limit (monthly budget / 30, or the safe-to-spend figure from your bank).
+- **Savings goal**: a ring, "Add money", edit and remove with Undo (stored with your other settings).
+- **Heatmap**: a calendar shaded by what you spent each day; tap a day to see it.

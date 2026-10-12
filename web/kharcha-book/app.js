@@ -673,6 +673,34 @@
     return f;
   }
 
+  /* ---------- Net worth: what you hold minus what you owe ---------- */
+  function getNetWorthParts() {
+    var KL = window.KharchaLedger, parts = { hasBank: false, bank: 0, cash: 0, wallets: 0, owedToMe: 0, iOwe: 0, total: 0, trend: [] };
+    if (!KL) return parts;
+    var b = getBankTotals(), accts = loadBank(), refs = {}, held = {};
+    parts.hasBank = b.has; parts.bank = b.total;
+    accts.forEach(function (a) {
+      (a.deposits || []).forEach(function (d) { if (d.ref) refs[d.ref] = 1; });
+      (a.held || []).forEach(function (id) { held[id] = 1; });
+    });
+    parts.cash = sumRupees(state.entries.filter(function (e) { return held[e.id] && !refs[e.id] && isIncome(e); }));
+    loadWallets().forEach(function (w) { parts.wallets += KL.walletState(state.entries, w).balance; });
+    var sm = KL.summarize(loadLoans());
+    parts.owedToMe = sm.totalOwedToMe; parts.iOwe = sm.totalIOwe;
+    parts.total = (paise(parts.bank) + paise(parts.cash) + paise(parts.wallets) + paise(parts.owedToMe) - paise(parts.iOwe)) / 100;
+    // A 30-day line, worked backwards from today: undo the bank movements logged after each day.
+    var now = Date.now(), day0 = startOfDay(now);
+    for (var i = 30; i >= 0; i--) {
+      var t = day0 - i * 86400000 + 86399999, move = 0;
+      state.entries.forEach(function (e) {
+        if (!e || e.synthetic || !(e.ts > t) || e.ts > now) return;
+        if (isBankIn(e) && !held[e.id]) move += paise(e.amount); else if (isBankOut(e)) move -= paise(e.amount);
+      });
+      parts.trend.push({ ts: t, v: (paise(parts.total) - move) / 100 });
+    }
+    return parts;
+  }
+
   function getBankTotals() {
     var KL = window.KharchaLedger, accts = loadBank(), p = 0;
     if (!KL) return { has: false, total: 0, count: 0 };
@@ -1062,7 +1090,7 @@
     enterApp: enterApp,
     getSb: function () { return sb; },
     getEntries: function () { return state.entries; },
-    getMonthlySummary: getMonthlySummary, getMonthlyHistory: getMonthlyHistory, monthsWithAnyEntry: monthsWithAnyEntry, getPeriodSummary: getPeriodSummary, isBankIn: isBankIn, isBankOut: isBankOut, getBankTotals: getBankTotals, getHomeFacts: getHomeFacts, isIncome: isIncome,
+    getMonthlySummary: getMonthlySummary, getMonthlyHistory: getMonthlyHistory, monthsWithAnyEntry: monthsWithAnyEntry, getPeriodSummary: getPeriodSummary, isBankIn: isBankIn, isBankOut: isBankOut, getBankTotals: getBankTotals, getHomeFacts: getHomeFacts, isIncome: isIncome, getNetWorthParts: getNetWorthParts, kvGet: function (k) { return kv.get(k); }, kvSet: function (k, v) { kv.set(k, v); }, toast: function (m, u) { toast(m, u); }, confirmBox: function (o) { showConfirmModal(o); }, startOfDay: startOfDay,
     parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, parseSMSDate: parseSMSDate, findDuplicate: findDuplicate, categoryBreakdown: categoryBreakdown, monthCompare: monthCompare,
     isIncome: isIncome, isMotherSettlement: isMotherSettlement, isMotherPension: isMotherPension, isSalary: isSalary, isExpense: isExpense, isInvestment: isInvestment, getFamilySettlement: getFamilySettlement, getPersonalCashFlow: getPersonalCashFlow,
     isProjectEntry: isProjectEntry, isProjectMotherPaid: isProjectMotherPaid, getProjectSummary: getProjectSummary,
@@ -1122,7 +1150,7 @@
      localStorage stays as the offline cache, and is all there is until the v4 SQL has been run. */
   var SHARED_KEYS = ['kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
     'kharcha_active_trip_name', 'kharcha_all_trips_list', 'kharcha_category_budgets', 'kharcha_merchant_memory',
-    'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers', 'kharcha_loans', 'kharcha_wallets', 'kharcha_bank', 'kharcha_cycle', 'kharcha_rules', 'kharcha_acctmap', 'kharcha_primary_acct', 'kharcha_rule_skips', 'kharcha_transfers', 'kharcha_own', 'kharcha_xfer_dismissed'];
+    'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers', 'kharcha_loans', 'kharcha_wallets', 'kharcha_bank', 'kharcha_cycle', 'kharcha_rules', 'kharcha_acctmap', 'kharcha_primary_acct', 'kharcha_rule_skips', 'kharcha_transfers', 'kharcha_own', 'kharcha_xfer_dismissed', 'kharcha_goal'];
   var SHARED_PREFIXES = ['kharcha_trip_friends_', 'kharcha_trip_budget_'];
   function isSharedKey(k) {
     return SHARED_KEYS.indexOf(k) >= 0 || SHARED_PREFIXES.some(function (p) { return k.indexOf(p) === 0; });
@@ -3222,6 +3250,7 @@
     var monthlySec = $('monthly-sec');
     var bankSec = $('bank-sec');
     var rulesSec = $('rules-sec');
+    var insightsSec = $('insights-sec');
 
     var stream = state.activeStream || 'spends';
     if (spendsView) spendsView.hidden = (stream !== 'spends');
@@ -3236,6 +3265,8 @@
     if (monthlySec) monthlySec.hidden = (stream !== 'monthly');
     if (bankSec) bankSec.hidden = (stream !== 'bank');
     if (rulesSec) rulesSec.hidden = (stream !== 'rules');
+    if (insightsSec) insightsSec.hidden = (stream !== 'insights');
+    if (stream === 'insights') { try { document.dispatchEvent(new Event('kharcha:insights')); } catch (e) {} }
     if (stream === 'rules') renderRules();
     if (stream === 'bank') renderBank();
     if (stream === 'wallet') renderWallet();
