@@ -336,6 +336,81 @@
     extra.parentNode.insertBefore(btn, extra);
   }
 
+  /* ---------- logo: turns to ash like a snap, drifts away, then pulls itself back together ---------- */
+  function snapLogo() {
+    var img = document.querySelector('.top .logo');
+    if (!img || reduceMotion || !img.parentNode) return;
+    var probe = document.createElement('canvas');
+    if (!probe.getContext) return;
+    var S = 96, parts = [], cv = el('canvas', 'logo snap-logo'), ctx, busy = false, timer = 0;
+    cv.width = S; cv.height = S; cv.setAttribute('aria-hidden', 'true'); cv.title = 'Tap';
+    function build() {
+      var off = document.createElement('canvas'); off.width = S; off.height = S;
+      var oc = off.getContext('2d'), data;
+      try {
+        oc.beginPath();
+        if (oc.roundRect) oc.roundRect(0, 0, S, S, S * 0.3); else oc.rect(0, 0, S, S);
+        oc.clip(); oc.drawImage(img, 0, 0, S, S);
+        data = oc.getImageData(0, 0, S, S).data;
+      } catch (e) { return false; }
+      for (var y = 0; y < S; y += 2) {
+        for (var x = 0; x < S; x += 2) {
+          var i = (y * S + x) * 4;
+          if (data[i + 3] < 40) continue;
+          parts.push({
+            x: x, y: y, r: data[i], g: data[i + 1], b: data[i + 2],
+            d: (x / S) * 0.55 + Math.random() * 0.3,           // the dust starts at the left and sweeps right
+            vx: 10 + Math.random() * 46, vy: -(8 + Math.random() * 38), ph: Math.random() * 6.28
+          });
+        }
+      }
+      return parts.length > 0;
+    }
+    function draw(prog) {
+      ctx.clearRect(0, 0, S, S);
+      for (var k = 0; k < parts.length; k++) {
+        var p = parts[k], q = (prog - p.d) / 0.4;
+        q = q < 0 ? 0 : q > 1 ? 1 : q;
+        var e = 1 - (1 - q) * (1 - q), a = q === 0 ? 1 : Math.pow(1 - q, 1.3);
+        if (a < 0.02) continue;
+        var m = Math.min(1, q * 1.7), px = p.x + p.vx * e + Math.sin(q * 7 + p.ph) * 3.2 * q, py = p.y + p.vy * e + Math.cos(q * 5 + p.ph) * 2 * q;
+        ctx.fillStyle = 'rgba(' + Math.round(p.r + (105 - p.r) * m) + ',' + Math.round(p.g + (105 - p.g) * m) + ',' + Math.round(p.b + (105 - p.b) * m) + ',' + a.toFixed(2) + ')';
+        var sz = 2 - 0.9 * q;
+        ctx.fillRect(px, py, sz, sz);
+      }
+    }
+    function tween(from, to, ms, done) {
+      var t0 = 0;
+      function step(t) {
+        if (!t0) t0 = t;
+        var f = Math.min(1, (t - t0) / ms);
+        draw(from + (to - from) * f);
+        if (f < 1) raf(step); else if (done) done();
+      }
+      raf(step);
+    }
+    function play() {
+      if (busy || document.hidden) return;
+      busy = true;
+      tween(0, 1.4, 3400, function () {                         // turns to ash and blows away
+        setTimeout(function () {
+          tween(1.4, 0, 1900, function () { busy = false; draw(0); });   // and comes back
+        }, 700);
+      });
+    }
+    function init() {
+      if (!build()) return;
+      ctx = cv.getContext('2d');
+      draw(0);
+      img.style.display = 'none';
+      img.parentNode.insertBefore(cv, img);
+      cv.addEventListener('click', play);
+      setTimeout(play, 1400);
+      timer = setInterval(play, 45000);
+    }
+    if (img.complete && img.naturalWidth) init(); else img.addEventListener('load', init);
+  }
+
   /* ---------- wiring ---------- */
   var scheduled = false;
   function refresh() {
@@ -345,6 +420,7 @@
   function schedule() { if (!scheduled) { scheduled = true; raf(refresh); } }
 
   buildNav();
+  snapLogo();
   tuckExtras();
   attachSuggest($('desc'), $('amt'));
   attachSuggest($('trip-exp-desc'), $('trip-exp-amt'));
