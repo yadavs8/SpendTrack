@@ -47,6 +47,7 @@ jobs:
         run: |
           mkdir -p out
           cp "$(find app/build/outputs/apk -name '*.apk' | head -n 1)" out/Kharcha-Book.apk
+          (cd out && zip -q Kharcha-Book.zip Kharcha-Book.apk)
       - uses: actions/upload-artifact@v4
         with:
           name: Kharcha-Book-apk
@@ -57,4 +58,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete apk-latest --yes --cleanup-tag || true
-          gh release create apk-latest out/Kharcha-Book.apk --title "Kharcha Book (Android)" --notes "Latest Android build from main (commit ${GITHUB_SHA::7}). Open this page on your phone, tap Kharcha-Book.apk, install." --latest=false
+          gh release create apk-latest out/Kharcha-Book.apk out/Kharcha-Book.zip --title "Kharcha Book (Android)" --notes "Latest Android build from main (commit ${GITHUB_SHA::7}). Open this page on your phone, tap Kharcha-Book.apk, install." --latest=false
