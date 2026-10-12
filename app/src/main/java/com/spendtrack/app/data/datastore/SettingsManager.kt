@@ -176,7 +176,7 @@ class SettingsManager(private val context: Context) {
     }
 
     val isSmsDetectionEnabled: Flow<Boolean> = context.dataStore.data.map { prefs ->
-        prefs[KEY_SMS_ENABLED] ?: false
+        prefs[KEY_SMS_ENABLED] ?: true
     }
 
     val monthlyBudgetFlow: Flow<Double> = context.dataStore.data.map { prefs ->

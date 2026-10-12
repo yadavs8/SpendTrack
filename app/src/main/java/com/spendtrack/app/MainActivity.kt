@@ -209,25 +209,25 @@ fun MainApp(onWebViewAttached: (WebView?) -> Unit = {}) {
     val settingsViewModel: SettingsViewModel = viewModel()
     var showSettings by remember { mutableStateOf(false) }
     var webView by remember { mutableStateOf<WebView?>(null) }
-    // The page shows its own ⚙️ once it can reach the app (it reports a summary on load). Until
-    // then -- or if the page fails to load -- a native button keeps Settings reachable.
-    var pageHasSettingsButton by remember { mutableStateOf(false) }
     val appContext = LocalContext.current.applicationContext
 
-    // Request POST_NOTIFICATIONS permission on Android 13+. Uses ActivityCompat directly with a
-    // fixed request code -- some OEM ROMs (observed on OxygenOS/ColorOS) enforce a stricter 16-bit
-    // requestCode check than AndroidX's auto-generated codes from rememberLauncherForActivityResult
-    // satisfy, crashing with "Can only use lower 16 bits for requestCode".
+    // Request POST_NOTIFICATIONS (Android 13+) and SMS permissions (for sideload build) at launch.
+    // Uses ActivityCompat directly with a fixed request code -- some OEM ROMs (OxygenOS/ColorOS)
+    // enforce a 16-bit requestCode check.
     val activity = LocalContext.current as? android.app.Activity
     LaunchedEffect(Unit) {
+        val perms = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            activity?.let {
-                androidx.core.app.ActivityCompat.requestPermissions(
-                    it,
-                    arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                    1001
-                )
-            }
+            perms.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        perms.add(Manifest.permission.RECEIVE_SMS)
+        perms.add(Manifest.permission.READ_SMS)
+        activity?.let {
+            androidx.core.app.ActivityCompat.requestPermissions(
+                it,
+                perms.toTypedArray(),
+                1001
+            )
         }
     }
 
@@ -261,9 +261,8 @@ fun MainApp(onWebViewAttached: (WebView?) -> Unit = {}) {
                     onWebViewAttached(it)
                 },
                 onOpenSettings = { showSettings = true },
-                onPageReady = { ready -> if (!ready) pageHasSettingsButton = false },
+                onPageReady = { /* no-op */ },
                 onSummary = { json ->
-                    pageHasSettingsButton = true
                     scope.launch {
                         ServiceLocator.settingsManager.saveWebSummary(json)
                         com.spendtrack.app.widget.KharchaWidget.refresh(appContext)
@@ -275,24 +274,25 @@ fun MainApp(onWebViewAttached: (WebView?) -> Unit = {}) {
                 },
                 modifier = Modifier.statusBarsPadding()
             )
-            if (!pageHasSettingsButton) {
-                IconButton(
-                    onClick = { showSettings = true },
-                    // zIndex: an embedded AndroidView (the WebView) can otherwise draw over it.
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .statusBarsPadding()
-                        .padding(12.dp)
-                        .zIndex(10f)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer)
-                ) {
-                    Icon(
-                        Icons.Default.Settings,
-                        contentDescription = "App settings",
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                }
+            // Native Settings button: ALWAYS present, never removed or hidden by web page events.
+            IconButton(
+                onClick = { showSettings = true },
+                // zIndex: ensures it floats clearly above the WebView
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(end = 12.dp, top = 6.dp)
+                    .size(42.dp)
+                    .zIndex(100f)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer)
+            ) {
+                Icon(
+                    Icons.Default.Settings,
+                    contentDescription = "App settings",
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(22.dp)
+                )
             }
         }
     }
