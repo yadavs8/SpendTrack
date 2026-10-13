@@ -4199,6 +4199,76 @@
     } catch (e) {}
   }
 
+  /* ---------- Shared trips: invite a friend via WhatsApp (no account needed on their side) ----------
+     trips / trip_members / trip_expenses live in Supabase (supabase/kharcha_trip_sharing_v1.sql).
+     A guest never gets a Supabase session; every call they make is through a SECURITY DEFINER
+     Postgres function that re-checks their token itself. The owner's side below just calls the
+     matching owner-only RPCs (trip_get_or_create / trip_set_invite / trip_add_owner_expense). */
+  var tripInviteCache = {}; // tripName -> { id, invite_token, invite_enabled } (fetched lazily, per session)
+
+  function myDisplayName() {
+    var raw = ((kv.get('kharcha_owner_identity') || '').split(',')[0] || '').trim();
+    return raw || 'Me';
+  }
+
+  function tripShareLink(token) {
+    return location.origin + location.pathname.replace(/[^/]*$/, '') + 'trip.html?t=' + encodeURIComponent(token);
+  }
+
+  /** Looks up (and caches) this trip's row from Supabase, creating it if it never had one. */
+  async function ensureTripRow(tripName) {
+    if (tripInviteCache[tripName]) return tripInviteCache[tripName];
+    if (!sb) return null;
+    var res = await sb.rpc('trip_get_or_create', { p_name: tripName });
+    if (res.error || !res.data) return null;
+    tripInviteCache[tripName] = res.data;
+    return res.data;
+  }
+
+  /** Fire-and-forget copy of the owner's own trip spend into the shared ledger, if this trip has
+     ever been shared. Never blocks or fails the primary save -- that already succeeded locally. */
+  function mirrorOwnerTripExpense(tripName, amount, description, spentAtIso) {
+    if (!sb) return;
+    ensureTripRow(tripName).then(function (trip) {
+      if (!trip) return;
+      return sb.rpc('trip_add_owner_expense', {
+        p_trip_id: trip.id, p_added_by_name: myDisplayName(),
+        p_amount: amount, p_description: description, p_spent_at: spentAtIso || null
+      });
+    }).catch(function () {}); // best-effort; the owner's own copy in daily_expenses is already saved
+  }
+
+  /** Renders the invite status row (or hides it) for whichever trip is currently being viewed. */
+  function renderTripInviteRow(tripName) {
+    var row = $('trip-invite-row');
+    var note = $('trip-invite-note');
+    var toggleBtn = $('trip-invite-toggle-btn');
+    if (!row || !note || !toggleBtn) return;
+    if (!tripName || !sb) { row.hidden = true; return; }
+
+    sb.rpc('trip_get_or_create', { p_name: tripName }).then(function (res) {
+      if (res.error || !res.data) { row.hidden = true; return; }
+      var trip = res.data;
+      tripInviteCache[tripName] = trip;
+      if (!trip.invite_token) { row.hidden = true; return; } // never invited anyone yet -> nothing to show
+      row.hidden = false;
+      note.textContent = trip.invite_enabled ? 'Friends can view & add via your link' : 'Link is paused -- friends can\'t open it';
+      toggleBtn.textContent = trip.invite_enabled ? '⏸️' : '▶️';
+      toggleBtn.title = trip.invite_enabled ? 'Pause the link' : 'Resume the link';
+
+      // How much of the shared total came from friends themselves, not what you mirrored in.
+      sb.rpc('trip_summary', { p_invite_token: trip.invite_token }).then(function (sres) {
+        if (sres.error || !sres.data || !sres.data.length) return;
+        var s = sres.data[0];
+        var fromFriends = (s.expenses || []).filter(function (e) { return e.added_by_name !== myDisplayName(); });
+        if (fromFriends.length) {
+          var fTotal = fromFriends.reduce(function (sum, e) { return sum + Number(e.amount); }, 0);
+          note.textContent += ' · 👥 ' + money(fTotal) + ' added by friends (' + fromFriends.length + ')';
+        }
+      }).catch(function () {});
+    }).catch(function () { row.hidden = true; });
+  }
+
   function getSelectedViewTripName() {
     try {
       var sel = localStorage.getItem(SELECTED_VIEW_TRIP_KEY);
@@ -4425,6 +4495,8 @@
         atbSpent.textContent = money(activeSummary.totalSpent);
       }
     }
+
+    renderTripInviteRow(viewTrip);
 
     // Update Visual Destination Art Banner for Trips View
     var visualBanner = $('trip-visual-banner');
@@ -4888,6 +4960,73 @@
     });
   }
 
+  // First tap: creates the trip's shared row (if it doesn't have one yet), turns the invite link
+  // on, and opens WhatsApp to send it. Later taps: just re-opens WhatsApp with the same link
+  // (turning it back on first, if it had been paused).
+  var tripInviteBtn = $('trip-invite-btn');
+  if (tripInviteBtn) {
+    tripInviteBtn.addEventListener('click', function () {
+      var tripName = getSelectedViewTripName();
+      if (!tripName) { toast('Select or create a trip first!'); return; }
+      if (!sb) { toast('Sign in to Cloud Sync first to invite friends.'); return; }
+      tripInviteBtn.disabled = true;
+      ensureTripRow(tripName).then(function (trip) {
+        if (!trip) throw new Error('Could not reach Kharcha Book.');
+        return sb.rpc('trip_set_invite', { p_trip_id: trip.id, p_enabled: true, p_regenerate: !trip.invite_token });
+      }).then(function (res) {
+        if (res.error || !res.data) throw res.error || new Error('Could not create the link.');
+        tripInviteCache[tripName] = res.data;
+        var link = tripShareLink(res.data.invite_token);
+        var msg = 'Join our "' + tripName + '" trip on Kharcha Book -- see what\'s been spent and add your own: ' + link;
+        window.open(whatsappLink(msg), '_blank');
+        renderTripInviteRow(tripName);
+      }).catch(function (err) {
+        toast((err && err.message) || 'Could not create the invite link.');
+      }).finally(function () { tripInviteBtn.disabled = false; });
+    });
+  }
+
+  var tripInviteToggleBtn = $('trip-invite-toggle-btn');
+  if (tripInviteToggleBtn) {
+    tripInviteToggleBtn.addEventListener('click', function () {
+      var tripName = getSelectedViewTripName();
+      var trip = tripName && tripInviteCache[tripName];
+      if (!trip || !sb) return;
+      sb.rpc('trip_set_invite', { p_trip_id: trip.id, p_enabled: !trip.invite_enabled })
+        .then(function (res) {
+          if (res.error || !res.data) throw res.error;
+          tripInviteCache[tripName] = res.data;
+          renderTripInviteRow(tripName);
+          toast(res.data.invite_enabled ? 'Link turned back on' : 'Link paused -- friends can\'t open it for now');
+        }).catch(function () { toast('Could not change the link.'); });
+    });
+  }
+
+  var tripInviteRegenBtn = $('trip-invite-regen-btn');
+  if (tripInviteRegenBtn) {
+    tripInviteRegenBtn.addEventListener('click', function () {
+      var tripName = getSelectedViewTripName();
+      var trip = tripName && tripInviteCache[tripName];
+      if (!trip || !sb) return;
+      showConfirmModal({
+        title: 'Make a new link?',
+        message: 'The old link stops working immediately -- anyone still holding it (including friends already using it) will need the new one.',
+        confirmText: 'Make new link',
+        isDanger: true,
+        onConfirm: function () {
+          sb.rpc('trip_set_invite', { p_trip_id: trip.id, p_enabled: true, p_regenerate: true })
+            .then(function (res) {
+              if (res.error || !res.data) throw res.error;
+              tripInviteCache[tripName] = res.data;
+              var link = tripShareLink(res.data.invite_token);
+              window.open(whatsappLink('New link for our "' + tripName + '" trip on Kharcha Book: ' + link), '_blank');
+              renderTripInviteRow(tripName);
+            }).catch(function () { toast('Could not make a new link.'); });
+        }
+      });
+    });
+  }
+
   var tripAddFriendBtn = $('trip-add-friend-btn');
   if (tripAddFriendBtn) {
     tripAddFriendBtn.addEventListener('click', function () {
@@ -5114,6 +5253,7 @@
         if ($('trip-exp-date')) $('trip-exp-date').value = '';
         var ts = spentAt ? Date.parse(spentAt) : Date.now();
         state.sel = monthKey(ts);
+        mirrorOwnerTripExpense(tripName, amt, clean + payerTag, spentAt);
         saveTripToList(tripName);
         render();
         var payerLabel = (payer && payer !== 'Me') ? (' (Paid by ' + payer + ')') : '';
@@ -5842,9 +5982,9 @@
     var scope = getSelectedScope();
     var cleanDesc = rawDesc.replace(/^[🏠👤]\s*/, '');
     if (/lavish\s+kirana/i.test(cleanDesc) && scope === 'personal') scope = 'family';
-    var desc;
+    var desc, tripName = null;
     if (scope === 'trip') {
-      var tripName = ($('trip-pick') && $('trip-pick').value || '').trim();
+      tripName = ($('trip-pick') && $('trip-pick').value || '').trim();
       if (!tripName) { showErr('Choose a trip, or add a new one first.'); return; }
       desc = shiftScopeDesc(cleanDesc, 'trip', tripName);
     } else {
@@ -5861,6 +6001,7 @@
       $('amt').value = ''; $('desc').value = ''; $('spent-date').value = '';
       var ts = spentAt ? Date.parse(spentAt) : Date.now();
       state.sel = monthKey(ts);
+      if (tripName) mirrorOwnerTripExpense(tripName, amt, cleanDesc, spentAt);
       render();
       toast('Added ' + money(amt) + ' for ' + desc);
       $('amt').focus();

@@ -1331,6 +1331,40 @@ button.cat-row { width: 100%; text-align: left; background: none; border: 0; pad
   background: rgba(2, 132, 199, 0.08);
 }
 
+/* Invite-a-friend status row, shown once a link exists for the trip being viewed */
+.trip-invite-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.trip-invite-note {
+  flex: 1;
+  font-size: 0.78rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trip-icon-btn-sm {
+  height: 30px;
+  width: 30px;
+  flex: none;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.trip-icon-btn-sm:hover {
+  border-color: #0284C7;
+  background: rgba(2, 132, 199, 0.08);
+}
+
 /* Multi-Friend Participants & Manager */
 .trip-friends-sec {
   background: var(--bg);

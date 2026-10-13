@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kharcha Book — Shared Trip</title>
+<meta name="description" content="View and add to a shared trip's spending, no account needed.">
+<link rel="icon" href="icon-192.png" type="image/png">
+<style>
+  :root { --bg:#F7F9FA; --surface:#fff; --ink:#0F172A; --muted:#64748B; --line:#E2E8F0; --accent:#0284C7; --accent-soft:rgba(2,132,199,.1); --danger:#DC2626; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0B1120; --surface:#131B2E; --ink:#F1F5F9; --muted:#8A97AC; --line:#1F2A40; --accent:#38BDF8; --accent-soft:rgba(56,189,248,.14); }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:400 15px/1.45 -apple-system,system-ui,"IBM Plex Sans",sans-serif; -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:480px; margin:0 auto; padding:20px 16px 48px; min-height:100vh; }
+  h1 { font-size:1.3rem; margin:0 0 2px; }
+  .sub { color:var(--muted); font-size:0.85rem; margin:0 0 20px; }
+  .card { background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:16px; margin-bottom:14px; box-shadow:0 1px 3px rgba(0,0,0,.04); }
+  .total { font:700 2rem/1.1 inherit; margin:0; }
+  .total-note { color:var(--muted); font-size:0.82rem; margin:4px 0 0; }
+  .field { display:flex; flex-direction:column; gap:5px; margin-bottom:12px; }
+  label { font-size:0.8rem; color:var(--muted); }
+  input { font:inherit; font-size:1rem; padding:10px 12px; border:1px solid var(--line); border-radius:10px; background:var(--bg); color:var(--ink); width:100%; }
+  input:focus { outline:none; border-color:var(--accent); }
+  button { font:inherit; font-weight:600; font-size:0.95rem; padding:11px 16px; border-radius:10px; border:0; cursor:pointer; }
+  .primary { background:var(--accent); color:#fff; width:100%; }
+  .primary:disabled { opacity:.5; cursor:default; }
+  .err { color:var(--danger); font-size:0.85rem; margin:6px 0 0; }
+  .list { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:10px; }
+  .row { display:flex; justify-content:space-between; gap:10px; padding:10px 0; border-bottom:1px solid var(--line); }
+  .row:last-child { border-bottom:0; padding-bottom:0; }
+  .row-l { display:flex; flex-direction:column; gap:1px; }
+  .row-desc { font-weight:600; }
+  .row-meta { font-size:0.76rem; color:var(--muted); }
+  .row-amt { font-weight:700; white-space:nowrap; }
+  .empty { color:var(--muted); font-size:0.88rem; text-align:center; padding:18px 0; }
+  .center { text-align:center; padding:60px 16px; color:var(--muted); }
+  .brand { font-size:0.75rem; color:var(--muted); text-align:center; margin-top:24px; }
+  .brand a { color:var(--accent); text-decoration:none; }
+</style>
+</head>
+<body>
+<div class="wrap" id="app">
+  <div class="center" id="loading">Loading trip…</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js" onerror="void 0"></script>
+<script src="trip.js"></script>
+</body>
+</html>
