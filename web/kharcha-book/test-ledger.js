@@ -411,4 +411,31 @@ t('credit card: the SMS available limit gives the amount owed; else your startin
   assert.strictEqual(L.cardState(rows.map(r => Object.assign({}, r, { raw: undefined })), card, {}, pred).outstanding, null);
 });
 
+t('trip categories: identifies stay, fuel, food, and beverages headers correctly', () => {
+  assert.strictEqual(L.tripItemCategory('✈️ Manali trip: Airbnb Payments').key, 'stay');
+  assert.strictEqual(L.tripItemCategory('✈️ Manali trip: Grand Hotel Manali').name, 'Stay Expenses');
+  assert.strictEqual(L.tripItemCategory('✈️ Manali trip: HPCL Fuel Station').key, 'fuel');
+  assert.strictEqual(L.tripItemCategory('✈️ Manali trip: Indian Oil Petrol').name, 'Fuel Expenses');
+  assert.strictEqual(L.tripItemCategory('✈️ Manali trip: Chopsticks Restaurant').key, 'food');
+  assert.strictEqual(L.tripItemCategory('✈️ Manali trip: Cafe 1947 dinner').name, 'Food Expenses');
+  assert.strictEqual(L.tripItemCategory('✈️ Manali trip: English Wine & Beer Shop').key, 'beverages');
+  assert.strictEqual(L.tripItemCategory('✈️ Manali trip: Old Monk Rum & Liquor').name, 'Beverages');
+  assert.strictEqual(L.tripItemCategory('✈️ Manali trip: Paragliding Solang').key, 'other');
+
+  const sample = [
+    { id: '1', amount: 18000, desc: '✈️ Manali: Airbnb Stay' },
+    { id: '2', amount: 3500, desc: '✈️ Manali: Petrol Pump Fuel' },
+    { id: '3', amount: 1200, desc: '✈️ Manali: Johnson Cafe lunch' },
+    { id: '4', amount: 2400, desc: '✈️ Manali: Wine & Beer Shop drinks' },
+    { id: '5', amount: 500, desc: '✈️ Manali: Taxi cab' }
+  ];
+  const cats = L.tripCategoriesSummary(sample);
+  assert.strictEqual(cats.stay.total, 18000);
+  assert.strictEqual(cats.fuel.total, 3500);
+  assert.strictEqual(cats.food.total, 1200);
+  assert.strictEqual(cats.beverages.total, 2400);
+  assert.strictEqual(cats.other.total, 500);
+});
+
 console.log(n + ' tests passed');
+

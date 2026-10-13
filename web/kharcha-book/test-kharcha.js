@@ -54,6 +54,9 @@ const windowMock = {
 };
 windowMock.window = windowMock;
 
+const ledgerCode = fs.readFileSync(path.join(__dirname, 'ledger-logic.js'), 'utf8');
+vm.runInNewContext(ledgerCode, windowMock);
+
 const code = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8');
 vm.runInNewContext(code, windowMock);
 
@@ -385,6 +388,9 @@ assert(goaSummary.totalSpent === 9200, 'getTripSummary sums Goa trip spent: 4500
 assert(goaSummary.itemsCount === 3, 'getTripSummary counts 3 trip items (excludes grocery)');
 assert(goaSummary.daysCount === 2, 'getTripSummary counts 2 unique trip days');
 assert(goaSummary.dailyAvg === 4600, 'getTripSummary calculates daily average: 9200 / 2 = 4600');
+assert(goaSummary.categories.stay.total === 3200, 'getTripSummary categorizes Hotel Resort under Stay Expenses (3200)');
+assert(goaSummary.categories.food.total === 1500, 'getTripSummary categorizes Beach Dinner under Food Expenses (1500)');
+assert(goaSummary.categories.other.total === 4500, 'getTripSummary categorizes Flight under Other (4500)');
 const tripCashFlow = getPersonalCashFlow(tripEntries);
 assert(tripCashFlow.personalSpent === 500, 'getPersonalCashFlow excludes trip expenses (9200) and only counts personal grocery (500)');
 

@@ -31,6 +31,45 @@
     return t || 'Expense';
   }
 
+  /* Trip Categories:
+     - stay: Stay Expenses (🏨)
+     - fuel: Fuel Expenses (⛽)
+     - food: Food Expenses (🍔)
+     - beverages: Beverages (🍻)
+     - other: Activities & Other (🎟️) */
+  var TRIP_CATEGORY_DEFS = [
+    { key: 'stay', name: 'Stay Expenses', emoji: '🏨', re: /\b(?:airbnb|hotel|resort|homestay|oyo|booking(?:\.com)?|agoda|villa|hostel|stay|lodge|lodging|guest\s*house|inn|cottage|treebo|fabhotel|chalet|campsite|camp|tent)\b/i },
+    { key: 'fuel', name: 'Fuel Expenses', emoji: '⛽', re: /\b(?:fuel|petrol|diesel|hpcl|iocl|bpcl|shell|cng|gas\s*station|petroleum)\b/i },
+    { key: 'food', name: 'Food Expenses', emoji: '🍔', re: /\b(?:restaurant|cafe|dhaba|dining|food|swiggy|zomato|eats|breakfast|lunch|dinner|meal|snacks|pizza|burger|bakery|sweet|mithai|mcdonald|domino|kfc|subway|biryani|roti|chai|coffee|starbucks)\b/i },
+    { key: 'beverages', name: 'Beverages', emoji: '🍻', re: /\b(?:liquor|alcohol|wine|beer|beverage|beverages|drinks|drink|theka|bar|pub|brewery|whiskey|whisky|scotch|vodka|rum|gin|cocktail|cocktails|spirits|wine\s*(?:and|&)?\s*beer)\b/i }
+  ];
+
+  function tripItemCategory(desc) {
+    var raw = tripItemLabel(desc).toLowerCase();
+    for (var i = 0; i < TRIP_CATEGORY_DEFS.length; i++) {
+      if (TRIP_CATEGORY_DEFS[i].re.test(raw)) return TRIP_CATEGORY_DEFS[i];
+    }
+    return { key: 'other', name: 'Activities & Other', emoji: '🎟️' };
+  }
+
+  function tripCategoriesSummary(expenses) {
+    var cats = {
+      stay: { key: 'stay', name: 'Stay Expenses', emoji: '🏨', total: 0, count: 0, items: [] },
+      fuel: { key: 'fuel', name: 'Fuel Expenses', emoji: '⛽', total: 0, count: 0, items: [] },
+      food: { key: 'food', name: 'Food Expenses', emoji: '🍔', total: 0, count: 0, items: [] },
+      beverages: { key: 'beverages', name: 'Beverages', emoji: '🍻', total: 0, count: 0, items: [] },
+      other: { key: 'other', name: 'Activities & Other', emoji: '🎟️', total: 0, count: 0, items: [] }
+    };
+    (expenses || []).forEach(function (e) {
+      var c = tripItemCategory(e.desc || e.label);
+      var target = cats[c.key] || cats.other;
+      target.total = (toPaise(target.total) + toPaise(e.amount)) / 100;
+      target.count += 1;
+      target.items.push(e);
+    });
+    return cats;
+  }
+
   /* expenses: [{ id, label, amount (rupees), payer }]; participants: [names]. Everyone splits every expense equally.
      Returns:
        people:    [{ name, paid, share, net }]   net > 0 gets money back, net < 0 owes
@@ -703,6 +742,7 @@
     upcomingRules: upcomingRules, parseOwn: parseOwn, defaultOwn: defaultOwn, cardFor: cardFor, ownAccountFor: ownAccountFor, transferCandidates: transferCandidates, autoOwnTransfers: autoOwnTransfers, orphanTransfers: orphanTransfers, isOwnName: isOwnName, sourceAccountFromRaw: sourceAccountFromRaw,
     parseRules: parseRules, defaultRules: defaultRules, matchRule: matchRule, dueRules: dueRules, routeAccount: routeAccount,
     splitPaise: splitPaise, tripItemLabel: tripItemLabel, tripSettlement: tripSettlement,
+    tripItemCategory: tripItemCategory, tripCategoriesSummary: tripCategoriesSummary, TRIP_CATEGORY_DEFS: TRIP_CATEGORY_DEFS,
     cleanName: cleanName, nameKey: nameKey, parseLoans: parseLoans, repaid: repaid, outstanding: outstanding,
     addPayment: addPayment, editLoan: editLoan, editPayment: editPayment, summarize: summarize,
     walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, parseWalletDesc: parseWalletDesc,

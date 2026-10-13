@@ -471,12 +471,22 @@
     var paidByFriend = friendEntries.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
     var netDiff = (paidByMe * 100 - paidByFriend * 100) / 200;
 
+    var KL = window.KharchaLedger;
+    var categories = (KL && KL.tripCategoriesSummary) ? KL.tripCategoriesSummary(list) : {
+      stay: { key: 'stay', name: 'Stay Expenses', emoji: '🏨', total: 0, count: 0, items: [] },
+      fuel: { key: 'fuel', name: 'Fuel Expenses', emoji: '⛽', total: 0, count: 0, items: [] },
+      food: { key: 'food', name: 'Food Expenses', emoji: '🍔', total: 0, count: 0, items: [] },
+      beverages: { key: 'beverages', name: 'Beverages', emoji: '🍻', total: 0, count: 0, items: [] },
+      other: { key: 'other', name: 'Activities & Other', emoji: '🎟️', total: 0, count: 0, items: [] }
+    };
+
     return {
       entries: list,
       totalSpent: totalSpent,
       itemsCount: list.length,
       daysCount: numDays,
       dailyAvg: dailyAvg,
+      categories: categories,
       participants: allParticipants,
       perPersonShare: perPersonShare,
       balances: balances,
@@ -4252,6 +4262,13 @@
 
   var selectedTripPayer = 'Me';
 
+  function getTripViewMode() {
+    return localStorage.getItem('kharcha_trip_view_mode') || 'category';
+  }
+  function setTripViewMode(m) {
+    try { localStorage.setItem('kharcha_trip_view_mode', m); } catch (e) {}
+  }
+
   function renderTripsView(tripSummary, monthEntries) {
     var activeTrip = getActiveTripName();
     var viewTrip = getSelectedViewTripName();
@@ -4483,42 +4500,182 @@
       });
     }
 
-    // Timeline entries
+    // Render Category Breakdown Cards Grid (Stay, Fuel, Food, Beverages, Other)
+    var catGrid = $('trip-cat-grid');
+    if (catGrid) {
+      catGrid.innerHTML = '';
+      var catOrder = ['stay', 'fuel', 'food', 'beverages', 'other'];
+      var activeCatKeys = catOrder.filter(function (k) {
+        return tripSummary.categories && tripSummary.categories[k] && tripSummary.categories[k].count > 0;
+      });
+      var displayKeys = activeCatKeys.length ? activeCatKeys : ['stay', 'fuel', 'food', 'beverages'];
+      displayKeys.forEach(function (k) {
+        var c = (tripSummary.categories && tripSummary.categories[k]) || { name: k, emoji: '🏷️', total: 0, count: 0 };
+        var card = el('div', 'trip-cat-card');
+        card.setAttribute('role', 'button');
+        card.setAttribute('tabindex', '0');
+        card.appendChild(el('span', 'trip-cat-card-title', c.emoji + ' ' + c.name));
+        card.appendChild(el('span', 'trip-cat-card-amt', money(c.total)));
+        card.appendChild(el('span', 'trip-cat-card-sub', c.count + (c.count === 1 ? ' item' : ' items')));
+        card.addEventListener('click', function () {
+          setTripViewMode('category');
+          render();
+          var targetSec = $('trip-cat-sec-' + k);
+          if (targetSec) {
+            targetSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            var wrapper = targetSec.querySelector('.entries-wrapper');
+            var head = targetSec.querySelector('.trip-cat-head');
+            if (wrapper && !wrapper.classList.contains('expanded')) {
+              wrapper.classList.add('expanded');
+              if (head) head.classList.add('expanded');
+            }
+          }
+        });
+        catGrid.appendChild(card);
+      });
+    }
+
+    // View mode: 'category' (default) vs 'date'
+    var currentMode = getTripViewMode();
+    var tvmCat = $('tvm-cat');
+    var tvmDate = $('tvm-date');
+    if (tvmCat && tvmDate) {
+      tvmCat.classList.toggle('active', currentMode === 'category');
+      tvmDate.classList.toggle('active', currentMode === 'date');
+    }
+
+    var catSecsBox = $('trip-cat-sections');
     var daysBox = $('trip-days');
-    if (!daysBox) return;
-    daysBox.textContent = '';
 
     if (!tripSummary.entries.length) {
-      var em = el('div', 'empty');
-      em.appendChild(el('p', null, viewTrip
+      var emptyMsg = viewTrip
         ? ('No expenses logged yet for ' + viewTrip + ' in ' + monthLabel(state.sel) + '. Add hotel, food, or travel above!')
-        : ('No trips created yet. Tap "+ New Trip" to start tracking!')));
-      daysBox.appendChild(em);
+        : ('No trips created yet. Tap "+ New Trip" to start tracking!');
+      if (catSecsBox) {
+        catSecsBox.innerHTML = '';
+        var emC = el('div', 'empty');
+        emC.appendChild(el('p', null, emptyMsg));
+        catSecsBox.appendChild(emC);
+        catSecsBox.hidden = (currentMode !== 'category');
+      }
+      if (daysBox) {
+        daysBox.innerHTML = '';
+        var emD = el('div', 'empty');
+        emD.appendChild(el('p', null, emptyMsg));
+        daysBox.appendChild(emD);
+        daysBox.hidden = (currentMode !== 'date');
+      }
       return;
     }
 
-    var days = groupByDay(tripSummary.entries);
-    days.forEach(function (g, idx) {
-      var wrap = el('section', 'day');
-      var isExpanded = true;
-      var wrapper = el('div', 'entries-wrapper expanded');
-      var ul = el('ul', 'entries');
-      g.items.forEach(function (e) {
-        var li = el('li');
-        li.appendChild(state.editing === e.id && state.draft ? editRow(e) : entryRow(e));
-        ul.appendChild(li);
-      });
-      wrapper.appendChild(ul);
+    if (currentMode === 'category') {
+      if (catSecsBox) catSecsBox.hidden = false;
+      if (daysBox) daysBox.hidden = true;
+      if (catSecsBox) {
+        catSecsBox.innerHTML = '';
+        var catOrder = ['stay', 'fuel', 'food', 'beverages', 'other'];
+        catOrder.forEach(function (cKey) {
+          var c = tripSummary.categories && tripSummary.categories[cKey];
+          if (!c || !c.items.length) return;
 
-      var head = dayHead(g, isExpanded, function () {
-        var nextExpanded = !wrapper.classList.contains('expanded');
-        head.classList.toggle('expanded', nextExpanded);
-        wrapper.classList.toggle('expanded', nextExpanded);
-      }, idx);
+          var sec = el('section', 'trip-cat-section');
+          sec.id = 'trip-cat-sec-' + cKey;
+          var headBtn = el('button', 'trip-cat-head expanded');
+          headBtn.type = 'button';
 
-      wrap.appendChild(head);
-      wrap.appendChild(wrapper);
-      daysBox.appendChild(wrap);
+          var left = el('div', 'trip-cat-head-left');
+          left.appendChild(el('span', 'trip-cat-badge', c.emoji + ' ' + c.name));
+          left.appendChild(el('span', 'trip-cat-count', c.count + (c.count === 1 ? ' item' : ' items')));
+
+          var right = el('div', 'trip-cat-head-right');
+          right.appendChild(el('span', 'trip-cat-total-amt', money(c.total)));
+          right.appendChild(el('span', 'chevron', '▾'));
+
+          headBtn.appendChild(left);
+          headBtn.appendChild(right);
+
+          var wrapper = el('div', 'entries-wrapper expanded');
+          var ul = el('ul', 'entries');
+          var sorted = c.items.slice().sort(function (a, b) { return b.ts - a.ts; });
+          sorted.forEach(function (e) {
+            var li = el('li');
+            li.appendChild(state.editing === e.id && state.draft ? editRow(e) : entryRow(e));
+            ul.appendChild(li);
+          });
+          wrapper.appendChild(ul);
+
+          headBtn.addEventListener('click', function () {
+            var nextExpanded = !wrapper.classList.contains('expanded');
+            headBtn.classList.toggle('expanded', nextExpanded);
+            wrapper.classList.toggle('expanded', nextExpanded);
+          });
+
+          sec.appendChild(headBtn);
+          sec.appendChild(wrapper);
+          catSecsBox.appendChild(sec);
+        });
+      }
+    } else {
+      if (catSecsBox) catSecsBox.hidden = true;
+      if (daysBox) {
+        daysBox.hidden = false;
+        daysBox.innerHTML = '';
+        var days = groupByDay(tripSummary.entries);
+        days.forEach(function (g, idx) {
+          var wrap = el('section', 'day');
+          var isExpanded = true;
+          var wrapper = el('div', 'entries-wrapper expanded');
+          var ul = el('ul', 'entries');
+          g.items.forEach(function (e) {
+            var li = el('li');
+            li.appendChild(state.editing === e.id && state.draft ? editRow(e) : entryRow(e));
+            ul.appendChild(li);
+          });
+          wrapper.appendChild(ul);
+
+          var head = dayHead(g, isExpanded, function () {
+            var nextExpanded = !wrapper.classList.contains('expanded');
+            head.classList.toggle('expanded', nextExpanded);
+            wrapper.classList.toggle('expanded', nextExpanded);
+          }, idx);
+
+          wrap.appendChild(head);
+          wrap.appendChild(wrapper);
+          daysBox.appendChild(wrap);
+        });
+      }
+    }
+  }
+
+  // Trip View Mode Toggle Listeners
+  var tvmCatBtn = $('tvm-cat');
+  if (tvmCatBtn) {
+    tvmCatBtn.addEventListener('click', function () {
+      setTripViewMode('category');
+      render();
+    });
+  }
+  var tvmDateBtn = $('tvm-date');
+  if (tvmDateBtn) {
+    tvmDateBtn.addEventListener('click', function () {
+      setTripViewMode('date');
+      render();
+    });
+  }
+
+  // Trip Quick Category Chips in Add Form
+  var tripQuickCatsBox = $('trip-quick-cats');
+  if (tripQuickCatsBox) {
+    tripQuickCatsBox.addEventListener('click', function (ev) {
+      var btn = ev.target.closest('.trip-quick-cat-btn');
+      if (!btn) return;
+      var prefix = btn.getAttribute('data-prefix');
+      var descInp = $('trip-exp-desc');
+      if (!descInp || !prefix) return;
+      var curVal = descInp.value.trim();
+      var clean = curVal.replace(/^(?:🏨\s*Stay:\s*|⛽\s*Fuel:\s*|🍔\s*Food:\s*|🍻\s*Beverages:\s*|🎟️\s*)+/i, '');
+      descInp.value = prefix + clean;
+      descInp.focus();
     });
   }
 

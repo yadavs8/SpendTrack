@@ -1736,3 +1736,147 @@ button.cat-row { width: 100%; text-align: left; background: none; border: 0; pad
 .wal-item.up .wal-amt { color: var(--accent); }
 .wal-amt { white-space: nowrap; font-variant-numeric: tabular-nums; font-weight: 600; color: var(--ink); }
 .wal-conv { height: 34px; padding: 0 10px; flex: none; font-size: 0.8rem; }
+
+/* Trip Category Breakdown & Headers */
+.trip-cat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+  margin: 6px 0;
+}
+.trip-cat-card {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.trip-cat-card:hover, .trip-cat-card.active {
+  border-color: #0284C7;
+  background: rgba(2, 132, 199, 0.08);
+}
+.trip-cat-card-title {
+  font-size: 0.73rem;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.trip-cat-card-amt {
+  font: 700 1.05rem/1.2 var(--f-display);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.trip-cat-card-sub {
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
+.trip-view-toggle-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 16px 0 10px;
+}
+.trip-view-modes {
+  display: flex;
+  gap: 4px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 2px;
+}
+.trip-view-mode-btn {
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.trip-view-mode-btn.active {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Category Section Header */
+.trip-cat-section {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+.trip-cat-head {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+}
+.trip-cat-head-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.trip-cat-badge {
+  font: 700 0.95rem/1.2 var(--f-display);
+  color: var(--ink);
+}
+.trip-cat-count {
+  font-size: 0.72rem;
+  background: var(--bg);
+  color: var(--muted);
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+.trip-cat-head-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.trip-cat-total-amt {
+  font: 700 1.05rem/1.2 var(--f-display);
+  color: #0284C7;
+  font-variant-numeric: tabular-nums;
+}
+:root[data-theme="dark"] .trip-cat-total-amt {
+  color: #38BDF8;
+}
+
+/* Quick Category Picker in Add Form */
+.trip-quick-cats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0 10px;
+}
+.trip-quick-cat-btn {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.trip-quick-cat-btn:hover {
+  border-color: #0284C7;
+  color: #0284C7;
+}
