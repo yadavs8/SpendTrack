@@ -19,6 +19,121 @@
   function money(n) {
     return '₹' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
   }
+  // Same destination-art generator as the main app's Trips view (duplicated here rather than
+  // shared, on purpose -- this page loads nothing from app.js). Picks a themed gradient + tiny
+  // inline-SVG illustration from the trip's name (mountains, beach, desert/heritage, city...),
+  // with a generic travel scene as the fallback.
+  function getTripTheme(tripName) {
+    var raw = (tripName || '').trim();
+    var s = raw.toLowerCase();
+    var theme = {
+      tag: '✈️ Travel & Adventure',
+      place: raw || 'Explore the World',
+      art: '<svg viewBox="0 0 400 190" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">' +
+        '<defs><linearGradient id="g-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#1E293B"/><stop offset="100%" stop-color="#0F172A"/></linearGradient></defs>' +
+        '<rect width="400" height="190" fill="url(#g-sky)"/>' +
+        '<circle cx="340" cy="40" r="18" fill="#F8FAFC" opacity="0.3"/>' +
+        '<path d="M0,190 L40,135 L85,190 L130,120 L175,190 L240,105 L300,190 L350,128 L400,190 Z" fill="#334155" opacity="0.5"/>' +
+        '</svg>'
+    };
+    if (!raw) return theme;
+
+    if (s.includes('manali') || s.includes('kasol') || s.includes('rohtang') || s.includes('spiti') ||
+        s.includes('ladakh') || s.includes('leh') || s.includes('shimla') || s.includes('kullu') ||
+        s.includes('himachal') || s.includes('uttarakhand') || s.includes('kedarnath') || s.includes('rishikesh') ||
+        s.includes('kashmir') || s.includes('gulmarg') || s.includes('mountain') || s.includes('hill') ||
+        s.includes('trek') || s.includes('hike') || s.includes('snow') || s.includes('camp')) {
+      theme.tag = '🏔️ Himalayas Expedition';
+      theme.place = raw;
+      theme.art = '<svg viewBox="0 0 400 190" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">' +
+        '<defs>' +
+          '<linearGradient id="mt-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#082F49"/><stop offset="60%" stop-color="#0C4A6E"/><stop offset="100%" stop-color="#0284C7"/></linearGradient>' +
+        '</defs>' +
+        '<rect width="400" height="190" fill="url(#mt-sky)"/>' +
+        '<circle cx="340" cy="38" r="17" fill="#FEF08A" opacity="0.85"/>' +
+        '<path d="M20,190 L80,65 L140,190 Z" fill="#38BDF8" opacity="0.35"/>' +
+        '<path d="M80,65 L98,95 L80,88 L62,95 Z" fill="#FFFFFF" opacity="0.85"/>' +
+        '<path d="M110,190 L190,35 L270,190 Z" fill="#0284C7" opacity="0.5"/>' +
+        '<path d="M190,35 L212,68 L190,60 L168,68 Z" fill="#FFFFFF" opacity="0.95"/>' +
+        '<path d="M240,190 L310,52 L380,190 Z" fill="#0369A1" opacity="0.6"/>' +
+        '<path d="M310,52 L328,80 L310,74 L292,80 Z" fill="#FFFFFF" opacity="0.9"/>' +
+        '<path d="M-10,190 L50,105 L120,190 Z" fill="#0F172A" opacity="0.8"/>' +
+        '<path d="M290,190 L355,98 L410,190 Z" fill="#0F172A" opacity="0.8"/>' +
+        '</svg>';
+      return theme;
+    }
+
+    if (s.includes('goa') || s.includes('gokarna') || s.includes('beach') || s.includes('coast') ||
+        s.includes('kerala') || s.includes('pondicherry') || s.includes('bali') || s.includes('maldives') ||
+        s.includes('phuket') || s.includes('sea') || s.includes('ocean') || s.includes('island') ||
+        s.includes('andaman') || s.includes('alibaug') || s.includes('varkala')) {
+      theme.tag = '🏖️ Coastal Getaway';
+      theme.place = raw;
+      theme.art = '<svg viewBox="0 0 400 190" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">' +
+        '<defs><linearGradient id="bc-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#FB923C"/><stop offset="45%" stop-color="#FDE047"/><stop offset="70%" stop-color="#38BDF8"/><stop offset="100%" stop-color="#0284C7"/></linearGradient></defs>' +
+        '<rect width="400" height="190" fill="url(#bc-sky)"/>' +
+        '<circle cx="200" cy="80" r="26" fill="#FEF08A" opacity="0.95"/>' +
+        '<path d="M0,115 L400,115 L400,190 L0,190 Z" fill="#0284C7" opacity="0.65"/>' +
+        '<path d="M0,132 C60,128 120,136 180,132 C240,128 300,136 360,132 C380,130 395,131 400,132 L400,190 L0,190 Z" fill="#0369A1" opacity="0.8"/>' +
+        '<path d="M30,190 Q36,140 48,112" stroke="#78350F" stroke-width="5" fill="none"/>' +
+        '<path d="M48,112 Q20,108 12,124 M48,112 Q32,96 30,82 M48,112 Q55,92 66,84 M48,112 Q68,100 78,112 M48,112 Q58,124 52,136" stroke="#15803D" stroke-width="3" fill="none" stroke-linecap="round"/>' +
+        '</svg>';
+      return theme;
+    }
+
+    if (s.includes('jaipur') || s.includes('udaipur') || s.includes('jaisalmer') || s.includes('jodhpur') ||
+        s.includes('rajasthan') || s.includes('desert') || s.includes('dubai') || s.includes('safari') ||
+        s.includes('palace') || s.includes('fort') || s.includes('agra')) {
+      theme.tag = '🏰 Heritage & Royal';
+      theme.place = raw;
+      theme.art = '<svg viewBox="0 0 400 190" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">' +
+        '<defs><linearGradient id="ds-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#C2410C"/><stop offset="50%" stop-color="#F59E0B"/><stop offset="100%" stop-color="#FCD34D"/></linearGradient></defs>' +
+        '<rect width="400" height="190" fill="url(#ds-sky)"/>' +
+        '<circle cx="320" cy="48" r="22" fill="#FFFBEB" opacity="0.9"/>' +
+        '<path d="M0,190 L0,150 L40,150 L40,135 C40,120 55,120 55,135 L55,150 L90,150 L90,110 C90,90 110,90 110,110 L110,150 L160,150 L160,128 C160,110 175,110 175,128 L175,150 L220,150 L220,190 Z" fill="#78350F" opacity="0.6"/>' +
+        '<path d="M0,190 Q100,135 220,165 Q310,185 400,145 L400,190 Z" fill="#B45309" opacity="0.85"/>' +
+        '</svg>';
+      return theme;
+    }
+
+    if (s.includes('mumbai') || s.includes('bangalore') || s.includes('bengaluru') || s.includes('delhi') ||
+        s.includes('london') || s.includes('singapore') || s.includes('bangkok') || s.includes('city') ||
+        s.includes('urban') || s.includes('tokyo') || s.includes('york')) {
+      theme.tag = '🏙️ City Life & Skyline';
+      theme.place = raw;
+      theme.art = '<svg viewBox="0 0 400 190" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">' +
+        '<rect width="400" height="190" fill="#1E1B4B"/>' +
+        '<circle cx="340" cy="38" r="16" fill="#E0E7FF" opacity="0.8"/>' +
+        '<rect x="20" y="95" width="28" height="95" fill="#4338CA" opacity="0.6"/>' +
+        '<rect x="55" y="70" width="35" height="120" fill="#312E81" opacity="0.8"/>' +
+        '<rect x="95" y="105" width="25" height="85" fill="#4338CA" opacity="0.7"/>' +
+        '<polygon points="135,190 145,55 155,190" fill="#6366F1" opacity="0.5"/>' +
+        '<rect x="160" y="78" width="40" height="112" fill="#312E81" opacity="0.9"/>' +
+        '<rect x="210" y="52" width="32" height="138" fill="#4338CA" opacity="0.8"/>' +
+        '<rect x="250" y="100" width="30" height="90" fill="#312E81" opacity="0.7"/>' +
+        '<rect x="290" y="75" width="38" height="115" fill="#4338CA" opacity="0.85"/>' +
+        '<rect x="335" y="110" width="45" height="80" fill="#312E81" opacity="0.9"/>' +
+        '</svg>';
+      return theme;
+    }
+
+    return theme;
+  }
+
+  /** The welcome banner shown at the top of both the join screen and the trip view. */
+  function renderHero(tripName) {
+    var theme = getTripTheme(tripName);
+    var hero = el('div', 'hero');
+    var art = el('div', 'hero-art'); art.innerHTML = theme.art;
+    var shade = el('div', 'hero-shade');
+    var inner = el('div', 'hero-inner');
+    inner.appendChild(el('span', 'hero-tag', theme.tag));
+    inner.appendChild(el('h1', 'hero-title', tripName ? 'Welcome to ' + tripName : 'Welcome'));
+    inner.appendChild(el('p', 'hero-sub', 'Kharcha Book shared trip'));
+    hero.appendChild(art); hero.appendChild(shade); hero.appendChild(inner);
+    return hero;
+  }
+
   function showError(msg) {
     app.innerHTML = '';
     var box = el('div', 'center');
@@ -113,10 +228,10 @@
     });
   }
 
-  function renderJoinForm() {
+  function renderJoinForm(tripName) {
     app.innerHTML = '';
+    app.appendChild(renderHero(tripName));
     var card = el('div', 'card');
-    card.appendChild(el('h1', null, '✈️ Join this trip'));
     card.appendChild(el('p', 'sub', "Enter your name to see what's been spent and add your own."));
     var field = el('div', 'field');
     var label = el('label', null, 'Your name');
@@ -148,9 +263,9 @@
     var membership = savedMembership();
     app.innerHTML = '';
 
+    app.appendChild(renderHero(tripName));
     var head = el('div');
-    head.appendChild(el('h1', null, '✈️ ' + tripName));
-    head.appendChild(el('p', 'sub', 'You: ' + (membership ? membership.display_name : '') + ' · Kharcha Book shared trip'));
+    head.appendChild(el('p', 'sub', 'You: ' + (membership ? membership.display_name : '')));
     app.appendChild(head);
 
     var summaryCard = el('div', 'card');
@@ -286,10 +401,11 @@
     });
   } else {
     // Still worth checking the token is live before asking for a name, so a dead link fails
-    // fast with a clear reason instead of after someone's typed their name.
+    // fast with a clear reason instead of after someone's typed their name. Also gets the trip's
+    // real name for the welcome hero, before anyone has joined yet.
     sb.rpc('trip_summary', { p_invite_token: token }).then(function (res) {
       if (res.error) throw res.error;
-      renderJoinForm();
+      renderJoinForm(res.data && res.data[0] && res.data[0].trip_name);
     }).catch(function (e) {
       showError((e && e.message) || "This trip link isn't active anymore. Ask them to resend it.");
     });
