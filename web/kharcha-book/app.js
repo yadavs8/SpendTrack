@@ -4290,6 +4290,20 @@
     }).catch(function () {});
   }
 
+  /** Catches up the shared ledger with everything already logged for this trip locally, before
+     mirroring existed (or from before this trip was ever shared) -- so inviting someone shows the
+     whole trip's history, not just what gets added from today onward. Entries already mirrored
+     (tracked in the map) are skipped, so this is safe to call every time "Invite" is tapped, not
+     just the first time. */
+  function backfillTripExpensesToShared(tripName) {
+    if (!tripName || !sb) return;
+    var localEntries = getTripSummary(state.entries, tripName, []).entries;
+    var map = loadTripMirrorMap();
+    localEntries.filter(function (e) { return !map[e.id]; }).forEach(function (e) {
+      mirrorOwnerTripExpense(tripName, e.amount, cleanScopePrefix(e.desc), new Date(e.ts).toISOString(), e.id);
+    });
+  }
+
   /** Renders the invite status row (or hides it) for whichever trip is currently being viewed. */
   // Guest-added expenses, converted to the exact shape every other trip calculation already
   // reads (desc with a "[Paid by X]" tag, amount, ts) so they flow through getTripSummary's
@@ -5071,6 +5085,7 @@
       }).then(function (res) {
         if (res.error || !res.data) throw res.error || new Error('Could not create the link.');
         tripInviteCache[tripName] = res.data;
+        backfillTripExpensesToShared(tripName); // catch the shared ledger up with everything already logged
         var link = tripShareLink(res.data.invite_token);
         var msg = 'Join our "' + tripName + '" trip on Kharcha Book -- see what\'s been spent and add your own: ' + link;
         window.open(whatsappLink(msg), '_blank');
