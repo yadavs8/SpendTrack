@@ -28,6 +28,66 @@
   }
 
   if (!token) { showError('This link is missing its invite code. Ask whoever sent it to resend it.'); return; }
+
+  /* ---------- Installable like a real app ----------
+     So a friend doesn't have to keep digging up the WhatsApp message: once they add this to
+     their home screen, the icon reopens straight back to this exact trip (the manifest's
+     start_url is this page's own URL, token and all) and they're still recognized automatically
+     via the guest_token already saved in their browser. */
+  (function setupInstallable() {
+    var base = location.origin + location.pathname.replace(/[^/]*$/, '');
+    var manifest = {
+      name: 'Kharcha Book — Trip',
+      short_name: 'Trip',
+      start_url: location.href,
+      scope: base,
+      display: 'standalone',
+      background_color: '#0B1120',
+      theme_color: '#0284C7',
+      icons: [
+        { src: base + 'icon-192.png', sizes: '192x192', type: 'image/png' },
+        { src: base + 'icon-512.png', sizes: '512x512', type: 'image/png' }
+      ]
+    };
+    var blob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
+    var link = document.createElement('link');
+    link.rel = 'manifest';
+    link.href = URL.createObjectURL(blob);
+    document.head.appendChild(link);
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register(base + 'sw.js').catch(function () {}); // shared with the main app; best-effort
+    }
+  })();
+
+  var deferredInstallPrompt = null;
+  window.addEventListener('beforeinstallprompt', function (ev) {
+    ev.preventDefault();
+    deferredInstallPrompt = ev;
+    var btn = document.getElementById('install-btn');
+    if (btn) btn.hidden = false;
+  });
+  function renderInstallRow(container) {
+    // Running standalone already (installed and opened from the home screen) -- nothing to offer.
+    if (window.matchMedia('(display-mode: standalone)').matches || navigator.standalone) return;
+    var row = el('div', 'install-row');
+    var p = el('p', null, 'Add this to your home screen so you don\'t need to find this link again.');
+    var btn = el('button', 'ghost', '📲 Install');
+    btn.id = 'install-btn';
+    btn.hidden = !deferredInstallPrompt; // shown once the browser offers it (Chrome/Edge); hidden otherwise
+    btn.addEventListener('click', function () {
+      if (!deferredInstallPrompt) return;
+      deferredInstallPrompt.prompt();
+      deferredInstallPrompt.userChoice.finally(function () { deferredInstallPrompt = null; btn.hidden = true; });
+    });
+    row.appendChild(p); row.appendChild(btn);
+    container.appendChild(row);
+    // Safari/iOS never fires beforeinstallprompt -- tell them the manual way instead of showing nothing.
+    if (/iphone|ipad|ipod/i.test(navigator.userAgent) && !navigator.standalone) {
+      p.textContent = 'Add this to your home screen: tap Share, then "Add to Home Screen".';
+      btn.hidden = true;
+    }
+  }
   if (!CFG || !window.supabase) { showError('Could not load Kharcha Book. Check your connection and reload.'); return; }
 
   var sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
@@ -134,6 +194,10 @@
     var addBtn = el('button', 'primary', 'Add expense');
     addCard.appendChild(amtField); addCard.appendChild(descField); addCard.appendChild(addErr); addCard.appendChild(addBtn);
     app.appendChild(addCard);
+
+    var installCard = el('div', 'card');
+    renderInstallRow(installCard);
+    if (installCard.children.length) app.appendChild(installCard);
 
     var brand = el('p', 'brand');
     brand.innerHTML = 'Powered by Kharcha Book';
