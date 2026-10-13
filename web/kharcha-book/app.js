@@ -4242,7 +4242,31 @@
 
   /** Fire-and-forget copy of the owner's own trip spend into the shared ledger, if this trip has
      ever been shared. Never blocks or fails the primary save -- that already succeeded locally. */
-  function mirrorOwnerTripExpense(tripName, amount, description, spentAtIso) {
+  // Remembers which shared-ledger row (trip_expenses.id) mirrors which of your own local entries
+  // (daily_expenses.id), so deleting your own entry later can clean up its mirror precisely --
+  // never by guessing from amount/description/time, which risks deleting the wrong row.
+  var TRIP_MIRROR_MAP_KEY = 'kharcha_trip_mirror_map';
+  function loadTripMirrorMap() {
+    try { return JSON.parse(localStorage.getItem(TRIP_MIRROR_MAP_KEY) || '{}'); } catch (e) { return {}; }
+  }
+  function rememberTripMirror(localEntryId, tripExpenseId) {
+    try {
+      var m = loadTripMirrorMap();
+      m[localEntryId] = tripExpenseId;
+      localStorage.setItem(TRIP_MIRROR_MAP_KEY, JSON.stringify(m));
+    } catch (e) {}
+  }
+  /** Looks up and forgets the mirror for a local entry in one step (it's about to be deleted). */
+  function takeTripMirror(localEntryId) {
+    try {
+      var m = loadTripMirrorMap();
+      var id = m[localEntryId];
+      if (id) { delete m[localEntryId]; localStorage.setItem(TRIP_MIRROR_MAP_KEY, JSON.stringify(m)); }
+      return id || null;
+    } catch (e) { return null; }
+  }
+
+  function mirrorOwnerTripExpense(tripName, amount, description, spentAtIso, localEntryId) {
     if (!sb) return;
     ensureTripRow(tripName).then(function (trip) {
       if (!trip) return;
@@ -4250,7 +4274,20 @@
         p_trip_id: trip.id, p_added_by_name: myDisplayName(),
         p_amount: amount, p_description: description, p_spent_at: spentAtIso || null
       });
+    }).then(function (res) {
+      if (res && !res.error && res.data && localEntryId) rememberTripMirror(localEntryId, res.data.id);
     }).catch(function () {}); // best-effort; the owner's own copy in daily_expenses is already saved
+  }
+
+  /** Deletes a trip entry's mirrored row in the shared ledger, if it has one. Best-effort and
+     silent -- the local delete is already the source of truth and must never wait on this. */
+  function deleteTripMirrorIfAny(localEntryId) {
+    if (!sb) return;
+    var mirrorId = takeTripMirror(localEntryId);
+    if (!mirrorId) return;
+    sb.from('trip_expenses').delete().eq('id', mirrorId).then(function (res) {
+      if (!res.error) { for (var k in tripGuestEntriesCache) delete tripGuestEntriesCache[k]; } // force a resync
+    }).catch(function () {});
   }
 
   /** Renders the invite status row (or hides it) for whichever trip is currently being viewed. */
@@ -5305,13 +5342,13 @@
       var spentAt = spentVal ? new Date(spentVal).toISOString() : null;
 
       addTripExpBtn.disabled = true;
-      store.add({ amount: amt, desc: desc, spent_at: spentAt }).then(function () {
+      store.add({ amount: amt, desc: desc, spent_at: spentAt }).then(function (added) {
         tripExpAmtInput.value = '';
         if ($('trip-exp-desc')) $('trip-exp-desc').value = '';
         if ($('trip-exp-date')) $('trip-exp-date').value = '';
         var ts = spentAt ? Date.parse(spentAt) : Date.now();
         state.sel = monthKey(ts);
-        mirrorOwnerTripExpense(tripName, amt, clean + payerTag, spentAt);
+        mirrorOwnerTripExpense(tripName, amt, clean + payerTag, spentAt, added && added.id);
         saveTripToList(tripName);
         render();
         var payerLabel = (payer && payer !== 'Me') ? (' (Paid by ' + payer + ')') : '';
@@ -5913,14 +5950,23 @@
         return;
       }
       clearTimeout(armTimer);
-      var hadReceipt = hasReceipt(e.id), undone = false;
+      var hadReceipt = hasReceipt(e.id), undone = false, wasTripEntry = isTripEntry(e);
       store.remove(e.id).then(function () {
         state.editing = null; render();
         if (hadReceipt) setTimeout(function () { if (!undone) removeReceipt(e.id).catch(function () {}); }, 9000);   // the photo goes with the entry unless Undo is used
+        // This entry's copy in the shared trip ledger (if it was ever a trip entry) goes with it,
+        // so friends stop seeing something you just deleted.
+        if (wasTripEntry) deleteTripMirrorIfAny(e.id);
         toast('Deleted ' + e.desc + ' ' + money(e.amount), function () {
           undone = true;
           store.add({ amount: e.amount, desc: e.desc, spent_at: new Date(e.ts).toISOString(), method: e.method || undefined, kind: e.kind || undefined })
-            .then(function (ne) { if (hadReceipt && ne) moveReceipt(e.id, ne.id).catch(function () {}); render(); toast('Restored'); }).catch(function () { toast('Could not undo. Try again.'); });
+            .then(function (ne) {
+              if (hadReceipt && ne) moveReceipt(e.id, ne.id).catch(function () {});
+              if (wasTripEntry && ne) {
+                mirrorOwnerTripExpense(extractTripNameFromDesc(e.desc), e.amount, cleanScopePrefix(e.desc), new Date(e.ts).toISOString(), ne.id);
+              }
+              render(); toast('Restored');
+            }).catch(function () { toast('Could not undo. Try again.'); });
         });
       }).catch(function () { msg.textContent = 'Could not delete. Try again.'; msg.hidden = false; });
     });
@@ -6070,11 +6116,11 @@
     var btn = $('addbtn');
     btn.disabled = true;
     var paidVia = $('paid-via') ? $('paid-via').value : '';
-    store.add({ amount: amt, desc: desc, spent_at: spentAt, method: paidVia || null }).then(function () {
+    store.add({ amount: amt, desc: desc, spent_at: spentAt, method: paidVia || null }).then(function (added) {
       $('amt').value = ''; $('desc').value = ''; $('spent-date').value = '';
       var ts = spentAt ? Date.parse(spentAt) : Date.now();
       state.sel = monthKey(ts);
-      if (tripName) mirrorOwnerTripExpense(tripName, amt, cleanDesc, spentAt);
+      if (tripName) mirrorOwnerTripExpense(tripName, amt, cleanDesc, spentAt, added && added.id);
       render();
       toast('Added ' + money(amt) + ' for ' + desc);
       $('amt').focus();
