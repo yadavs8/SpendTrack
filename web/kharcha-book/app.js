@@ -2111,7 +2111,11 @@
     var projSummary = getProjectSummary(allMonthEntries);
     var curViewTrip = getSelectedViewTripName();
     var curViewFriends = curViewTrip ? getTripFriends(curViewTrip) : ['Me'];
-    var tripSummary = getTripSummary(state.entries, curViewTrip, curViewFriends);
+    // Friends' spending added via the WhatsApp link, folded in so totals, categories and the
+    // split/settle-up math all include it automatically -- not shown as a separate side number.
+    if (curViewTrip) fetchGuestTripEntries(curViewTrip);
+    var entriesWithGuestTrip = curViewTrip ? state.entries.concat(getGuestTripEntries(curViewTrip)) : state.entries;
+    var tripSummary = getTripSummary(entriesWithGuestTrip, curViewTrip, curViewFriends);
 
     renderCashFlow(cashFlow, settlement);
     renderStreamSwitcher(monthExpenses.length, monthIncomings.length, projSummary.entries.length, monthInvestments.length, tripSummary.entries.length);
@@ -2134,7 +2138,16 @@
     renderSettlementView(settlement);
     renderProjectView(projSummary);
     renderInvestmentsView(monthInvestments);
-    renderTripsView(tripSummary, state.entries);
+    // The active-trip banner (shown on the Spends tab) computes its own total for whichever trip
+    // is active, which may differ from the trip currently being viewed on the Trips tab -- make
+    // sure its guest entries are fetched/merged too, not just the viewed trip's.
+    var activeTripForBanner = getActiveTripName();
+    if (activeTripForBanner && activeTripForBanner !== curViewTrip) fetchGuestTripEntries(activeTripForBanner);
+    var entriesForTripsView = entriesWithGuestTrip;
+    if (activeTripForBanner && activeTripForBanner !== curViewTrip) {
+      entriesForTripsView = entriesForTripsView.concat(getGuestTripEntries(activeTripForBanner));
+    }
+    renderTripsView(tripSummary, entriesForTripsView);
 
     renderSync();
     try { document.dispatchEvent(new Event('kharcha:render')); } catch (e) {}
@@ -4241,6 +4254,40 @@
   }
 
   /** Renders the invite status row (or hides it) for whichever trip is currently being viewed. */
+  // Guest-added expenses, converted to the exact shape every other trip calculation already
+  // reads (desc with a "[Paid by X]" tag, amount, ts) so they flow through getTripSummary's
+  // existing totals/categories/balances math unchanged -- no separate "friends' total" bolted on
+  // the side. Only rows with a member_id are included: a null member_id is the owner's own entry
+  // mirrored in (see trip_add_owner_expense), already counted once via state.entries, so merging
+  // it back in here would double it.
+  var tripGuestEntriesCache = {}; // tripName -> array, or undefined before the first fetch resolves
+
+  function getGuestTripEntries(tripName) {
+    return (tripName && tripGuestEntriesCache[tripName]) || [];
+  }
+
+  function fetchGuestTripEntries(tripName) {
+    if (!tripName || !sb || tripGuestEntriesCache[tripName] !== undefined) return;
+    ensureTripRow(tripName).then(function (trip) {
+      if (!trip || !trip.invite_token) { tripGuestEntriesCache[tripName] = []; return; }
+      return sb.rpc('trip_summary', { p_invite_token: trip.invite_token }).then(function (res) {
+        if (res.error || !res.data || !res.data.length) { tripGuestEntriesCache[tripName] = []; return; }
+        var guestRows = (res.data[0].expenses || []).filter(function (e) { return e.member_id; });
+        var synth = guestRows.map(function (e) {
+          return {
+            id: 'guest:' + tripName + ':' + e.spent_at + ':' + e.amount + ':' + e.added_by_name,
+            amount: Number(e.amount),
+            desc: '✈️ ' + tripName + ': ' + e.description + ' [Paid by ' + e.added_by_name + ']',
+            ts: Date.parse(e.spent_at),
+            isGuestEntry: true // not a real daily_expenses row -- never editable/deletable like one
+          };
+        });
+        tripGuestEntriesCache[tripName] = synth;
+        render(); // now that friends' contributions are known, redo totals/categories/balances with them
+      });
+    }).catch(function () { tripGuestEntriesCache[tripName] = []; });
+  }
+
   function renderTripInviteRow(tripName) {
     var row = $('trip-invite-row');
     var note = $('trip-invite-note');
@@ -4258,16 +4305,11 @@
       toggleBtn.textContent = trip.invite_enabled ? '⏸️' : '▶️';
       toggleBtn.title = trip.invite_enabled ? 'Pause the link' : 'Resume the link';
 
-      // How much of the shared total came from friends themselves, not what you mirrored in.
-      sb.rpc('trip_summary', { p_invite_token: trip.invite_token }).then(function (sres) {
-        if (sres.error || !sres.data || !sres.data.length) return;
-        var s = sres.data[0];
-        var fromFriends = (s.expenses || []).filter(function (e) { return e.added_by_name !== myDisplayName(); });
-        if (fromFriends.length) {
-          var fTotal = fromFriends.reduce(function (sum, e) { return sum + Number(e.amount); }, 0);
-          note.textContent += ' · 👥 ' + money(fTotal) + ' added by friends (' + fromFriends.length + ')';
-        }
-      }).catch(function () {});
+      var guestEntries = getGuestTripEntries(tripName);
+      if (guestEntries.length) {
+        var fTotal = guestEntries.reduce(function (sum, e) { return sum + e.amount; }, 0);
+        note.textContent += ' · 👥 ' + money(fTotal) + ' added by friends (' + guestEntries.length + ')';
+      }
     }).catch(function () { row.hidden = true; });
   }
 
@@ -5677,6 +5719,8 @@
     b.appendChild(el('span', 'a', money(e.amount)));
 
     b.addEventListener('click', function () {
+      // Not a real daily_expenses row -- editing/deleting it here has nothing to act on.
+      if (e.isGuestEntry) { toast("Added by a friend via the trip link -- can't be edited here."); return; }
       state.editing = e.id;
       state.draft = { amount: String(e.amount), desc: e.desc, spent_at: toLocalISOString(e.ts), method: e.method || '' };
       render();

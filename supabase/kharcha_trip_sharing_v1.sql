@@ -210,7 +210,8 @@ begin
            count(e.id),
            coalesce(jsonb_agg(jsonb_build_object(
              'amount', e.amount, 'description', e.description,
-             'added_by_name', e.added_by_name, 'spent_at', e.spent_at
+             'added_by_name', e.added_by_name, 'spent_at', e.spent_at,
+             'member_id', e.member_id -- null = the owner's own mirrored entry, not a guest's
            ) order by e.spent_at desc), '[]'::jsonb)
     from public.trip_expenses e where e.trip_id = v_trip.id;
 end;
