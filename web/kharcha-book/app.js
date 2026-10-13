@@ -1266,7 +1266,7 @@
     parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, parseSMSDate: parseSMSDate, findDuplicate: findDuplicate, categoryBreakdown: categoryBreakdown, monthCompare: monthCompare,
     isIncome: isIncome, isMotherSettlement: isMotherSettlement, isMotherPension: isMotherPension, isSalary: isSalary, isExpense: isExpense, isInvestment: isInvestment, getFamilySettlement: getFamilySettlement, getPersonalCashFlow: getPersonalCashFlow,
     isProjectEntry: isProjectEntry, isProjectMotherPaid: isProjectMotherPaid, getProjectSummary: getProjectSummary,
-    isTripEntry: isTripEntry, getTripSummary: getTripSummary, parseTripPayer: parseTripPayer,
+    isTripEntry: isTripEntry, getTripSummary: getTripSummary, parseTripPayer: parseTripPayer, getTripTheme: getTripTheme,
     getAllTrips: getAllTrips, getTripFriends: getTripFriends, addTripFriend: addTripFriend, removeTripFriend: removeTripFriend,
     getEntryScope: getEntryScope, shiftScopeDesc: shiftScopeDesc,
     rememberMerchantScope: rememberMerchantScope, predictMerchantScope: predictMerchantScope,
@@ -4275,6 +4275,138 @@
     try { localStorage.setItem('kharcha_trip_view_mode', m); } catch (e) {}
   }
 
+  /* ---------- Trip Theme & Art Generator ---------- */
+  function getTripTheme(tripName) {
+    var raw = (tripName || '').trim();
+    var s = raw.toLowerCase();
+    // Default wanderlust / adventure
+    var theme = {
+      tag: '✈️ Travel & Adventure',
+      place: raw || 'Explore the World',
+      gradient: 'linear-gradient(135deg, #1E293B 0%, #0F172A 100%)',
+      art: '<svg viewBox="0 0 400 120" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">' +
+        '<defs><linearGradient id="g-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#1E293B"/><stop offset="100%" stop-color="#0F172A"/></linearGradient></defs>' +
+        '<rect width="400" height="120" fill="url(#g-sky)"/>' +
+        '<circle cx="340" cy="30" r="14" fill="#F8FAFC" opacity="0.3"/>' +
+        '<path d="M0,120 L40,85 L85,120 L130,75 L175,120 L240,65 L300,120 L350,80 L400,120 Z" fill="#334155" opacity="0.5"/>' +
+        '</svg>'
+    };
+
+    if (!raw) {
+      theme.tag = '✈️ Ready for Adventure';
+      theme.place = 'Create Your First Trip';
+      return theme;
+    }
+
+    // Mountains / Hills / Snow (Manali, Kasol, Rohtang, Spiti, Ladakh, Shimla, etc.)
+    if (s.includes('manali') || s.includes('kasol') || s.includes('rohtang') || s.includes('spiti') ||
+        s.includes('ladakh') || s.includes('leh') || s.includes('shimla') || s.includes('kullu') ||
+        s.includes('himachal') || s.includes('uttarakhand') || s.includes('kedarnath') || s.includes('rishikesh') ||
+        s.includes('kashmir') || s.includes('gulmarg') || s.includes('mountain') || s.includes('hill') ||
+        s.includes('trek') || s.includes('hike') || s.includes('snow') || s.includes('camp')) {
+      theme.tag = '🏔️ Himalayas Expedition';
+      theme.place = raw.includes('Manali') ? 'Manali, Himachal Pradesh' : (raw.includes('Kasol') ? 'Kasol & Parvati Valley' : (raw.includes('Spiti') ? 'Spiti Valley' : (raw + ' (Mountains)')));
+      theme.gradient = 'linear-gradient(135deg, #0C4A6E 0%, #082F49 60%, #0369A1 100%)';
+      theme.art = '<svg viewBox="0 0 400 120" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">' +
+        '<defs>' +
+          '<linearGradient id="mt-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#082F49"/><stop offset="60%" stop-color="#0C4A6E"/><stop offset="100%" stop-color="#0284C7"/></linearGradient>' +
+          '<linearGradient id="mt-pine" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#064E3B"/><stop offset="100%" stop-color="#022C22"/></linearGradient>' +
+        '</defs>' +
+        '<rect width="400" height="120" fill="url(#mt-sky)"/>' +
+        '<circle cx="340" cy="28" r="13" fill="#FEF08A" opacity="0.85"/>' +
+        '<!-- Far snow-capped peaks -->' +
+        '<path d="M20,120 L80,35 L140,120 Z" fill="#38BDF8" opacity="0.35"/>' +
+        '<path d="M80,35 L98,60 L80,54 L62,60 Z" fill="#FFFFFF" opacity="0.85"/>' +
+        '<path d="M110,120 L190,20 L270,120 Z" fill="#0284C7" opacity="0.5"/>' +
+        '<path d="M190,20 L212,48 L190,42 L168,48 Z" fill="#FFFFFF" opacity="0.95"/>' +
+        '<path d="M240,120 L310,32 L380,120 Z" fill="#0369A1" opacity="0.6"/>' +
+        '<path d="M310,32 L328,55 L310,50 L292,55 Z" fill="#FFFFFF" opacity="0.9"/>' +
+        '<!-- Fore mountain silhouettes -->' +
+        '<path d="M-10,120 L50,65 L120,120 Z" fill="#0F172A" opacity="0.8"/>' +
+        '<path d="M290,120 L355,60 L410,120 Z" fill="#0F172A" opacity="0.8"/>' +
+        '<!-- Pine trees row -->' +
+        '<path d="M140,120 L146,95 L152,120 M148,120 L156,90 L164,120 M160,120 L168,96 L176,120 M215,120 L222,92 L229,120 M225,120 L233,88 L241,120 M237,120 L244,95 L251,120" stroke="#064E3B" stroke-width="4" fill="none" opacity="0.9"/>' +
+        '</svg>';
+      return theme;
+    }
+
+    // Beach / Coastal / Tropical (Goa, Gokarna, Kerala, Pondicherry, Bali, Maldives, Phuket, etc.)
+    if (s.includes('goa') || s.includes('gokarna') || s.includes('beach') || s.includes('coast') ||
+        s.includes('kerala') || s.includes('pondicherry') || s.includes('bali') || s.includes('maldives') ||
+        s.includes('phuket') || s.includes('sea') || s.includes('ocean') || s.includes('island') ||
+        s.includes('andaman') || s.includes('alibaug') || s.includes('varkala')) {
+      theme.tag = '🏖️ Coastal Getaway';
+      theme.place = raw.includes('Goa') ? 'Goa, Sun & Sands' : (raw.includes('Gokarna') ? 'Gokarna Beach' : (raw + ' (Beach)'));
+      theme.gradient = 'linear-gradient(135deg, #F97316 0%, #EA580C 40%, #0284C7 100%)';
+      theme.art = '<svg viewBox="0 0 400 120" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">' +
+        '<defs>' +
+          '<linearGradient id="bc-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#FB923C"/><stop offset="45%" stop-color="#FDE047"/><stop offset="70%" stop-color="#38BDF8"/><stop offset="100%" stop-color="#0284C7"/></linearGradient>' +
+        '</defs>' +
+        '<rect width="400" height="120" fill="url(#bc-sky)"/>' +
+        '<!-- Sunset Sun -->' +
+        '<circle cx="200" cy="52" r="22" fill="#FEF08A" opacity="0.95"/>' +
+        '<!-- Ocean Horizon & Waves -->' +
+        '<path d="M0,72 L400,72 L400,120 L0,120 Z" fill="#0284C7" opacity="0.65"/>' +
+        '<path d="M0,86 C60,82 120,90 180,86 C240,82 300,90 360,86 C380,84 395,85 400,86 L400,120 L0,120 Z" fill="#0369A1" opacity="0.8"/>' +
+        '<path d="M0,98 C70,94 130,102 210,96 C280,92 340,102 400,98 L400,120 L0,120 Z" fill="#FDE047" opacity="0.9"/>' +
+        '<!-- Palm Tree left -->' +
+        '<path d="M30,120 Q36,80 48,58" stroke="#78350F" stroke-width="4" fill="none"/>' +
+        '<path d="M48,58 Q20,55 12,68 M48,58 Q32,45 30,34 M48,58 Q55,42 66,35 M48,58 Q68,50 78,60 M48,58 Q58,68 52,78" stroke="#15803D" stroke-width="2.5" fill="none" stroke-linecap="round"/>' +
+        '<!-- Birds in sky -->' +
+        '<path d="M120,30 Q125,25 130,30 Q135,25 140,30 M150,38 Q154,34 158,38 Q162,34 166,38" stroke="#7C2D12" stroke-width="1.5" fill="none"/>' +
+        '</svg>';
+      return theme;
+    }
+
+    // Desert / Heritage / Royal (Rajasthan, Jaipur, Udaipur, Jaisalmer, Dubai, Jodhpur)
+    if (s.includes('jaipur') || s.includes('udaipur') || s.includes('jaisalmer') || s.includes('jodhpur') ||
+        s.includes('rajasthan') || s.includes('desert') || s.includes('dubai') || s.includes('safari') ||
+        s.includes('palace') || s.includes('fort') || s.includes('agra')) {
+      theme.tag = '🏰 Heritage & Royal';
+      theme.place = raw.includes('Jaipur') ? 'Jaipur, The Pink City' : (raw.includes('Udaipur') ? 'Udaipur, City of Lakes' : (raw + ' (Heritage)'));
+      theme.gradient = 'linear-gradient(135deg, #9A3412 0%, #D97706 50%, #B45309 100%)';
+      theme.art = '<svg viewBox="0 0 400 120" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">' +
+        '<defs>' +
+          '<linearGradient id="ds-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#C2410C"/><stop offset="50%" stop-color="#F59E0B"/><stop offset="100%" stop-color="#FCD34D"/></linearGradient>' +
+        '</defs>' +
+        '<rect width="400" height="120" fill="url(#ds-sky)"/>' +
+        '<circle cx="320" cy="35" r="18" fill="#FFFBEB" opacity="0.9"/>' +
+        '<!-- Palace Domes & Fort Silhouette -->' +
+        '<path d="M0,120 L0,95 L40,95 L40,85 C40,75 55,75 55,85 L55,95 L90,95 L90,70 C90,55 110,55 110,70 L110,95 L160,95 L160,80 C160,68 175,68 175,80 L175,95 L220,95 L220,120 Z" fill="#78350F" opacity="0.6"/>' +
+        '<!-- Desert Sand Dunes -->' +
+        '<path d="M0,120 Q100,85 220,105 Q310,118 400,92 L400,120 Z" fill="#B45309" opacity="0.85"/>' +
+        '<path d="M120,120 Q240,95 400,108 L400,120 Z" fill="#78350F" opacity="0.95"/>' +
+        '</svg>';
+      return theme;
+    }
+
+    // Metro / Urban / City (Delhi, Mumbai, Bangalore, London, New York, Singapore, Bangkok)
+    if (s.includes('mumbai') || s.includes('bangalore') || s.includes('bengaluru') || s.includes('delhi') ||
+        s.includes('london') || s.includes('singapore') || s.includes('bangkok') || s.includes('city') ||
+        s.includes('urban') || s.includes('tokyo') || s.includes('dubai') || s.includes('york')) {
+      theme.tag = '🏙️ City Life & Skyline';
+      theme.place = raw;
+      theme.gradient = 'linear-gradient(135deg, #312E81 0%, #1E1B4B 60%, #4338CA 100%)';
+      theme.art = '<svg viewBox="0 0 400 120" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">' +
+        '<rect width="400" height="120" fill="#1E1B4B"/>' +
+        '<circle cx="340" cy="28" r="12" fill="#E0E7FF" opacity="0.8"/>' +
+        '<!-- Skyline buildings -->' +
+        '<rect x="20" y="55" width="28" height="65" fill="#4338CA" opacity="0.6"/>' +
+        '<rect x="55" y="40" width="35" height="80" fill="#312E81" opacity="0.8"/>' +
+        '<rect x="95" y="65" width="25" height="55" fill="#4338CA" opacity="0.7"/>' +
+        '<polygon points="135,120 145,25 155,120" fill="#6366F1" opacity="0.5"/>' +
+        '<rect x="160" y="48" width="40" height="72" fill="#312E81" opacity="0.9"/>' +
+        '<rect x="210" y="32" width="32" height="88" fill="#4338CA" opacity="0.8"/>' +
+        '<rect x="250" y="60" width="30" height="60" fill="#312E81" opacity="0.7"/>' +
+        '<rect x="290" y="45" width="38" height="75" fill="#4338CA" opacity="0.85"/>' +
+        '<rect x="335" y="70" width="45" height="50" fill="#312E81" opacity="0.9"/>' +
+        '</svg>';
+      return theme;
+    }
+
+    return theme;
+  }
+
   function renderTripsView(tripSummary, monthEntries) {
     var activeTrip = getActiveTripName();
     var viewTrip = getSelectedViewTripName();
@@ -4292,6 +4424,18 @@
         var activeSummary = getTripSummary(monthEntries, activeTrip, getTripFriends(activeTrip));
         atbSpent.textContent = money(activeSummary.totalSpent);
       }
+    }
+
+    // Update Visual Destination Art Banner for Trips View
+    var visualBanner = $('trip-visual-banner');
+    var tvbArt = $('tvb-art');
+    var tvbTag = $('tvb-tag');
+    var tvbPlace = $('tvb-place');
+    if (visualBanner) {
+      var theme = getTripTheme(viewTrip || activeTrip);
+      if (tvbArt) tvbArt.innerHTML = theme.art;
+      if (tvbTag) tvbTag.textContent = theme.tag;
+      if (tvbPlace) tvbPlace.textContent = theme.place;
     }
 
     // Populate Trip Selector Dropdown

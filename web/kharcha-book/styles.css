@@ -1085,6 +1085,63 @@ button.cat-row { width: 100%; text-align: left; background: none; border: 0; pad
   font: 700 1.25rem/1.2 var(--f-display);
   color: var(--ink);
 }
+.trip-visual-banner {
+  position: relative;
+  width: 100%;
+  height: 120px;
+  border-radius: 14px;
+  overflow: hidden;
+  margin: 6px 0 4px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 4px 12px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 10px 14px;
+  background-size: cover;
+  background-position: center;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.trip-visual-banner:hover {
+  transform: translateY(-1px);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15), 0 6px 16px rgba(0, 0, 0, 0.12);
+}
+.tvb-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.tvb-art svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.tvb-meta {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+.tvb-tag {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #F8FAFC;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.tvb-place {
+  font-family: var(--f-display, inherit);
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #FFFFFF;
+  line-height: 1.2;
+}
 .trip-subtitle {
   margin: 0;
   font-size: 0.8rem;

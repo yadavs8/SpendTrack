@@ -60,7 +60,7 @@ vm.runInNewContext(ledgerCode, windowMock);
 const code = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8');
 vm.runInNewContext(code, windowMock);
 
-const { parseAmount, normDesc, money, groupByDay, byDescription, monthTotals, toLocalISOString, isFamilyEntry, parseBankSMS, parseSMSDate, findDuplicate, categoryBreakdown, monthCompare, isIncome, isMotherSettlement, isMotherPension, isSalary, isExpense, isInvestment, getFamilySettlement, getPersonalCashFlow, isProjectEntry, isProjectMotherPaid, getProjectSummary, isTripEntry, getTripSummary, parseTripPayer, getEntryScope, shiftScopeDesc, rememberMerchantScope, predictMerchantScope, recentSpendsForTrip, recurringBills, monthForecast, upiPayLink, settleMessage, whatsappLink } = windowMock.__kharcha;
+const { parseAmount, normDesc, money, groupByDay, byDescription, monthTotals, toLocalISOString, isFamilyEntry, parseBankSMS, parseSMSDate, findDuplicate, categoryBreakdown, monthCompare, isIncome, isMotherSettlement, isMotherPension, isSalary, isExpense, isInvestment, getFamilySettlement, getPersonalCashFlow, isProjectEntry, isProjectMotherPaid, getProjectSummary, isTripEntry, getTripSummary, parseTripPayer, getTripTheme, getEntryScope, shiftScopeDesc, rememberMerchantScope, predictMerchantScope, recentSpendsForTrip, recurringBills, monthForecast, upiPayLink, settleMessage, whatsappLink } = windowMock.__kharcha;
 
 let passed = 0;
 let failed = 0;
@@ -447,6 +447,21 @@ assert(balRohit.paid === 3000, 'Rohit paid 3000');
 assert(balRohit.net === 0, 'Rohit is settled (paid 3000 - share 3000)');
 assert(balAmit.paid === 0, 'Amit paid 0');
 assert(balAmit.net === -3000, 'Amit owes 3000 (paid 0 - share 3000)');
+
+// 20b. Dynamic Trip Destination Themes and Artwork
+const manaliTheme = getTripTheme('Manali Trip');
+assert(manaliTheme.tag.includes('Himalayas'), 'getTripTheme identifies Manali as Himalayas mountain theme');
+assert(manaliTheme.art.includes('snow-capped'), 'getTripTheme generates snow-capped mountain SVG art for Manali');
+
+const goaTheme = getTripTheme('Goa Vacation');
+assert(goaTheme.tag.includes('Coastal') || goaTheme.tag.includes('Beach'), 'getTripTheme identifies Goa as Coastal/Beach theme');
+assert(goaTheme.art.includes('Palm Tree'), 'getTripTheme generates beach sunset and palm tree SVG art for Goa');
+
+const jaipurTheme = getTripTheme('Jaipur Weekend');
+assert(jaipurTheme.tag.includes('Heritage') || jaipurTheme.tag.includes('Royal'), 'getTripTheme identifies Jaipur as Heritage theme');
+
+const defaultTheme = getTripTheme('');
+assert(defaultTheme.tag.includes('Adventure') || defaultTheme.tag.includes('Travel'), 'getTripTheme returns fallback adventure theme when empty');
 
 // 21. Investment words must be whole words
 assert(isInvestment({ desc: 'Sipping Chai Cafe' }) === false, 'isInvestment ignores "sip" inside another word');
