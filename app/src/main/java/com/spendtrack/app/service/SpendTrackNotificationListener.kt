@@ -134,9 +134,23 @@ class SpendTrackNotificationListener : NotificationListenerService() {
                                     PromptReconciler.resolveIfEnteredByHand(applicationContext, txn.id)
                                 if (!answered && (txn.needsReview || ServiceLocator.settingsManager.showConfirmationNotifs.first())) {
                                     // Ask right away (and keep reminding until answered), or announce where it was filed.
-                                    val activeTrip = ServiceLocator.settingsManager.activeTripNameFlow.first()
-                                    val knownTrips = ServiceLocator.transactionRepository.getAllKnownTrips()
-                                    ExpensePromptNotifier.announce(applicationContext, txn, activeTrip, knownTrips)
+                                    val settings = ServiceLocator.settingsManager
+                                    val repo = ServiceLocator.transactionRepository
+                                    val activeTrip = settings.activeTripNameFlow.first()
+                                    val isTripPaused = settings.isTripPausedFlow.first()
+                                    val activeProject = settings.activeProjectNameFlow.first()
+                                    val isProjectPaused = settings.isProjectPausedFlow.first()
+                                    val knownTrips = repo.getAllKnownTrips()
+                                    val knownProjects = repo.getAllKnownProjects()
+                                    ExpensePromptNotifier.announce(
+                                        applicationContext, txn,
+                                        activeTripName = activeTrip,
+                                        isTripPaused = isTripPaused,
+                                        activeProjectName = activeProject,
+                                        isProjectPaused = isProjectPaused,
+                                        trips = knownTrips,
+                                        projects = knownProjects
+                                    )
                                 }
                             }
                         }

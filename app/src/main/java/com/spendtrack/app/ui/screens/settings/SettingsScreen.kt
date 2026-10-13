@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Delete
@@ -84,6 +85,7 @@ fun SettingsScreen(
     var showOemHelpDialog by remember { mutableStateOf(false) }
     var showCloudSignInDialog by remember { mutableStateOf(false) }
     var showTripDialog by remember { mutableStateOf(false) }
+    var showProjectDialog by remember { mutableStateOf(false) }
 
     val oemGuidance = remember { com.spendtrack.app.core.utils.OemBatteryHelper.getGuidance(context) }
 
@@ -302,10 +304,15 @@ fun SettingsScreen(
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Column {
                                     Text("✈️ Trip / Event Mode", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    val tripStatus = when {
+                                        uiState.activeTripName == null -> "Currently Inactive (Standard)"
+                                        uiState.isTripPaused -> "⏸️ Paused: ${uiState.activeTripName}"
+                                        else -> "Active: ${uiState.activeTripName}"
+                                    }
                                     Text(
-                                        if (uiState.activeTripName != null) "Active: ${uiState.activeTripName}" else "Currently Inactive (Standard)",
+                                        tripStatus,
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = if (uiState.activeTripName != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
+                                        color = if (uiState.activeTripName != null && !uiState.isTripPaused) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline
                                     )
                                 }
                             }
@@ -325,17 +332,110 @@ fun SettingsScreen(
                         }
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "While Trip Mode is active, all payments (cabs, food, flights, hotels) automatically log into your trip until you turn it off.",
+                            if (uiState.isTripPaused) "Trip logging is paused. Payments will NOT auto-log to this trip until resumed."
+                            else "While Trip Mode is active, all payments (cabs, food, flights, hotels) automatically log into your trip until you pause or turn it off.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.outline
                         )
                         if (uiState.activeTripName != null) {
                             Spacer(modifier = Modifier.height(8.dp))
-                            OutlinedButton(
-                                onClick = { showTripDialog = true },
-                                modifier = Modifier.fillMaxWidth()
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Text("Rename or Change Trip")
+                                OutlinedButton(
+                                    onClick = {
+                                        viewModel.setTripPaused(!uiState.isTripPaused)
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(if (uiState.isTripPaused) "▶️ Resume Trip" else "⏸️ Pause Trip")
+                                }
+                                OutlinedButton(
+                                    onClick = { showTripDialog = true },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Change Trip")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 1.26 Project / Function Mode
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (uiState.activeProjectName != null) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surface
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Build, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text("🔨 Project / Function Mode", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                                    val projectStatus = when {
+                                        uiState.activeProjectName == null -> "Currently Inactive"
+                                        uiState.isProjectPaused -> "⏸️ Paused: ${uiState.activeProjectName}"
+                                        else -> "Active: ${uiState.activeProjectName}"
+                                    }
+                                    Text(
+                                        projectStatus,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (uiState.activeProjectName != null && !uiState.isProjectPaused) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outline
+                                    )
+                                }
+                            }
+                            Switch(
+                                checked = uiState.activeProjectName != null,
+                                onCheckedChange = { isChecked ->
+                                    if (isChecked) {
+                                        showProjectDialog = true
+                                    } else {
+                                        viewModel.setActiveProject(null)
+                                        coroutineScope.launch {
+                                            snackbarHostState.showSnackbar("Project mode closed.")
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            if (uiState.isProjectPaused) "Project logging is paused. Payments will NOT auto-log to this project until resumed."
+                            else "While Project Mode is active, payments automatically tag to this project (e.g. 🔨 Family Function) unless paused.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline
+                        )
+                        if (uiState.activeProjectName != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        viewModel.setProjectPaused(!uiState.isProjectPaused)
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(if (uiState.isProjectPaused) "▶️ Resume Project" else "⏸️ Pause Project")
+                                }
+                                OutlinedButton(
+                                    onClick = { showProjectDialog = true },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Change Project")
+                                }
                             }
                         }
                     }
@@ -834,6 +934,7 @@ fun SettingsScreen(
                 Button(onClick = {
                     val name = tripInput.trim().ifBlank { "Trip" }
                     viewModel.setActiveTrip(name)
+                    viewModel.setTripPaused(false)
                     showTripDialog = false
                     coroutineScope.launch {
                         snackbarHostState.showSnackbar("✈️ Trip Mode active: $name")
@@ -844,6 +945,52 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showTripDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Active Project / Function Dialog
+    if (showProjectDialog) {
+        var projectInput by remember { mutableStateOf(uiState.activeProjectName ?: "Family Function") }
+        AlertDialog(
+            onDismissRequest = { showProjectDialog = false },
+            title = { Text("🔨 Start Project / Function") },
+            text = {
+                Column {
+                    Text(
+                        "Give this project or function a name. Incoming transactions will automatically be tagged to it until paused or closed.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = projectInput,
+                        onValueChange = { projectInput = it },
+                        label = { Text("Project / Function Name") },
+                        placeholder = { Text("e.g. Family Function, Renovation, Office") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val name = projectInput.trim().ifBlank { "Family Function" }
+                    viewModel.setActiveProject(name)
+                    viewModel.setProjectPaused(false)
+                    showProjectDialog = false
+                    coroutineScope.launch {
+                        snackbarHostState.showSnackbar("🔨 Project Mode active: $name")
+                    }
+                }) {
+                    Text("Start Project")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showProjectDialog = false }) {
                     Text("Cancel")
                 }
             }

@@ -31,6 +31,9 @@ data class SettingsUiState(
     val cloudSyncLastSuccessAt: Long? = null,
     val isCloudSyncBusy: Boolean = false,
     val activeTripName: String? = null,
+    val isTripPaused: Boolean = false,
+    val activeProjectName: String? = null,
+    val isProjectPaused: Boolean = false,
     val ownerIdentity: String = ""
 )
 
@@ -67,6 +70,9 @@ class SettingsViewModel : ViewModel() {
                 settingsManager.cloudSyncLastError,
                 settingsManager.cloudSyncLastSuccessAt,
                 settingsManager.activeTripNameFlow,
+                settingsManager.isTripPausedFlow,
+                settingsManager.activeProjectNameFlow,
+                settingsManager.isProjectPausedFlow,
                 settingsManager.ownerIdentityFlow
             ) { values ->
                 @Suppress("UNCHECKED_CAST")
@@ -86,7 +92,10 @@ class SettingsViewModel : ViewModel() {
                 val cloudSyncLastError = values[11] as String?
                 val cloudSyncLastSuccessAt = values[12] as Long?
                 val activeTrip = values[13] as String?
-                val ownerIdentity = values[14] as String
+                val isTripPaused = values[14] as Boolean
+                val activeProject = values[15] as String?
+                val isProjectPaused = values[16] as Boolean
+                val ownerIdentity = values[17] as String
 
                 SettingsUiState(
                     monitoredApps = apps,
@@ -104,6 +113,9 @@ class SettingsViewModel : ViewModel() {
                     cloudSyncLastSuccessAt = cloudSyncLastSuccessAt,
                     isCloudSyncBusy = _uiState.value.isCloudSyncBusy,
                     activeTripName = activeTrip,
+                    isTripPaused = isTripPaused,
+                    activeProjectName = activeProject,
+                    isProjectPaused = isProjectPaused,
                     ownerIdentity = ownerIdentity
                 )
             }.collect { state ->
@@ -188,6 +200,24 @@ class SettingsViewModel : ViewModel() {
     fun setActiveTrip(tripName: String?) {
         viewModelScope.launch {
             ServiceLocator.cloudSyncRepository.pushSharedSettings(settingsManager.setActiveTripName(tripName))
+        }
+    }
+
+    fun setTripPaused(paused: Boolean) {
+        viewModelScope.launch {
+            ServiceLocator.cloudSyncRepository.pushSharedSettings(settingsManager.setTripPaused(paused))
+        }
+    }
+
+    fun setActiveProject(projectName: String?) {
+        viewModelScope.launch {
+            ServiceLocator.cloudSyncRepository.pushSharedSettings(settingsManager.setActiveProjectName(projectName))
+        }
+    }
+
+    fun setProjectPaused(paused: Boolean) {
+        viewModelScope.launch {
+            ServiceLocator.cloudSyncRepository.pushSharedSettings(settingsManager.setProjectPaused(paused))
         }
     }
 

@@ -33,9 +33,24 @@ class NudgeWorker(
         }
 
         SafeLogger.i("Re-prompting for uncategorized expense $transactionId (stage $stage)")
-        val activeTrip = ServiceLocator.settingsManager.activeTripNameFlow.first()
-        val knownTrips = ServiceLocator.transactionRepository.getAllKnownTrips()
-        ExpensePromptNotifier.show(applicationContext, transaction, activeTrip, alert = true, trips = knownTrips)
+        val settings = ServiceLocator.settingsManager
+        val repo = ServiceLocator.transactionRepository
+        val activeTrip = settings.activeTripNameFlow.first()
+        val isTripPaused = settings.isTripPausedFlow.first()
+        val activeProject = settings.activeProjectNameFlow.first()
+        val isProjectPaused = settings.isProjectPausedFlow.first()
+        val knownTrips = repo.getAllKnownTrips()
+        val knownProjects = repo.getAllKnownProjects()
+        ExpensePromptNotifier.show(
+            applicationContext, transaction,
+            activeTripName = activeTrip,
+            isTripPaused = isTripPaused,
+            activeProjectName = activeProject,
+            isProjectPaused = isProjectPaused,
+            alert = true,
+            trips = knownTrips,
+            projects = knownProjects
+        )
         NudgeScheduler.scheduleNext(applicationContext, transactionId, previousStage = stage)
 
         return Result.success()

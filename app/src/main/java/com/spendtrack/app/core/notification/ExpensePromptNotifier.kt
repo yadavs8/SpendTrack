@@ -35,6 +35,8 @@ object ExpensePromptNotifier {
     const val EXTRA_SCOPE = "expense_scope"
     const val EXTRA_TRIP_NAME = "trip_name"
     const val EXTRA_TRIP_ONLY = "trip_only"
+    const val EXTRA_PROJECT_NAME = "project_name"
+    const val EXTRA_PROJECT_ONLY = "project_only"
     const val EXTRA_NOTIFICATION_ID = "notification_id"
     const val REMOTE_INPUT_KEY = "note_reply"
     private const val SYNC_PROBLEM_ID = 0x5C0FF
@@ -60,45 +62,62 @@ object ExpensePromptNotifier {
         return when {
             d.startsWith("📈") -> scopeLabel(SCOPE_INVESTMENT, null)
             d.startsWith("🏠") -> scopeLabel(SCOPE_FAMILY, null)
-            d.startsWith("🔨") -> scopeLabel(SCOPE_PROJECT, null)
+            d.startsWith("🔨") -> scopeLabel(SCOPE_PROJECT, null, d.removePrefix("🔨").substringBefore(':').trim())
             d.startsWith("🔁") -> scopeLabel(SCOPE_TRANSFER, null)
             d.startsWith("✈") -> scopeLabel(SCOPE_TRIP, d.removePrefix("✈️").removePrefix("✈").substringBefore(':').trim())
             else -> scopeLabel(SCOPE_PERSONAL, null)
         }
     }
 
-    fun scopeLabel(scope: String, tripName: String?): String = when (scope) {
+    fun scopeLabel(scope: String, tripName: String?, projectName: String? = null): String = when (scope) {
         SCOPE_FAMILY -> "🏠 Family"
         SCOPE_INVESTMENT -> "📈 Investment"
-        SCOPE_PROJECT -> "🔨 Project"
+        SCOPE_PROJECT -> "🔨 ${projectName?.takeIf { it.isNotBlank() } ?: "Project"}"
         SCOPE_TRANSFER -> "🔁 Own transfer"
         SCOPE_TRIP -> "✈️ ${tripName?.takeIf { it.isNotBlank() } ?: "Trip"}"
         else -> "👤 Personal"
     }
 
     /**
-     * Shows (or re-shows, for a reminder) the prompt asking: Personal, Family, or Trips?
-     * When clicking Trips:
-     * - If exactly 1 trip exists, saves directly to that single trip in one tap.
-     * - If multiple trips exist (or 0 trips exist yet), opens the Trip Picker sheet to choose which trip.
+     * Shows (or re-shows, for a reminder) the prompt asking: Personal, Family, Trips, or Projects?
      */
     fun show(
         context: Context,
         transaction: TransactionEntity,
         activeTripName: String? = null,
+        isTripPaused: Boolean = false,
+        activeProjectName: String? = null,
+        isProjectPaused: Boolean = false,
         alert: Boolean = true,
-        trips: List<String> = emptyList()
+        trips: List<String> = emptyList(),
+        projects: List<String> = emptyList()
     ) {
         ensureChannel(context)
 
         val notificationId = notificationIdFor(transaction.id)
         val merchant = transaction.merchantName?.takeIf { it.isNotBlank() }
         val title = if (merchant != null) "${amountLabel(transaction.amount)} at $merchant" else "${amountLabel(transaction.amount)} spent"
+
+        val effectiveTrip = if (!isTripPaused && !activeTripName.isNullOrBlank()) activeTripName else null
+        val effectiveProject = if (!isProjectPaused && !activeProjectName.isNullOrBlank()) activeProjectName else null
+
         val knownTrips = (
             listOfNotNull(activeTripName?.trim()?.takeIf { it.isNotBlank() }) +
                 trips.mapNotNull { it.trim().takeIf { t -> t.isNotBlank() } }
             ).distinct()
-        val question = "Where should this go? Personal, Family, or Trips?"
+
+        val knownProjects = (
+            listOfNotNull(activeProjectName?.trim()?.takeIf { it.isNotBlank() }) +
+                projects.mapNotNull { it.trim().takeIf { p -> p.isNotBlank() } }
+            ).distinct()
+
+        val question = when {
+            effectiveTrip != null && effectiveProject != null ->
+                "Both '$effectiveTrip' & '$effectiveProject' active. Where should this go?"
+            effectiveTrip != null -> "Trip active: Personal, Family, or '$effectiveTrip'?"
+            effectiveProject != null -> "Project active: Personal, Family, or '$effectiveProject'?"
+            else -> "Where should this go? Personal, Family, or Trips/Projects?"
+        }
         val text = "${whenLabel(transaction.dateTime)} · $question"
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
@@ -106,7 +125,7 @@ object ExpensePromptNotifier {
             .setColor(0xFF0B5D75.toInt())
             .setContentTitle(title)
             .setContentText(text)
-            .setContentIntent(pickerIntent(context, transaction.id, notificationId, tripOnly = false))
+            .setContentIntent(pickerIntent(context, transaction.id, notificationId, tripOnly = false, projectOnly = false))
             .setDeleteIntent(dismissIntent(context, transaction.id, notificationId))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
@@ -114,13 +133,32 @@ object ExpensePromptNotifier {
             .setOnlyAlertOnce(!alert)
             .setSilent(!alert)
 
-        // Always show the 3 core destinations: Personal, Family, Trips
-        builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_PERSONAL, "👤 Personal"))
-        builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_FAMILY, "🏠 Family"))
-        if (knownTrips.size == 1) {
-            builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_TRIP, "✈️ Trips", knownTrips.single()))
+        // Android displays up to 3 action buttons:
+        if (effectiveTrip != null && effectiveProject != null) {
+            // Collision case: both Trip and Project are active! Give 1-tap choice right on notification:
+            builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_PERSONAL, "👤 Personal"))
+            builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_TRIP, "✈️ $effectiveTrip", tripName = effectiveTrip))
+            builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_PROJECT, "🔨 $effectiveProject", projectName = effectiveProject))
+        } else if (effectiveProject != null) {
+            builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_PERSONAL, "👤 Personal"))
+            builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_FAMILY, "🏠 Family"))
+            builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_PROJECT, "🔨 $effectiveProject", projectName = effectiveProject))
+        } else if (knownProjects.isNotEmpty() && knownTrips.isEmpty()) {
+            builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_PERSONAL, "👤 Personal"))
+            builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_FAMILY, "🏠 Family"))
+            if (knownProjects.size == 1) {
+                builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_PROJECT, "🔨 Projects", projectName = knownProjects.single()))
+            } else {
+                builder.addAction(projectPickerAction(context, transaction.id, notificationId, "🔨 Projects"))
+            }
         } else {
-            builder.addAction(tripPickerAction(context, transaction.id, notificationId, "✈️ Trips"))
+            builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_PERSONAL, "👤 Personal"))
+            builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_FAMILY, "🏠 Family"))
+            if (knownTrips.size == 1) {
+                builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_TRIP, "✈️ Trips", tripName = knownTrips.single()))
+            } else {
+                builder.addAction(tripPickerAction(context, transaction.id, notificationId, "✈️ Trips"))
+            }
         }
 
         NotificationManagerCompat.from(context).notify(notificationId, builder.build())
@@ -162,11 +200,24 @@ object ExpensePromptNotifier {
         context: Context,
         txn: TransactionEntity,
         activeTripName: String?,
-        trips: List<String> = emptyList()
+        isTripPaused: Boolean = false,
+        activeProjectName: String? = null,
+        isProjectPaused: Boolean = false,
+        trips: List<String> = emptyList(),
+        projects: List<String> = emptyList()
     ) {
         if (txn.isExcluded || txn.transactionType != com.spendtrack.app.core.model.TransactionType.EXPENSE) return
         if (txn.needsReview) {
-            show(context, txn, activeTripName, alert = true, trips = trips)
+            show(
+                context, txn,
+                activeTripName = activeTripName,
+                isTripPaused = isTripPaused,
+                activeProjectName = activeProjectName,
+                isProjectPaused = isProjectPaused,
+                alert = true,
+                trips = trips,
+                projects = projects
+            )
             com.spendtrack.app.core.nudge.NudgeScheduler.scheduleFirst(context, txn.id)
         } else if (txn.isEdited) {
             showAutoLogged(context, txn)
@@ -236,15 +287,21 @@ object ExpensePromptNotifier {
         context: Context,
         transactionId: String,
         notificationId: Int,
-        tripOnly: Boolean = false
+        tripOnly: Boolean = false,
+        projectOnly: Boolean = false
     ): PendingIntent =
         PendingIntent.getActivity(
             context,
-            if (tripOnly) (transactionId + "_trip_picker").hashCode() else notificationId,
+            when {
+                tripOnly -> (transactionId + "_trip_picker").hashCode()
+                projectOnly -> (transactionId + "_proj_picker").hashCode()
+                else -> notificationId
+            },
             Intent(context, LogExpenseActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
                 putExtra(EXTRA_TRANSACTION_ID, transactionId)
                 putExtra(EXTRA_TRIP_ONLY, tripOnly)
+                putExtra(EXTRA_PROJECT_ONLY, projectOnly)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
@@ -259,6 +316,18 @@ object ExpensePromptNotifier {
             0,
             label,
             pickerIntent(context, transactionId, notificationId, tripOnly = true)
+        ).build()
+
+    private fun projectPickerAction(
+        context: Context,
+        transactionId: String,
+        notificationId: Int,
+        label: String
+    ): NotificationCompat.Action =
+        NotificationCompat.Action.Builder(
+            0,
+            label,
+            pickerIntent(context, transactionId, notificationId, projectOnly = true)
         ).build()
 
     private fun dismissIntent(context: Context, transactionId: String, notificationId: Int): PendingIntent =
@@ -279,18 +348,20 @@ object ExpensePromptNotifier {
         notificationId: Int,
         scope: String,
         label: String,
-        tripName: String? = null
+        tripName: String? = null,
+        projectName: String? = null
     ): NotificationCompat.Action {
         val intent = Intent(context, QuickActionReceiver::class.java).apply {
             action = QuickActionReceiver.ACTION_SET_SCOPE
             putExtra(EXTRA_TRANSACTION_ID, transactionId)
             putExtra(EXTRA_SCOPE, scope)
             if (tripName != null) putExtra(EXTRA_TRIP_NAME, tripName)
+            if (projectName != null) putExtra(EXTRA_PROJECT_NAME, projectName)
             putExtra(EXTRA_NOTIFICATION_ID, notificationId)
         }
         val pendingIntent = PendingIntent.getBroadcast(
             context,
-            (transactionId + "_" + scope).hashCode(),
+            (transactionId + "_" + scope + (tripName ?: "") + (projectName ?: "")).hashCode(),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )

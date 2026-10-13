@@ -71,6 +71,7 @@ class LogExpenseActivity : ComponentActivity() {
         ServiceLocator.init(applicationContext)
         val transactionId = intent.getStringExtra(ExpensePromptNotifier.EXTRA_TRANSACTION_ID)
         val tripOnly = intent.getBooleanExtra(ExpensePromptNotifier.EXTRA_TRIP_ONLY, false)
+        val projectOnly = intent.getBooleanExtra(ExpensePromptNotifier.EXTRA_PROJECT_ONLY, false)
         val cashMode = transactionId == null && intent.action == ACTION_ADD_CASH
         if (transactionId == null && !cashMode) { finish(); return }
 
@@ -78,10 +79,13 @@ class LogExpenseActivity : ComponentActivity() {
             SpendTrackTheme {
                 var txn by remember { mutableStateOf<TransactionEntity?>(null) }
                 var knownTrips by remember { mutableStateOf<List<String>>(emptyList()) }
+                var knownProjects by remember { mutableStateOf<List<String>>(emptyList()) }
                 var ready by remember { mutableStateOf(cashMode) }
 
                 val settingsTrips by ServiceLocator.settingsManager.tripNamesFlow.collectAsState(initial = emptyList())
                 val activeTrip by ServiceLocator.settingsManager.activeTripNameFlow.collectAsState(initial = null)
+                val settingsProjects by ServiceLocator.settingsManager.projectNamesFlow.collectAsState(initial = emptyList())
+                val activeProject by ServiceLocator.settingsManager.activeProjectNameFlow.collectAsState(initial = null)
 
                 if (transactionId != null) {
                     LaunchedEffect(transactionId) {
@@ -91,16 +95,26 @@ class LogExpenseActivity : ComponentActivity() {
                             return@LaunchedEffect
                         }
                         txn = loaded
-                        // Refresh shared settings quickly so web trips are included
+                        // Refresh shared settings quickly so web trips and projects are included
                         kotlinx.coroutines.withTimeoutOrNull(1800) {
                             runCatching { ServiceLocator.cloudSyncRepository.refreshSharedSettings() }
                         }
                         val allTrips = ServiceLocator.transactionRepository.getAllKnownTrips()
+                        val allProjects = ServiceLocator.transactionRepository.getAllKnownProjects()
                         knownTrips = allTrips
+                        knownProjects = allProjects
+
                         // If the user clicked "✈️ Trips" on the notification and only 1 trip exists,
                         // save directly to that single trip without asking again!
                         if (tripOnly && allTrips.size == 1) {
-                            ExpenseFiler.file(applicationContext, transactionId, ExpenseScope.TRIP, allTrips.single())
+                            ExpenseFiler.file(applicationContext, transactionId, ExpenseScope.TRIP, tripName = allTrips.single())
+                            finish()
+                            return@LaunchedEffect
+                        }
+                        // If the user clicked "🔨 Project" on the notification and only 1 project exists,
+                        // save directly to that single project without asking again!
+                        if (projectOnly && allProjects.size == 1) {
+                            ExpenseFiler.file(applicationContext, transactionId, ExpenseScope.PROJECT, projectName = allProjects.single())
                             finish()
                             return@LaunchedEffect
                         }
@@ -109,15 +123,19 @@ class LogExpenseActivity : ComponentActivity() {
                 }
 
                 val mergedTrips = (knownTrips + settingsTrips).distinct()
+                val mergedProjects = (knownProjects + settingsProjects).distinct()
                 if (ready && (cashMode || txn != null)) {
                     LogSheet(
                         txn = txn,
                         trips = mergedTrips,
                         activeTrip = activeTrip,
                         tripOnly = tripOnly,
+                        projects = mergedProjects,
+                        activeProject = activeProject,
+                        projectOnly = projectOnly,
                         onDismiss = { finish() },
-                        onChoose = { scope, trip, note, makeActive, cashAmount ->
-                            choose(txn?.id, cashAmount, scope, trip, note, makeActive)
+                        onChoose = { scope, trip, project, note, makeActiveTrip, makeActiveProject, cashAmount ->
+                            choose(txn?.id, cashAmount, scope, trip, project, note, makeActiveTrip, makeActiveProject)
                         }
                     )
                 }
@@ -125,15 +143,34 @@ class LogExpenseActivity : ComponentActivity() {
         }
     }
 
-    private fun choose(transactionId: String?, cashAmount: Double?, scope: String, tripName: String?, note: String?, makeActiveTrip: Boolean) {
+    private fun choose(
+        transactionId: String?,
+        cashAmount: Double?,
+        scope: String,
+        tripName: String?,
+        projectName: String?,
+        note: String?,
+        makeActiveTrip: Boolean,
+        makeActiveProject: Boolean
+    ) {
         lifecycleScope.launch {
             if (makeActiveTrip && !tripName.isNullOrBlank()) {
                 ServiceLocator.cloudSyncRepository.pushSharedSettings(ServiceLocator.settingsManager.setActiveTripName(tripName))
             }
+            if (makeActiveProject && !projectName.isNullOrBlank()) {
+                ServiceLocator.cloudSyncRepository.pushSharedSettings(ServiceLocator.settingsManager.setActiveProjectName(projectName))
+            }
             val id = transactionId
                 ?: ServiceLocator.transactionRepository.addCashExpense(cashAmount ?: return@launch, note)
             // A cash note is already its description; only pass it on for detected payments.
-            ExpenseFiler.file(applicationContext, id, scope, tripName, if (transactionId != null) note else null)
+            ExpenseFiler.file(
+                context = applicationContext,
+                transactionId = id,
+                scope = scope,
+                tripName = tripName,
+                projectName = projectName,
+                note = if (transactionId != null) note else null
+            )
             finish()
         }
     }
@@ -156,24 +193,45 @@ private fun LogSheet(
     trips: List<String>,
     activeTrip: String?,
     tripOnly: Boolean = false,
+    projects: List<String> = emptyList(),
+    activeProject: String? = null,
+    projectOnly: Boolean = false,
     onDismiss: () -> Unit,
-    onChoose: (scope: String, trip: String?, note: String?, makeActive: Boolean, cashAmount: Double?) -> Unit
+    onChoose: (scope: String, trip: String?, project: String?, note: String?, makeActiveTrip: Boolean, makeActiveProject: Boolean, cashAmount: Double?) -> Unit
 ) {
     val cashMode = txn == null
     var amountText by remember { mutableStateOf("") }
     val cashAmount = amountText.replace(",", "").toDoubleOrNull()?.takeIf { it > 0 && it < 1e8 }
     var note by remember { mutableStateOf("") }
     var newTrip by remember { mutableStateOf("") }
-    var makeActive by remember { mutableStateOf(false) }
+    var makeActiveTrip by remember { mutableStateOf(false) }
+    var newProject by remember { mutableStateOf("") }
+    var makeActiveProject by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val amountFocus = remember { FocusRequester() }
     val canPick = !busy && (!cashMode || cashAmount != null)
 
-    fun pick(s: String, trip: String? = null, active: Boolean = false) {
+    fun pick(
+        s: String,
+        trip: String? = null,
+        project: String? = null,
+        activeTripFlag: Boolean = false,
+        activeProjectFlag: Boolean = false
+    ) {
         if (!canPick) return
         busy = true
-        scope.launch { onChoose(s, trip, note.takeIf { it.isNotBlank() }, active, cashAmount) }
+        scope.launch {
+            onChoose(
+                s,
+                trip,
+                project,
+                note.takeIf { it.isNotBlank() },
+                activeTripFlag,
+                activeProjectFlag,
+                cashAmount
+            )
+        }
     }
 
     Box(
@@ -206,10 +264,10 @@ private fun LogSheet(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = if (tripOnly && trips.size > 1) {
-                            "${ExpensePromptNotifier.whenLabel(txn.dateTime)} · Which trip should this go to?"
-                        } else {
-                            ExpensePromptNotifier.whenLabel(txn.dateTime) +
+                        text = when {
+                            tripOnly && trips.size > 1 -> "${ExpensePromptNotifier.whenLabel(txn.dateTime)} · Which trip should this go to?"
+                            projectOnly && projects.size > 1 -> "${ExpensePromptNotifier.whenLabel(txn.dateTime)} · Which project / function should this go to?"
+                            else -> ExpensePromptNotifier.whenLabel(txn.dateTime) +
                                 if (!txn.needsReview) " · already logged, choose again to move it" else ""
                         },
                         style = MaterialTheme.typography.bodySmall,
@@ -233,7 +291,17 @@ private fun LogSheet(
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         trips.forEach { trip ->
                             val label = if (trip == activeTrip) "✈️ $trip (active)" else "✈️ $trip"
-                            Button(onClick = { pick(ExpenseScope.TRIP, trip) }, enabled = canPick) { Text(label) }
+                            Button(onClick = { pick(ExpenseScope.TRIP, trip = trip) }, enabled = canPick) { Text(label) }
+                        }
+                    }
+                }
+
+                if (projectOnly && projects.isNotEmpty()) {
+                    Text("🔨 Select Project / Function", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        projects.forEach { proj ->
+                            val label = if (proj == activeProject) "🔨 $proj (active)" else "🔨 $proj"
+                            Button(onClick = { pick(ExpenseScope.PROJECT, project = proj) }, enabled = canPick) { Text(label) }
                         }
                     }
                 }
@@ -246,13 +314,21 @@ private fun LogSheet(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                if (!tripOnly) {
+                if (!tripOnly && !projectOnly) {
                     Text("Log to", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.outline)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilledTonalButton(onClick = { pick(ExpenseScope.PERSONAL) }, enabled = canPick) { Text("👤 Personal") }
                         FilledTonalButton(onClick = { pick(ExpenseScope.FAMILY) }, enabled = canPick) { Text("🏠 Family") }
                         FilledTonalButton(onClick = { pick(ExpenseScope.INVESTMENT) }, enabled = canPick) { Text("📈 Investment") }
-                        FilledTonalButton(onClick = { pick(ExpenseScope.PROJECT) }, enabled = canPick) { Text("🔨 Project") }
+                        FilledTonalButton(
+                            onClick = {
+                                val proj = activeProject ?: projects.singleOrNull()
+                                pick(ExpenseScope.PROJECT, project = proj)
+                            },
+                            enabled = canPick
+                        ) {
+                            Text(if (!activeProject.isNullOrBlank()) "🔨 $activeProject" else "🔨 Project")
+                        }
                         if (!cashMode) FilledTonalButton(onClick = { pick(ExpenseScope.TRANSFER) }, enabled = canPick) { Text("🔁 Own transfer") }
                     }
 
@@ -262,32 +338,69 @@ private fun LogSheet(
                             trips.forEach { trip ->
                                 val label = if (trip == activeTrip) "✈️ $trip (active)" else "✈️ $trip"
                                 if (trip == activeTrip) {
-                                    Button(onClick = { pick(ExpenseScope.TRIP, trip) }, enabled = canPick) { Text(label) }
+                                    Button(onClick = { pick(ExpenseScope.TRIP, trip = trip) }, enabled = canPick) { Text(label) }
                                 } else {
-                                    OutlinedButton(onClick = { pick(ExpenseScope.TRIP, trip) }, enabled = canPick) { Text(label) }
+                                    OutlinedButton(onClick = { pick(ExpenseScope.TRIP, trip = trip) }, enabled = canPick) { Text(label) }
+                                }
+                            }
+                        }
+                    }
+
+                    if (projects.isNotEmpty()) {
+                        Text("Projects & Functions", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.outline)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            projects.forEach { proj ->
+                                val label = if (proj == activeProject) "🔨 $proj (active)" else "🔨 $proj"
+                                if (proj == activeProject) {
+                                    Button(onClick = { pick(ExpenseScope.PROJECT, project = proj) }, enabled = canPick) { Text(label) }
+                                } else {
+                                    OutlinedButton(onClick = { pick(ExpenseScope.PROJECT, project = proj) }, enabled = canPick) { Text(label) }
                                 }
                             }
                         }
                     }
                 }
 
-                Text("New trip", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.outline)
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = newTrip,
-                        onValueChange = { newTrip = it.take(30) },
-                        label = { Text("e.g. Manali Trip") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Button(
-                        onClick = { pick(ExpenseScope.TRIP, newTrip.trim(), makeActive) },
-                        enabled = canPick && newTrip.isNotBlank()
-                    ) { Text("Log") }
+                if (!projectOnly) {
+                    Text("New trip", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.outline)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = newTrip,
+                            onValueChange = { newTrip = it.take(30) },
+                            label = { Text("e.g. Manali Trip") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Button(
+                            onClick = { pick(ExpenseScope.TRIP, trip = newTrip.trim(), activeTripFlag = makeActiveTrip) },
+                            enabled = canPick && newTrip.isNotBlank()
+                        ) { Text("Log") }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = makeActiveTrip, onCheckedChange = { makeActiveTrip = it })
+                        Text("Make it the active trip", style = MaterialTheme.typography.bodyMedium)
+                    }
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = makeActive, onCheckedChange = { makeActive = it })
-                    Text("Make it the active trip", style = MaterialTheme.typography.bodyMedium)
+
+                if (!tripOnly) {
+                    Text("New project / function", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.outline)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(
+                            value = newProject,
+                            onValueChange = { newProject = it.take(30) },
+                            label = { Text("e.g. Family Function") },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Button(
+                            onClick = { pick(ExpenseScope.PROJECT, project = newProject.trim(), activeProjectFlag = makeActiveProject) },
+                            enabled = canPick && newProject.isNotBlank()
+                        ) { Text("Log") }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(checked = makeActiveProject, onCheckedChange = { makeActiveProject = it })
+                        Text("Make it the active project", style = MaterialTheme.typography.bodyMedium)
+                    }
                 }
 
                 Spacer(Modifier.height(4.dp))

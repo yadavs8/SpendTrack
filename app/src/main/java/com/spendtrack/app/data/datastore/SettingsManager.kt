@@ -44,6 +44,10 @@ class SettingsManager(private val context: Context) {
         val KEY_SHARED_SETTINGS_JSON = stringPreferencesKey("shared_settings_json")
         const val SHARED_ACTIVE_TRIP = "kharcha_active_trip_name"
         const val SHARED_ALL_TRIPS = "kharcha_all_trips_list"
+        const val SHARED_IS_TRIP_PAUSED = "kharcha_is_trip_paused"
+        const val SHARED_ACTIVE_PROJECT = "kharcha_active_project_name"
+        const val SHARED_ALL_PROJECTS = "kharcha_all_projects_list"
+        const val SHARED_IS_PROJECT_PAUSED = "kharcha_is_project_paused"
         const val SHARED_OWNER_IDENTITY = "kharcha_owner_identity"
         // Names / UPI IDs whose credits are family reimbursements ("👵 Withdrawn from Mother").
         const val SHARED_FAMILY_PAYERS = "kharcha_family_payers"
@@ -95,6 +99,35 @@ class SettingsManager(private val context: Context) {
             (0 until arr.length()).mapNotNull { arr.optString(it).trim().takeIf { t -> t.isNotBlank() } }
         }.getOrDefault(emptyList())
         (listOfNotNull(active) + saved).distinct()
+    }
+
+    val isTripPausedFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        val shared = parseJson(prefs[KEY_SHARED_SETTINGS_JSON])
+        shared.optStringOrNull(SHARED_IS_TRIP_PAUSED) == "true"
+    }
+
+    val activeProjectNameFlow: Flow<String?> = context.dataStore.data.map { prefs ->
+        val shared = parseJson(prefs[KEY_SHARED_SETTINGS_JSON])
+        shared.optStringOrNull(SHARED_ACTIVE_PROJECT)
+    }
+
+    val projectNamesFlow: Flow<List<String>> = context.dataStore.data.map { prefs ->
+        val shared = parseJson(prefs[KEY_SHARED_SETTINGS_JSON])
+        val active = shared.optStringOrNull(SHARED_ACTIVE_PROJECT)
+        val saved = runCatching {
+            val arr = JSONArray(shared.optStringOrNull(SHARED_ALL_PROJECTS) ?: "[]")
+            (0 until arr.length()).mapNotNull { arr.optString(it).trim().takeIf { p -> p.isNotBlank() } }
+        }.getOrDefault(emptyList())
+        (listOfNotNull(active) + saved).distinct()
+    }
+
+    /**
+     * Paused unless a project was explicitly started/resumed ("false"). Older Kharcha Book versions
+     * saved a project name just by renaming it -- that must never start auto-filing every payment.
+     */
+    val isProjectPausedFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        val shared = parseJson(prefs[KEY_SHARED_SETTINGS_JSON])
+        shared.optStringOrNull(SHARED_IS_PROJECT_PAUSED) != "false"
     }
 
     /** The user's own full name(s) and UPI ID(s), used to recognise self-transfers. */
@@ -258,13 +291,20 @@ class SettingsManager(private val context: Context) {
         context.dataStore.edit { it[KEY_CLOUD_SYNC_LAST_SUCCESS_AT] = timestamp.toString() }
     }
 
+    /** Sets whether the active trip is paused (so transactions do not auto-log to it). */
+    suspend fun setTripPaused(paused: Boolean): JSONObject =
+        updateShared { it.put(SHARED_IS_TRIP_PAUSED, paused.toString()) }
+
     /** Sets (or clears) the active trip in the shared document; returns it for pushing to Supabase. */
     suspend fun setActiveTripName(tripName: String?): JSONObject {
         context.dataStore.edit { it.remove(KEY_ACTIVE_TRIP_NAME) }
         return updateShared { doc ->
-            if (tripName.isNullOrBlank()) doc.put(SHARED_ACTIVE_TRIP, JSONObject.NULL)
-            else {
+            if (tripName.isNullOrBlank()) {
+                doc.put(SHARED_ACTIVE_TRIP, JSONObject.NULL)
+                doc.put(SHARED_IS_TRIP_PAUSED, "false")
+            } else {
                 doc.put(SHARED_ACTIVE_TRIP, tripName.trim())
+                doc.put(SHARED_IS_TRIP_PAUSED, "false")
                 addTripTo(doc, tripName.trim())
             }
         }
@@ -280,6 +320,34 @@ class SettingsManager(private val context: Context) {
         if (name !in existing) arr.put(name)
         // The web app stores every value as a string, so the list is a JSON-encoded string.
         doc.put(SHARED_ALL_TRIPS, arr.toString())
+    }
+
+    /** Sets whether the active project is paused (so transactions do not auto-log to it). */
+    suspend fun setProjectPaused(paused: Boolean): JSONObject =
+        updateShared { it.put(SHARED_IS_PROJECT_PAUSED, paused.toString()) }
+
+    /** Sets (or clears) the active project in the shared document; returns it for pushing to Supabase. */
+    suspend fun setActiveProjectName(projectName: String?): JSONObject =
+        updateShared { doc ->
+            if (projectName.isNullOrBlank()) {
+                doc.put(SHARED_ACTIVE_PROJECT, JSONObject.NULL)
+                doc.put(SHARED_IS_PROJECT_PAUSED, "false")
+            } else {
+                doc.put(SHARED_ACTIVE_PROJECT, projectName.trim())
+                doc.put(SHARED_IS_PROJECT_PAUSED, "false")
+                addProjectTo(doc, projectName.trim())
+            }
+        }
+
+    /** Adds a project to the shared project list without making it active. */
+    suspend fun addProject(projectName: String): JSONObject = updateShared { addProjectTo(it, projectName.trim()) }
+
+    private fun addProjectTo(doc: JSONObject, name: String) {
+        if (name.isBlank()) return
+        val arr = runCatching { JSONArray(doc.optStringOrNull(SHARED_ALL_PROJECTS) ?: "[]") }.getOrDefault(JSONArray())
+        val existing = (0 until arr.length()).map { arr.optString(it).trim() }
+        if (name !in existing) arr.put(name)
+        doc.put(SHARED_ALL_PROJECTS, arr.toString())
     }
 
     suspend fun setOwnerIdentity(value: String): JSONObject =

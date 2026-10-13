@@ -49,16 +49,31 @@ class QuickActionReceiver : BroadcastReceiver() {
                         val txn = repo.getTransactionById(transactionId)
                         if (txn != null && txn.needsReview && !txn.isExcluded &&
                             !com.spendtrack.app.core.notification.PromptReconciler.resolveIfEnteredByHand(appContext, txn.id)) {
-                            val activeTrip = ServiceLocator.settingsManager.activeTripNameFlow.first()
+                            val settings = ServiceLocator.settingsManager
+                            val activeTrip = settings.activeTripNameFlow.first()
+                            val isTripPaused = settings.isTripPausedFlow.first()
+                            val activeProject = settings.activeProjectNameFlow.first()
+                            val isProjectPaused = settings.isProjectPausedFlow.first()
                             val knownTrips = repo.getAllKnownTrips()
-                            ExpensePromptNotifier.show(appContext, txn, activeTrip, alert = true, trips = knownTrips)
+                            val knownProjects = repo.getAllKnownProjects()
+                            ExpensePromptNotifier.show(
+                                appContext, txn,
+                                activeTripName = activeTrip,
+                                isTripPaused = isTripPaused,
+                                activeProjectName = activeProject,
+                                isProjectPaused = isProjectPaused,
+                                alert = true,
+                                trips = knownTrips,
+                                projects = knownProjects
+                            )
                             NudgeScheduler.scheduleNext(appContext, txn.id, previousStage = 0)
                         }
                     }
                     ACTION_SET_SCOPE -> {
                         val scope = intent.getStringExtra(ExpensePromptNotifier.EXTRA_SCOPE) ?: ExpensePromptNotifier.SCOPE_PERSONAL
                         val tripName = intent.getStringExtra(ExpensePromptNotifier.EXTRA_TRIP_NAME)
-                        ExpenseFiler.file(appContext, transactionId, scope, tripName)
+                        val projectName = intent.getStringExtra(ExpensePromptNotifier.EXTRA_PROJECT_NAME)
+                        ExpenseFiler.file(appContext, transactionId, scope, tripName, projectName)
                     }
                     ACTION_QUICK_CATEGORIZE -> {
                         repo.resolveNeedsReview(

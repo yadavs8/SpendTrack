@@ -23,7 +23,14 @@ object ExpenseScope {
      * Base text is the user's own note if they typed one (isEdited), else the merchant name --
      * never the raw description, which for auto-detected expenses is the full bank SMS.
      */
-    fun describe(merchantName: String?, description: String?, isEdited: Boolean, scope: String, tripName: String? = null): String {
+    fun describe(
+        merchantName: String?,
+        description: String?,
+        isEdited: Boolean,
+        scope: String,
+        tripName: String? = null,
+        projectName: String? = null
+    ): String {
         val base = (if (isEdited) description?.takeIf { it.isNotBlank() } else null)
             ?: merchantName?.takeIf { it.isNotBlank() }
             ?: "Expense"
@@ -31,7 +38,11 @@ object ExpenseScope {
         return when {
             scope.equals(FAMILY, ignoreCase = true) -> FAMILY_PREFIX + clean
             scope.equals(INVESTMENT, ignoreCase = true) -> INVESTMENT_PREFIX + clean
-            scope.equals(PROJECT, ignoreCase = true) -> PROJECT_PREFIX + clean
+            scope.equals(PROJECT, ignoreCase = true) -> {
+                // ":" / "[" would break reading the name back out of "🔨 Name: item" (web projectNameOf).
+                val label = projectName?.replace(Regex("[:\\[\\]]"), " ")?.replace(Regex("\\s+"), " ")?.trim()?.take(40)?.takeIf { it.isNotBlank() }
+                if (label != null) "$PROJECT_PREFIX$label: $clean" else "$PROJECT_PREFIX$clean"
+            }
             scope.equals(TRANSFER, ignoreCase = true) -> TRANSFER_PREFIX + clean
             scope.equals(TRIP, ignoreCase = true) -> {
                 val label = tripName?.trim()?.takeIf { it.isNotBlank() } ?: "Trip"
@@ -41,13 +52,19 @@ object ExpenseScope {
         }
     }
 
-    /** Removes any existing scope prefix, including a "✈️ Goa: " trip label, so scopes never stack. */
+    /** Removes any existing scope prefix, including a "✈️ Goa: " trip label or "🔨 Function: " project label, so scopes never stack. */
     fun stripScope(text: String): String {
         var t = text.trim()
         if (t.startsWith("✈")) {
             t = t.removePrefix("✈️").removePrefix("✈").trim()
             val colon = t.indexOf(':')
             if (colon in 1..40) t = t.substring(colon + 1)
+        }
+        if (t.startsWith("🔨")) {
+            t = t.removePrefix("🔨").trim()
+            val colon = t.indexOf(':')
+            // Same rule as the web: a name is up to 40 chars before the colon, with no "[".
+            if (colon in 1..40 && !t.substring(0, colon).contains('[')) t = t.substring(colon + 1)
         }
         return t.trim()
             .removePrefix("🏠").removePrefix("👤").removePrefix("📈").removePrefix("🔨").removePrefix("🔁")
