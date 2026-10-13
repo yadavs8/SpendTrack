@@ -676,5 +676,25 @@ assert(whatsappLink('a b').startsWith('https://wa.me/?text=a%20b'), 'whatsappLin
   assert(!!priya3 && priya3.share === 45 && priya3.net === -45, 'tripSettlement: that name is picked up as a real participant, same as an unlisted payer already was');
 }
 
+// Named projects / functions
+{
+  const K = windowMock.__kharcha;
+  assert(K.projectNameOf('🔨 Family Function: Tent house') === 'Family Function', 'projectNameOf reads the project name');
+  assert(K.projectNameOf('🔨 Cement bags') === null, 'projectNameOf: an older unnamed project entry has no name');
+  assert(K.projectNameOf('🔨 Project: Tiles') === null, 'projectNameOf ignores the placeholder name "Project"');
+  assert(K.cleanScopePrefix('🔨 Family Function: Tent house') === 'Tent house', 'cleanScopePrefix strips the project label');
+  assert(K.cleanScopePrefix('🔨 Cement') === 'Cement', 'cleanScopePrefix strips a bare project tag');
+  const t = new Date(2026, 9, 5).getTime();
+  const pe = [
+    { id: 'a', amount: 1000, desc: '🔨 Family Function: Tent', ts: t },
+    { id: 'b', amount: 500, desc: '🔨 House Renovation: Paint', ts: t },
+    { id: 'c', amount: 300, desc: '🔨 Cement', ts: t }
+  ];
+  assert(K.getProjectSummary(pe).totalSpent === 1800, 'getProjectSummary without a name still totals every project');
+  assert(K.getProjectSummary(pe, 'Family Function', 'House Renovation').totalSpent === 1000, 'getProjectSummary shows only the selected project');
+  assert(K.getProjectSummary(pe, 'House Renovation', 'House Renovation').totalSpent === 800, 'unnamed older entries stay with the original project');
+  assert(K.getProjectSummary(pe, 'house renovation', 'House Renovation').entries.length === 2, 'project names match case-insensitively');
+}
+
 console.log(`\nResults: ${passed} passed, ${failed} failed.`);
 if (failed > 0) process.exit(1);

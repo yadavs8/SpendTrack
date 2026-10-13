@@ -194,7 +194,7 @@
     // Strip leading trip prefix (✈️ TripName: or ✈️ )
     s = s.replace(/^[✈\u{2708}\u{FE0F}\u{1F6EB}\u{1F6EC}]+\s*(?:[^:]+:\s*)?/u, '').trim();
     // Strip leading project prefix (🔨 ProjectName: or 🔨 )
-    s = s.replace(/^[🔨\u{1F528}]+\s*(?:[^:]+:\s*)?/u, '').trim();
+    s = s.replace(/^🔨\s*(?:[^:\[]{1,40}:\s*)?/u, '').trim();
     // Strip other leading scope tags (🏠, 👤, 📈, 💰, 🔁)
     s = s.replace(/^[\u{1F3E0}\u{1F464}\u{1F4C8}\u{1F4B0}\u{1F501}]\s*/u, '').trim();
     return s;
@@ -306,9 +306,22 @@
   }
   function whatsappLink(text) { return 'https://wa.me/?text=' + encodeURIComponent(text); }
 
-  function getProjectSummary(monthEntries) {
+  // "🔨 Family Function: Tent" -> "Family Function"; "🔨 Cement" (before named projects) -> null.
+  function projectNameOf(desc) {
+    var m = String(desc || '').match(/^\s*🔨\s*([^:\[]{1,40}):/u);
+    var name = m && m[1].trim();
+    return name && name.toLowerCase() !== 'project' ? name : null;
+  }
+  // With [projectName], only that project's spends. Unnamed older ones belong to [legacyName]
+  // (the single project that existed before projects had names).
+  function getProjectSummary(monthEntries, projectName, legacyName) {
+    var want = (projectName || '').trim().toLowerCase();
+    var legacy = (legacyName || '').trim().toLowerCase();
     var list = (monthEntries || []).filter(function (e) {
-      return isExpense(e) && isProjectEntry(e.desc);
+      if (!isExpense(e) || !isProjectEntry(e.desc)) return false;
+      if (!want) return true;
+      var own = (projectNameOf(e.desc) || '').toLowerCase();
+      return own ? own === want : (!!legacy && legacy === want);
     });
     var totalSpent = list.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
     var meEntries = list.filter(function (e) { return !isProjectMotherPaid(e.desc); });
@@ -1318,7 +1331,7 @@
     getMonthlySummary: getMonthlySummary, getMonthlyHistory: getMonthlyHistory, monthsWithAnyEntry: monthsWithAnyEntry, getPeriodSummary: getPeriodSummary, isBankIn: isBankIn, isBankOut: isBankOut, getBankTotals: getBankTotals, getHomeFacts: getHomeFacts, isIncome: isIncome, getNetWorthParts: getNetWorthParts, getSpendSources: getSpendSources, backupData: backupData, inspectBackup: inspectBackup, restoreData: restoreData, loadRules: loadRules, kvGet: function (k) { return kv.get(k); }, kvSet: function (k, v) { kv.set(k, v); }, toast: function (m, u) { toast(m, u); }, confirmBox: function (o) { showConfirmModal(o); }, startOfDay: startOfDay,
     parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, parseSMSDate: parseSMSDate, findDuplicate: findDuplicate, categoryBreakdown: categoryBreakdown, monthCompare: monthCompare,
     isIncome: isIncome, isMotherSettlement: isMotherSettlement, isMotherPension: isMotherPension, isSalary: isSalary, isExpense: isExpense, isInvestment: isInvestment, getFamilySettlement: getFamilySettlement, getPersonalCashFlow: getPersonalCashFlow,
-    isProjectEntry: isProjectEntry, isProjectMotherPaid: isProjectMotherPaid, getProjectSummary: getProjectSummary,
+    isProjectEntry: isProjectEntry, isProjectMotherPaid: isProjectMotherPaid, getProjectSummary: getProjectSummary, projectNameOf: projectNameOf, cleanScopePrefix: cleanScopePrefix,
     isTripEntry: isTripEntry, getTripSummary: getTripSummary, parseTripPayer: parseTripPayer, parseTripSplit: parseTripSplit, getTripTheme: getTripTheme,
     getAllTrips: getAllTrips, getTripFriends: getTripFriends, addTripFriend: addTripFriend, removeTripFriend: removeTripFriend,
     getEntryScope: getEntryScope, shiftScopeDesc: shiftScopeDesc,
@@ -1375,7 +1388,7 @@
      Same keys and string values as localStorage, so feature code just swaps localStorage for kv.
      localStorage stays as the offline cache, and is all there is until the v4 SQL has been run. */
   var SHARED_KEYS = ['kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
-    'kharcha_is_trip_paused', 'kharcha_all_projects_list', 'kharcha_is_project_paused',
+    'kharcha_is_trip_paused', 'kharcha_all_projects_list', 'kharcha_is_project_paused', 'kharcha_legacy_project_name',
     'kharcha_active_trip_name', 'kharcha_all_trips_list', 'kharcha_category_budgets', 'kharcha_merchant_memory',
     'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers', 'kharcha_loans', 'kharcha_wallets', 'kharcha_bank', 'kharcha_cycle', 'kharcha_rules', 'kharcha_acctmap', 'kharcha_primary_acct', 'kharcha_rule_skips', 'kharcha_transfers', 'kharcha_own', 'kharcha_xfer_dismissed', 'kharcha_goal', 'kharcha_receipts', 'kharcha_rules_seeded', 'kharcha_card', 'kharcha_dup_dismissed'];
   var SHARED_PREFIXES = ['kharcha_trip_friends_', 'kharcha_trip_budget_'];
@@ -2206,7 +2219,9 @@
     var monthInvestments = allMonthEntries.filter(isInvestment);
     var settlement = getFamilySettlement(allMonthEntries);
     var cashFlow = getPersonalCashFlow(allMonthEntries);
-    var projSummary = getProjectSummary(allMonthEntries);
+    // The Project screen shows the selected project only; the tab count covers every project.
+    var projSummary = getProjectSummary(allMonthEntries, getActiveProjectName(), legacyProjectName());
+    var allProjectCount = getProjectSummary(allMonthEntries).entries.length;
     var curViewTrip = getSelectedViewTripName();
     var curViewFriends = curViewTrip ? getTripFriends(curViewTrip) : ['Me'];
     // Friends' spending added via the WhatsApp link, folded in so totals, categories and the
@@ -2216,7 +2231,7 @@
     var tripSummary = getTripSummary(entriesWithGuestTrip, curViewTrip, curViewFriends);
 
     renderCashFlow(cashFlow, settlement);
-    renderStreamSwitcher(monthExpenses.length, monthIncomings.length, projSummary.entries.length, monthInvestments.length, tripSummary.entries.length);
+    renderStreamSwitcher(monthExpenses.length, monthIncomings.length, allProjectCount, monthInvestments.length, tripSummary.entries.length);
 
     renderBudget(cur.total);
     renderSuggestions();
@@ -3954,24 +3969,40 @@
   var PROJECT_PAUSED_KEY = 'kharcha_is_project_paused';
   var ALL_PROJECTS_KEY = 'kharcha_all_projects_list';
 
+  // Paused unless a project was explicitly started or resumed. Before named projects, renaming
+  // alone saved a project name -- that must not quietly start auto-filing phone payments.
   function isProjectPaused() {
-    try { return kv.get(PROJECT_PAUSED_KEY) === 'true'; } catch (e) { return false; }
+    try { return kv.get(PROJECT_PAUSED_KEY) !== 'false'; } catch (e) { return true; }
   }
   function setProjectPaused(paused) {
     try { kv.set(PROJECT_PAUSED_KEY, paused ? 'true' : 'false'); } catch (e) {}
+  }
+
+  // The one project that existed before projects had names: its entries ("🔨 Cement") have no
+  // name, so they stay grouped under it. Fixed once, so switching projects never moves them.
+  var LEGACY_PROJECT_KEY = 'kharcha_legacy_project_name';
+  function hasUnnamedProjectEntries() {
+    return (state.entries || []).some(function (e) { return e && isProjectEntry(e.desc) && /^\s*🔨/u.test(e.desc) && !projectNameOf(e.desc); });
+  }
+  function legacyProjectName() {
+    var saved = '';
+    try { saved = (kv.get(LEGACY_PROJECT_KEY) || '').trim(); } catch (e) {}
+    if (saved) return saved;
+    var old = '';
+    try { old = (kv.get(PROJ_NAME_KEY) || '').trim(); } catch (e) {}
+    var name = old || 'House Renovation';
+    if (hasUnnamedProjectEntries()) { try { kv.set(LEGACY_PROJECT_KEY, name); } catch (e) {} }
+    return name;
   }
 
   function getAllProjects() {
     var projSet = new Set();
     // 1. Scan from existing entries
     (state.entries || []).forEach(function (e) {
-      if (e && e.desc) {
-        var m = e.desc.match(/^[🔨\u{1F528}]+\s*([^:\[]+):/u);
-        if (m && m[1] && m[1].trim() && m[1].trim().toLowerCase() !== 'project') {
-          projSet.add(m[1].trim());
-        }
-      }
+      var name = e && projectNameOf(e.desc);
+      if (name) projSet.add(name);
     });
+    if (hasUnnamedProjectEntries()) projSet.add(legacyProjectName());
     // 2. Add from local storage / shared list
     try {
       var saved = JSON.parse(kv.get(ALL_PROJECTS_KEY)) || [];
@@ -4132,16 +4163,41 @@
         fields: [{ value: cur, placeholder: 'e.g. Family Function, House Renovation' }],
         confirmText: 'Rename',
         onConfirm: function (v) {
-          var next = (v[0] || '').trim();
-          if (next && next !== cur) {
-            saveProjectToList(next);
-            setActiveProjectName(next);
-            render();
-            toast('Project renamed to ' + next);
-          }
+          var next = safeTruncate((v[0] || '').replace(/[:\[\]]/g, ' ').replace(/\s+/g, ' ').trim(), 40);
+          if (!next || next === cur) return;
+          renameProject(cur, next);
         }
       });
     });
+  }
+
+  // A real rename: this project's entries ("🔨 Old: x", in every month) move to the new name, and
+  // the old name leaves the list. Unnamed older entries follow if this was their project.
+  async function renameProject(cur, next) {
+    var curLow = cur.toLowerCase();
+    var mine = state.entries.filter(function (e) { return (projectNameOf(e.desc) || '').toLowerCase() === curLow; });
+    var moved = 0;
+    try {
+      for (var i = 0; i < mine.length; i++) {
+        var e = mine[i];
+        var rest = e.desc.replace(/^\s*🔨\s*[^:\[]{1,40}:\s*/u, '');
+        await store.update(e.id, { amount: e.amount, desc: '🔨 ' + next + ': ' + rest, spent_at: new Date(e.ts).toISOString() });
+        moved++;
+      }
+    } catch (err) {
+      toast('Renamed ' + moved + ' of ' + mine.length + ' entries before an error: ' + ((err && err.message) || 'try again'));
+      render();
+      return;
+    }
+    try {
+      if ((kv.get(LEGACY_PROJECT_KEY) || '').trim().toLowerCase() === curLow) kv.set(LEGACY_PROJECT_KEY, next);
+      var list = (JSON.parse(kv.get(ALL_PROJECTS_KEY) || '[]') || []).filter(function (p) { return String(p).trim().toLowerCase() !== curLow; });
+      if (list.indexOf(next) < 0) list.push(next);
+      kv.set(ALL_PROJECTS_KEY, JSON.stringify(list));
+    } catch (e) {}
+    setActiveProjectName(next);
+    render();
+    toast('Project renamed to ' + next + (moved ? ' (' + moved + ' entries moved)' : ''));
   }
 
   function promptNewProject() {
@@ -4151,7 +4207,8 @@
       fields: [{ placeholder: 'e.g. Family Function, House Renovation, Office' }],
       confirmText: 'Create',
       onConfirm: function (v) {
-        var name = (v[0] || '').trim();
+        // ":" and "[" would break reading the name back out of "🔨 Name: item".
+        var name = safeTruncate((v[0] || '').replace(/[:\[\]]/g, ' ').replace(/\s+/g, ' ').trim(), 40);
         if (name) {
           saveProjectToList(name);
           setActiveProjectName(name);

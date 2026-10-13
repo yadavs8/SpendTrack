@@ -121,9 +121,13 @@ class SettingsManager(private val context: Context) {
         (listOfNotNull(active) + saved).distinct()
     }
 
+    /**
+     * Paused unless a project was explicitly started/resumed ("false"). Older Kharcha Book versions
+     * saved a project name just by renaming it -- that must never start auto-filing every payment.
+     */
     val isProjectPausedFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
         val shared = parseJson(prefs[KEY_SHARED_SETTINGS_JSON])
-        shared.optStringOrNull(SHARED_IS_PROJECT_PAUSED) == "true"
+        shared.optStringOrNull(SHARED_IS_PROJECT_PAUSED) != "false"
     }
 
     /** The user's own full name(s) and UPI ID(s), used to recognise self-transfers. */

@@ -23,6 +23,22 @@ class ExpenseScopeTest {
     }
 
     @Test
+    fun project_namedLabel_roundTrips_andNeverStacks() {
+        val desc = ExpenseScope.describe("Tent House", rawSms, isEdited = false, scope = ExpenseScope.PROJECT, projectName = "Family Function")
+        assertEquals("🔨 Family Function: Tent House", desc)
+        assertEquals("Tent House", ExpenseScope.stripScope(desc))
+        // Moving it elsewhere drops the project label instead of stacking it.
+        assertEquals("🏠 Tent House", ExpenseScope.describe(null, desc, isEdited = true, scope = ExpenseScope.FAMILY))
+    }
+
+    @Test
+    fun project_withoutName_isBareTag_andNameIsSanitised() {
+        assertEquals("🔨 Cement", ExpenseScope.describe("Cement", null, isEdited = false, scope = ExpenseScope.PROJECT))
+        // ":" in a name would break reading it back out of "🔨 Name: item".
+        assertEquals("🔨 Shop Setup Phase 2: Tiles", ExpenseScope.describe("Tiles", null, false, ExpenseScope.PROJECT, projectName = "Shop: Setup [Phase 2]"))
+    }
+
+    @Test
     fun personal_usesMerchantWithoutPrefix() {
         val desc = ExpenseScope.describe("Swiggy", rawSms, isEdited = false, scope = ExpenseScope.PERSONAL)
         assertEquals("Swiggy", desc)

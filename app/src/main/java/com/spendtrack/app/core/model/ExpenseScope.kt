@@ -39,7 +39,8 @@ object ExpenseScope {
             scope.equals(FAMILY, ignoreCase = true) -> FAMILY_PREFIX + clean
             scope.equals(INVESTMENT, ignoreCase = true) -> INVESTMENT_PREFIX + clean
             scope.equals(PROJECT, ignoreCase = true) -> {
-                val label = projectName?.trim()?.takeIf { it.isNotBlank() }
+                // ":" / "[" would break reading the name back out of "🔨 Name: item" (web projectNameOf).
+                val label = projectName?.replace(Regex("[:\\[\\]]"), " ")?.replace(Regex("\\s+"), " ")?.trim()?.take(40)?.takeIf { it.isNotBlank() }
                 if (label != null) "$PROJECT_PREFIX$label: $clean" else "$PROJECT_PREFIX$clean"
             }
             scope.equals(TRANSFER, ignoreCase = true) -> TRANSFER_PREFIX + clean
@@ -62,7 +63,8 @@ object ExpenseScope {
         if (t.startsWith("🔨")) {
             t = t.removePrefix("🔨").trim()
             val colon = t.indexOf(':')
-            if (colon in 1..40) t = t.substring(colon + 1)
+            // Same rule as the web: a name is up to 40 chars before the colon, with no "[".
+            if (colon in 1..40 && !t.substring(0, colon).contains('[')) t = t.substring(colon + 1)
         }
         return t.trim()
             .removePrefix("🏠").removePrefix("👤").removePrefix("📈").removePrefix("🔨").removePrefix("🔁")
