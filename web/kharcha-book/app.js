@@ -4328,11 +4328,23 @@
      just the first time. */
   function backfillTripExpensesToShared(tripName) {
     if (!tripName || !sb) return;
-    var localEntries = getTripSummary(state.entries, tripName, []).entries;
-    var map = loadTripMirrorMap();
-    localEntries.filter(function (e) { return !map[e.id]; }).forEach(function (e) {
-      mirrorOwnerTripExpense(tripName, e.amount, cleanScopePrefix(e.desc), new Date(e.ts).toISOString(), e.id, parseTripSplit(e.desc));
-    });
+    ensureTripRow(tripName).then(function (trip) {
+      if (!trip || !trip.invite_token) return;
+      return sb.rpc('trip_summary', { p_invite_token: trip.invite_token }).then(function (res) {
+        var existingShared = (res && res.data && res.data[0] && res.data[0].expenses) || [];
+        var localEntries = getTripSummary(state.entries, tripName, []).entries;
+        var map = loadTripMirrorMap();
+        localEntries.forEach(function (e) {
+          if (map[e.id]) return;
+          var isAlreadyShared = existingShared.some(function (se) {
+            return !se.member_id && Math.abs(Number(se.amount) - Number(e.amount)) < 0.01 &&
+                   Math.abs(new Date(se.spent_at).getTime() - new Date(e.ts).getTime()) < 5000;
+          });
+          if (isAlreadyShared) return;
+          mirrorOwnerTripExpense(tripName, e.amount, cleanScopePrefix(e.desc), new Date(e.ts).toISOString(), e.id, parseTripSplit(e.desc));
+        });
+      });
+    }).catch(function () {});
   }
 
   /** Renders the invite status row (or hides it) for whichever trip is currently being viewed. */
@@ -5125,6 +5137,13 @@
       }).catch(function (err) {
         toast((err && err.message) || 'Could not create the invite link.');
       }).finally(function () { tripInviteBtn.disabled = false; });
+    });
+  }
+
+  var tripShareWaProminentBtn = $('trip-share-wa-prominent-btn');
+  if (tripShareWaProminentBtn && tripInviteBtn) {
+    tripShareWaProminentBtn.addEventListener('click', function () {
+      tripInviteBtn.click();
     });
   }
 

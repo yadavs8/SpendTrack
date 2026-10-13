@@ -427,9 +427,24 @@
       sb.rpc('trip_summary', { p_invite_token: token }).then(function (res) {
         if (res.error || !res.data || !res.data.length) throw res.error || new Error('no data');
         var s = res.data[0];
-        totalEl.textContent = money(s.total);
-        noteEl.textContent = (s.expense_count || 0) + (s.expense_count === 1 ? ' expense logged' : ' expenses logged');
         var items = s.expenses || [];
+
+        // Deduplicate any duplicate owner-mirrored entries (same amount, description, spent_at where member_id is null)
+        var seenOwnerKeys = new Set();
+        var deduped = [];
+        items.forEach(function (e) {
+          if (!e.member_id) {
+            var key = Number(e.amount).toFixed(2) + '|' + (e.description || '').trim().toLowerCase() + '|' + (e.spent_at || '');
+            if (seenOwnerKeys.has(key)) return;
+            seenOwnerKeys.add(key);
+          }
+          deduped.push(e);
+        });
+        items = deduped;
+
+        var actualTotal = items.reduce(function (sum, e) { return sum + Number(e.amount); }, 0);
+        totalEl.textContent = money(actualTotal);
+        noteEl.textContent = items.length + (items.length === 1 ? ' expense logged' : ' expenses logged');
 
         // Collect all distinct names
         var namesSet = new Set();
