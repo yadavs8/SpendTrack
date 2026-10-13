@@ -153,9 +153,9 @@
     var act = document.querySelector('.streambtn.active');
     var stream = act ? act.dataset.stream : 'spends';
     var key = NAV_OF[stream] || 'more';
-    // Tool screens (Bank, Udhaar, Wallet, Auto rules, Monthly) have their own numbers: the month card would only be noise there.
+    // Tool screens and Trips have their own numbers: the month card would only be noise there.
     var heroEl = document.querySelector('.hero');
-    var tool = ['udhaar', 'wallet', 'bank', 'rules', 'monthly', 'insights', 'card', 'phone'].indexOf(stream) >= 0;
+    var tool = ['trips', 'projects', 'investments', 'udhaar', 'wallet', 'bank', 'rules', 'monthly', 'insights', 'card', 'phone'].indexOf(stream) >= 0;
     if (heroEl) heroEl.hidden = tool;
     var stk = $('sticky-month-bar'); if (stk) stk.style.display = tool ? 'none' : '';
     if (backbar) {

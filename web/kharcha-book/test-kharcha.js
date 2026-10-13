@@ -320,6 +320,8 @@ assert(isInvestment({ desc: 'Reliance shares' }) === true, 'isInvestment identif
 assert(isInvestment({ desc: '🛒 Grocery' }) === false, 'isInvestment rejects grocery');
 assert(isInvestment({ desc: '💼 Salary 1' }) === false, 'isInvestment rejects salary');
 assert(isExpense({ desc: '📈 SIP Axis Bluechip' }) === false, 'isExpense excludes investments');
+assert(isExpense({ desc: '✈️ Goa Trip: Hotel' }) === false, 'isExpense excludes trip expenses');
+assert(isExpense({ desc: '✈️ Manali Trip: Airbnb' }) === false, 'isExpense excludes airbnb trip expense');
 assert(isIncome({ desc: '📈 SIP Axis Bluechip' }) === false, 'isIncome excludes investments');
 
 // Verify cash flow correctly isolates investments from personal spends

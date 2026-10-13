@@ -108,7 +108,7 @@
 
   function isTransferEntry(e) { return !!e && /^\s*\u{1F501}/u.test(e.desc || ''); }
   function isExpense(e) {
-    return !isIncome(e) && !isTransferEntry(e) && !isInvestment(e) && !isCashWithdrawal(e) && !isWalletTopup(e) && !(e && e.kind === 'transfer');
+    return !isIncome(e) && !isTransferEntry(e) && !isInvestment(e) && !isTripEntry(e) && !isCashWithdrawal(e) && !isWalletTopup(e) && !(e && e.kind === 'transfer');
   }
 
   /* ---------- Cash wallet ---------- */
@@ -406,7 +406,7 @@
     var filterName = (tripName || '').trim().toLowerCase();
     var allNamedTrips = getAllTrips().filter(function (t) { return t.toLowerCase() !== 'trip'; });
     var list = (monthEntries || []).filter(function (e) {
-      if (!isExpense(e) || !isTripEntry(e)) return false;
+      if (!isTripEntry(e) || isIncome(e) || isTransferEntry(e) || isInvestment(e)) return false;
       if (!filterName) return true;
       var entryTrip = extractTripNameFromDesc(e.desc).toLowerCase();
       if (entryTrip && entryTrip !== 'trip') {
@@ -2111,7 +2111,7 @@
     var projSummary = getProjectSummary(allMonthEntries);
     var curViewTrip = getSelectedViewTripName();
     var curViewFriends = curViewTrip ? getTripFriends(curViewTrip) : ['Me'];
-    var tripSummary = getTripSummary(allMonthEntries, curViewTrip, curViewFriends);
+    var tripSummary = getTripSummary(state.entries, curViewTrip, curViewFriends);
 
     renderCashFlow(cashFlow, settlement);
     renderStreamSwitcher(monthExpenses.length, monthIncomings.length, projSummary.entries.length, monthInvestments.length, tripSummary.entries.length);
@@ -2134,7 +2134,7 @@
     renderSettlementView(settlement);
     renderProjectView(projSummary);
     renderInvestmentsView(monthInvestments);
-    renderTripsView(tripSummary, allMonthEntries);
+    renderTripsView(tripSummary, state.entries);
 
     renderSync();
     try { document.dispatchEvent(new Event('kharcha:render')); } catch (e) {}
@@ -3529,6 +3529,12 @@
     if (stream === 'bank') renderBank();
     if (stream === 'wallet') renderWallet();
     if (stream === 'monthly') renderMonthly();
+
+    var heroEl = $('st-hero');
+    var isDedicatedStream = ['trips', 'projects', 'investments', 'udhaar', 'wallet', 'bank', 'rules', 'monthly', 'insights', 'card', 'phone'].indexOf(stream) >= 0;
+    if (heroEl) heroEl.hidden = isDedicatedStream;
+    var stk = $('sticky-month-bar');
+    if (stk) stk.style.display = isDedicatedStream ? 'none' : '';
 
     document.querySelectorAll('.streambtn').forEach(function (btn) {
       btn.classList.toggle('active', btn.dataset.stream === stream);
