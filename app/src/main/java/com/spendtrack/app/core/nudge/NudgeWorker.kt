@@ -23,6 +23,7 @@ class NudgeWorker(
 
         if (!transaction.needsReview || transaction.isExcluded) {
             // Already resolved (quick action, note reply, or handled in the Needs Review screen).
+            ExpensePromptNotifier.dismiss(applicationContext, transactionId)
             return Result.success()
         }
 
@@ -33,7 +34,8 @@ class NudgeWorker(
 
         SafeLogger.i("Re-prompting for uncategorized expense $transactionId (stage $stage)")
         val activeTrip = ServiceLocator.settingsManager.activeTripNameFlow.first()
-        ExpensePromptNotifier.show(applicationContext, transaction, activeTrip)
+        val knownTrips = ServiceLocator.transactionRepository.getAllKnownTrips()
+        ExpensePromptNotifier.show(applicationContext, transaction, activeTrip, alert = true, trips = knownTrips)
         NudgeScheduler.scheduleNext(applicationContext, transactionId, previousStage = stage)
 
         return Result.success()

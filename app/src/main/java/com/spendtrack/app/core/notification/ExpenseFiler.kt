@@ -15,22 +15,33 @@ import kotlinx.coroutines.flow.first
 object ExpenseFiler {
 
     suspend fun file(context: Context, transactionId: String, scope: String, tripName: String? = null, note: String? = null) {
+        // Stop the prompt notification and its scheduled reminders immediately
+        NudgeScheduler.cancel(context, transactionId)
+        ExpensePromptNotifier.dismiss(context, transactionId)
+
         val repo = ServiceLocator.transactionRepository
         if (!note.isNullOrBlank()) repo.resolveNeedsReview(transactionId = transactionId, note = note.trim())
         val duplicateIds = repo.resolveScope(transactionId = transactionId, scope = scope, tripName = tripName)
 
-        if (scope.equals(ExpenseScope.TRIP, ignoreCase = true) && !tripName.isNullOrBlank()) {
-            ServiceLocator.cloudSyncRepository.pushSharedSettings(ServiceLocator.settingsManager.addTrip(tripName))
-        }
-
-        NudgeScheduler.cancel(context, transactionId)
         duplicateIds.forEach { id ->
             NudgeScheduler.cancel(context, id)
             ExpensePromptNotifier.dismiss(context, id)
         }
 
-        repo.getTransactionById(transactionId)?.let { txn ->
-            ExpensePromptNotifier.showLogged(context, txn, ExpensePromptNotifier.scopeLabel(scope, tripName))
+        val updatedTxn = repo.getTransactionById(transactionId)
+        val effectiveTripName = tripName?.trim()?.takeIf { it.isNotBlank() } ?: run {
+            val d = updatedTxn?.description?.trim().orEmpty()
+            if (d.startsWith("✈")) d.removePrefix("✈️").removePrefix("✈").substringBefore(':').trim().takeIf { it.isNotBlank() && !it.equals("Trip", ignoreCase = true) }
+            else null
+        }
+
+        if (scope.equals(ExpenseScope.TRIP, ignoreCase = true) && !effectiveTripName.isNullOrBlank()) {
+            ServiceLocator.cloudSyncRepository.pushSharedSettings(ServiceLocator.settingsManager.addTrip(effectiveTripName))
+        }
+
+        if (updatedTxn != null) {
+            val finalLabel = ExpensePromptNotifier.labelForDescription(updatedTxn.description)
+            ExpensePromptNotifier.showLogged(context, updatedTxn, finalLabel)
         }
         runCatching { com.spendtrack.app.widget.KharchaWidget.refresh(context) }
         ServiceLocator.cloudSyncRepository.syncPending()

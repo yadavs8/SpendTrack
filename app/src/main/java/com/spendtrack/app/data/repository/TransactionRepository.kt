@@ -160,16 +160,21 @@ class TransactionRepository(
                 needsReview = false,
                 updatedAt = now
             )
-            knownPayee != null -> txn.copy(
-                description = ExpenseScope.describe(
-                    null, "${knownPayee.name} (${ExpenseScope.stripScope(txn.merchantName ?: txn.merchantVpa ?: "payee")})",
-                    true, knownPayee.scope
-                ),
-                categoryId = if (knownPayee.scope == "investment") "cat_financial" else txn.categoryId,
-                needsReview = false,
-                isEdited = true,
-                updatedAt = now
-            )
+            knownPayee != null -> {
+                val rawMerchant = ExpenseScope.stripScope(txn.merchantName ?: txn.merchantVpa ?: "payee")
+                val label = if (rawMerchant.contains(knownPayee.name, ignoreCase = true)) {
+                    rawMerchant
+                } else {
+                    "${knownPayee.name} ($rawMerchant)"
+                }
+                txn.copy(
+                    description = ExpenseScope.describe(null, label, true, knownPayee.scope),
+                    categoryId = if (knownPayee.scope == "investment") "cat_financial" else txn.categoryId,
+                    needsReview = false,
+                    isEdited = true,
+                    updatedAt = now
+                )
+            }
             ExpenseScope.isInvestment(txn.merchantName, txn.merchantVpa, raw) -> txn.copy(
                 description = ExpenseScope.describe(txn.merchantName, txn.description, txn.isEdited, ExpenseScope.INVESTMENT),
                 categoryId = "cat_financial",
@@ -440,6 +445,22 @@ class TransactionRepository(
         transactionDao.updateTransaction(updated)
     }
 
+    /** All known trip names from shared settings + any trips used in local transactions. */
+    suspend fun getAllKnownTrips(): List<String> {
+        val fromSettings = runCatching { settingsManager?.tripNamesFlow?.first() }.getOrNull().orEmpty()
+        val fromLocal = runCatching {
+            transactionDao.getLocalTripDescriptions().mapNotNull { desc ->
+                val trimmed = desc.trim()
+                if (!trimmed.startsWith("✈️")) return@mapNotNull null
+                val afterIcon = trimmed.removePrefix("✈️").trim()
+                val colonIdx = afterIcon.indexOf(':')
+                if (colonIdx <= 0) return@mapNotNull null
+                afterIcon.substring(0, colonIdx).trim().takeIf { it.isNotBlank() && !it.equals("Trip", ignoreCase = true) }
+            }
+        }.getOrNull().orEmpty()
+        return (fromSettings + fromLocal).distinct()
+    }
+
     /** Resolves the "Personal, Family, Investment, or Trip?" prompt for an auto-detected expense and remembers the merchant scope. */
     /** Returns the ids of duplicate copies that were resolved along with it (their prompts must be cleared too). */
     suspend fun resolveScope(
@@ -448,6 +469,23 @@ class TransactionRepository(
         tripName: String? = null
     ): List<String> {
         val transaction = transactionDao.getTransactionById(transactionId) ?: return emptyList()
+
+        // If filing to a trip and no explicit tripName was supplied, automatically pick the only trip if exactly 1 exists.
+        val resolvedTripName = if (scope.equals(ExpenseScope.TRIP, ignoreCase = true)) {
+            tripName?.trim()?.takeIf { it.isNotBlank() } ?: run {
+                val knownTrips = getAllKnownTrips()
+                if (knownTrips.size == 1) knownTrips.single()
+                else runCatching { settingsManager?.activeTripNameFlow?.first() }.getOrNull()
+            }
+        } else {
+            tripName
+        }
+
+        if (scope.equals(ExpenseScope.TRIP, ignoreCase = true) &&
+            !resolvedTripName.isNullOrBlank() &&
+            !resolvedTripName.equals("Trip", ignoreCase = true)) {
+            runCatching { settingsManager?.addTrip(resolvedTripName) }
+        }
 
         // Auto-learn / remember user's scope decision for this merchant so they are never asked again! (unless it's a temporary trip)
         val merchantKey = transaction.merchantName ?: transaction.merchantVpa
@@ -460,52 +498,100 @@ class TransactionRepository(
             merchantRuleRepository.saveScopeRule(merchantKey, scope)
         }
 
-        val updated = transaction.copy(
+        val (companionRefs, duplicateIds) = resolveCompanionDuplicates(transaction)
+        val mergedPrimary = transaction.copy(
+            upiReference = transaction.upiReference?.takeIf { it.isNotBlank() } ?: companionRefs.upiReference,
+            bankReference = transaction.bankReference?.takeIf { it.isNotBlank() } ?: companionRefs.bankReference,
+            accountLast4 = transaction.accountLast4?.takeIf { it.isNotBlank() } ?: companionRefs.accountLast4,
+            bankName = transaction.bankName?.takeIf { it.isNotBlank() } ?: companionRefs.bankName
+        )
+
+        val updated = mergedPrimary.copy(
             description = ExpenseScope.describe(
-                merchantName = transaction.merchantName,
-                description = transaction.description,
-                isEdited = transaction.isEdited,
+                merchantName = mergedPrimary.merchantName,
+                description = mergedPrimary.description,
+                isEdited = mergedPrimary.isEdited,
                 scope = scope,
-                tripName = tripName
+                tripName = resolvedTripName
             ),
             needsReview = false,
             isEdited = true,
-            syncedToCloud = keepSyncedFlagAfterEdit(transaction),
+            syncedToCloud = keepSyncedFlagAfterEdit(mergedPrimary),
             updatedAt = System.currentTimeMillis()
         )
         transactionDao.updateTransaction(updated)
 
-        // Copies of the same payment saved before the duplicate guard existed: resolve them too.
-        return resolveCompanionDuplicates(transaction)
+        return duplicateIds
     }
 
+    private data class CompanionRefInfo(
+        val upiReference: String? = null,
+        val bankReference: String? = null,
+        val accountLast4: String? = null,
+        val bankName: String? = null
+    )
+
     /**
-     * Unanswered copies of the same payment (same bank/UPI ref, or same merchant and amount minutes
-     * apart with no conflicting ref) are marked excluded so they never count twice or re-prompt.
-     * A different merchant with the same amount is a different payment and is left alone.
+     * Companion copies of the same payment (same bank/UPI ref, or same amount within 15 minutes
+     * with no conflicting ref or account) are marked excluded so they never count twice or re-prompt.
+     * Also harvests any UPI/bank reference from the companion (e.g. SMS) onto the primary (e.g. GPay).
      */
-    private suspend fun resolveCompanionDuplicates(primary: TransactionEntity): List<String> {
-        val window = 10 * 60 * 1000L
+    private suspend fun resolveCompanionDuplicates(primary: TransactionEntity): Pair<CompanionRefInfo, List<String>> {
+        val window = 15 * 60 * 1000L
+        val primaryRef = primary.upiReference?.takeIf { it.isNotBlank() }
+            ?: primary.bankReference?.takeIf { it.isNotBlank() }
         val companions = transactionDao.findPotentialDuplicates(
             amount = primary.amount,
             startWindow = primary.dateTime - window,
             endWindow = primary.dateTime + window,
-            upiRef = primary.upiReference
+            upiRef = primaryRef
         )
         val resolvedIds = mutableListOf<String>()
+        var harvestedUpiRef: String? = primary.upiReference?.takeIf { it.isNotBlank() }
+        var harvestedBankRef: String? = primary.bankReference?.takeIf { it.isNotBlank() }
+        var harvestedLast4: String? = primary.accountLast4?.takeIf { it.isNotBlank() }
+        var harvestedBank: String? = primary.bankName?.takeIf { it.isNotBlank() }
+
         for (c in companions) {
-            if (c.id == primary.id || !c.needsReview) continue
-            val sameRef = !primary.upiReference.isNullOrBlank() && c.upiReference == primary.upiReference
-            val conflictingRef = !primary.upiReference.isNullOrBlank() && !c.upiReference.isNullOrBlank() &&
-                    c.upiReference != primary.upiReference
-            val sameMerchant = !c.merchantName.isNullOrBlank() && c.merchantName.equals(primary.merchantName, ignoreCase = true)
-            if (conflictingRef || !(sameRef || sameMerchant)) continue
+            if (c.id == primary.id || c.isDemo) continue
+            if (c.transactionType != primary.transactionType) continue
+            val cRef = c.upiReference?.takeIf { it.isNotBlank() }
+                ?: c.bankReference?.takeIf { it.isNotBlank() }
+            val sameRef = !primaryRef.isNullOrBlank() && cRef == primaryRef
+            val conflictingRef = !primaryRef.isNullOrBlank() && !cRef.isNullOrBlank() && cRef != primaryRef
+            val conflictingAccount = !primary.accountLast4.isNullOrBlank() && !c.accountLast4.isNullOrBlank() &&
+                    c.accountLast4 != primary.accountLast4
+            if (conflictingRef || conflictingAccount) continue
+
+            val sameMerchant = !c.merchantName.isNullOrBlank() && !primary.merchantName.isNullOrBlank() && (
+                c.merchantName.equals(primary.merchantName, ignoreCase = true) ||
+                c.merchantName.contains(primary.merchantName, ignoreCase = true) ||
+                primary.merchantName.contains(c.merchantName, ignoreCase = true)
+            )
+            val complementarySource = c.source != primary.source || c.sourcePackage != primary.sourcePackage
+            // Only merge companions that are un-answered OR un-edited (auto-ingested copy of the same payment)
+            if (!c.needsReview && c.isEdited && !sameRef) continue
+            if (!(sameRef || sameMerchant || complementarySource)) continue
+
+            if (harvestedUpiRef == null) harvestedUpiRef = c.upiReference?.takeIf { it.isNotBlank() }
+            if (harvestedBankRef == null) harvestedBankRef = c.bankReference?.takeIf { it.isNotBlank() }
+            if (harvestedLast4 == null) harvestedLast4 = c.accountLast4?.takeIf { it.isNotBlank() }
+            if (harvestedBank == null) harvestedBank = c.bankName?.takeIf { it.isNotBlank() }
+
+            val mergedRef = harvestedUpiRef ?: harvestedBankRef
+            val shouldDeleteFromCloud = c.syncedToCloud && (cRef.isNullOrBlank() || cRef != mergedRef)
             transactionDao.updateTransaction(
-                c.copy(needsReview = false, isExcluded = true, updatedAt = System.currentTimeMillis())
+                c.copy(
+                    needsReview = false,
+                    isExcluded = true,
+                    needsCloudDelete = c.needsCloudDelete || shouldDeleteFromCloud,
+                    syncedToCloud = if (shouldDeleteFromCloud) false else c.syncedToCloud,
+                    updatedAt = System.currentTimeMillis()
+                )
             )
             resolvedIds += c.id
         }
-        return resolvedIds
+        return CompanionRefInfo(harvestedUpiRef, harvestedBankRef, harvestedLast4, harvestedBank) to resolvedIds
     }
 
     /**

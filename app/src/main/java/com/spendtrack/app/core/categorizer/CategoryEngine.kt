@@ -15,7 +15,7 @@ class CategoryEngine(
             "diner", "burger", "pizza", "bakery", "mcdonald", "kfc", "domino",
             "starbucks", "bar", "brewery", "kitchen", "biryani", "food", "sweets",
             "zepto", "blinkit", "instamart", "bigbasket", "grofers", "supermarket",
-            "grocery", "bakes", "dhaba", "canteen"
+            "grocery", "kirana", "bakes", "dhaba", "canteen"
         ),
         "cat_transport" to listOf(
             "uber", "ola", "rapido", "auto", "taxi", "fuel", "petrol", "diesel",

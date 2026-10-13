@@ -54,7 +54,7 @@ object KharchaRules {
         val d = desc?.lowercase() ?: return false
         if (isProjectEntry(d) && (d.contains("👵") || d.contains("mother"))) return false
         if (isProjectEntry(d)) return true
-        return d.contains("🏠") || d.contains("family") || d.contains("niece") || d.contains("electricity") || d.contains("gas") || d.contains("bill")
+        return d.contains("🏠") || d.contains("family") || d.contains("niece") || d.contains("electricity") || d.contains("gas") || d.contains("bill") || d.contains("lavish kirana")
     }
 
     /** The category name Kharcha Book shows (and keys category budgets by). */
@@ -64,7 +64,7 @@ object KharchaRules {
         fun has(vararg w: String) = w.any { l.contains(it) }
         return when {
             clean.startsWith("💵 Unaccounted cash") -> "💵 Unaccounted cash"
-            clean.contains("🛒") || has("grocery", "supermarket", "dmart", "zepto", "blinkit", "instamart", "bigbasket") -> "🛒 Grocery"
+            clean.contains("🛒") || has("grocery", "supermarket", "dmart", "zepto", "blinkit", "instamart", "bigbasket", "kirana") -> "🛒 Grocery"
             clean.contains("🥦") || has("vegetable", "sabzi", "fruits") -> "🥦 Vegetables"
             clean.contains("🥛") || has("milk", "doodh", "dairy", "paneer", "curd") -> "🥛 Milk & Dairy"
             clean.contains("⚡") || has("electricity", "power", "bescom", "light bill") -> "⚡ Electricity Bill"

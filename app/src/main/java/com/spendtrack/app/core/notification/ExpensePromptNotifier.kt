@@ -12,6 +12,7 @@ import androidx.core.app.RemoteInput
 import com.spendtrack.app.data.database.entity.TransactionEntity
 import com.spendtrack.app.service.QuickActionReceiver
 import com.spendtrack.app.ui.log.LogExpenseActivity
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -27,11 +28,13 @@ import java.util.Locale
 object ExpensePromptNotifier {
 
     const val CHANNEL_ID = "spendtrack_review_channel"
+    const val LOGGED_CHANNEL_ID = "spendtrack_logged_channel"
     const val EXTRA_TRANSACTION_ID = "transaction_id"
     const val EXTRA_CATEGORY_ID = "category_id"
     const val EXTRA_CATEGORY_NAME = "category_name"
     const val EXTRA_SCOPE = "expense_scope"
     const val EXTRA_TRIP_NAME = "trip_name"
+    const val EXTRA_TRIP_ONLY = "trip_only"
     const val EXTRA_NOTIFICATION_ID = "notification_id"
     const val REMOTE_INPUT_KEY = "note_reply"
     private const val SYNC_PROBLEM_ID = 0x5C0FF
@@ -74,17 +77,28 @@ object ExpensePromptNotifier {
     }
 
     /**
-     * Shows (or re-shows, for a reminder) the prompt. [alert] = false updates it silently, so a
-     * duplicate copy of the same payment never makes the phone ring twice.
+     * Shows (or re-shows, for a reminder) the prompt asking: Personal, Family, or Trips?
+     * When clicking Trips:
+     * - If exactly 1 trip exists, saves directly to that single trip in one tap.
+     * - If multiple trips exist (or 0 trips exist yet), opens the Trip Picker sheet to choose which trip.
      */
-    fun show(context: Context, transaction: TransactionEntity, activeTripName: String? = null, alert: Boolean = true) {
+    fun show(
+        context: Context,
+        transaction: TransactionEntity,
+        activeTripName: String? = null,
+        alert: Boolean = true,
+        trips: List<String> = emptyList()
+    ) {
         ensureChannel(context)
 
         val notificationId = notificationIdFor(transaction.id)
         val merchant = transaction.merchantName?.takeIf { it.isNotBlank() }
         val title = if (merchant != null) "${amountLabel(transaction.amount)} at $merchant" else "${amountLabel(transaction.amount)} spent"
-        val trip = activeTripName?.takeIf { it.isNotBlank() }
-        val question = if (trip != null) "Trip expense, or something else?" else "Where should this go?"
+        val knownTrips = (
+            listOfNotNull(activeTripName?.trim()?.takeIf { it.isNotBlank() }) +
+                trips.mapNotNull { it.trim().takeIf { t -> t.isNotBlank() } }
+            ).distinct()
+        val question = "Where should this go? Personal, Family, or Trips?"
         val text = "${whenLabel(transaction.dateTime)} · $question"
 
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
@@ -92,7 +106,7 @@ object ExpensePromptNotifier {
             .setColor(0xFF0B5D75.toInt())
             .setContentTitle(title)
             .setContentText(text)
-            .setContentIntent(pickerIntent(context, transaction.id, notificationId))
+            .setContentIntent(pickerIntent(context, transaction.id, notificationId, tripOnly = false))
             .setDeleteIntent(dismissIntent(context, transaction.id, notificationId))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
@@ -100,14 +114,14 @@ object ExpensePromptNotifier {
             .setOnlyAlertOnce(!alert)
             .setSilent(!alert)
 
-        if (trip != null) {
-            builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_TRIP, "✈️ $trip", trip))
-            builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_PERSONAL, "👤 Personal"))
+        // Always show the 3 core destinations: Personal, Family, Trips
+        builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_PERSONAL, "👤 Personal"))
+        builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_FAMILY, "🏠 Family"))
+        if (knownTrips.size == 1) {
+            builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_TRIP, "✈️ Trips", knownTrips.single()))
         } else {
-            builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_PERSONAL, "👤 Personal"))
-            builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_FAMILY, "🏠 Family"))
+            builder.addAction(tripPickerAction(context, transaction.id, notificationId, "✈️ Trips"))
         }
-        builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_TRANSFER, "↔ Own transfer"))
 
         NotificationManagerCompat.from(context).notify(notificationId, builder.build())
     }
@@ -123,15 +137,16 @@ object ExpensePromptNotifier {
         val what = transaction.description?.takeIf { it.isNotBlank() }?.let { stripLabelPrefix(it) }
             ?: transaction.merchantName?.takeIf { it.isNotBlank() }
         val notificationId = notificationIdFor(transaction.id)
-        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(context, LOGGED_CHANNEL_ID)
             .setSmallIcon(com.spendtrack.app.R.drawable.ic_notification)
             .setColor(0xFF0B5D75.toInt())
             .setContentTitle("🤖 Auto-logged under $label")
             .setContentText("${amountLabel(transaction.amount)}${if (what != null) " · $what" else ""} · ${whenLabel(transaction.dateTime)}")
-            .setContentIntent(pickerIntent(context, transaction.id, notificationId))
+            .setContentIntent(pickerIntent(context, transaction.id, notificationId, tripOnly = false))
             .setOnlyAlertOnce(true)
             .setSilent(true)
             .setAutoCancel(true)
+            .setTimeoutAfter(4000)
             .setPriority(NotificationCompat.PRIORITY_LOW)
         NotificationManagerCompat.from(context).notify(notificationId, builder.build())
     }
@@ -143,22 +158,31 @@ object ExpensePromptNotifier {
      * Call after a new payment was ingested: asks if it still needs an answer, otherwise announces
      * where it was filed. Nothing for transfers, income, refunds and cash withdrawals.
      */
-    fun announce(context: Context, txn: TransactionEntity, activeTripName: String?) {
+    fun announce(
+        context: Context,
+        txn: TransactionEntity,
+        activeTripName: String?,
+        trips: List<String> = emptyList()
+    ) {
         if (txn.isExcluded || txn.transactionType != com.spendtrack.app.core.model.TransactionType.EXPENSE) return
         if (txn.needsReview) {
-            show(context, txn, activeTripName)
+            show(context, txn, activeTripName, alert = true, trips = trips)
             com.spendtrack.app.core.nudge.NudgeScheduler.scheduleFirst(context, txn.id)
         } else if (txn.isEdited) {
             showAutoLogged(context, txn)
         }
     }
 
-    /** Replaces the prompt with a silent confirmation that disappears on its own. */
+    /** Dismisses the active prompt immediately and shows a brief silent confirmation that auto-clears. */
     fun showLogged(context: Context, transaction: TransactionEntity, label: String) {
         ensureChannel(context)
+        val notificationId = notificationIdFor(transaction.id)
+        // Cancel the high-priority prompt first so its action buttons and ongoing state stop immediately.
+        NotificationManagerCompat.from(context).cancel(notificationId)
+
         val merchant = transaction.merchantName?.takeIf { it.isNotBlank() }
         val what = if (merchant != null) "${amountLabel(transaction.amount)} at $merchant" else amountLabel(transaction.amount)
-        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(context, LOGGED_CHANNEL_ID)
             .setSmallIcon(com.spendtrack.app.R.drawable.ic_notification)
             .setColor(0xFF0B5D75.toInt())
             .setContentTitle("✅ Logged as $label")
@@ -166,9 +190,15 @@ object ExpensePromptNotifier {
             .setOnlyAlertOnce(true)
             .setSilent(true)
             .setAutoCancel(true)
-            .setTimeoutAfter(4000)
+            .setTimeoutAfter(2500)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-        NotificationManagerCompat.from(context).notify(notificationIdFor(transaction.id), builder.build())
+        NotificationManagerCompat.from(context).notify(notificationId, builder.build())
+
+        val appCtx = context.applicationContext
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+            kotlinx.coroutines.delay(2500)
+            runCatching { NotificationManagerCompat.from(appCtx).cancel(notificationId) }
+        }
     }
 
     /**
@@ -202,16 +232,34 @@ object ExpensePromptNotifier {
         NotificationManagerCompat.from(context).cancel(notificationIdFor(transactionId))
     }
 
-    private fun pickerIntent(context: Context, transactionId: String, notificationId: Int): PendingIntent =
+    private fun pickerIntent(
+        context: Context,
+        transactionId: String,
+        notificationId: Int,
+        tripOnly: Boolean = false
+    ): PendingIntent =
         PendingIntent.getActivity(
             context,
-            notificationId,
+            if (tripOnly) (transactionId + "_trip_picker").hashCode() else notificationId,
             Intent(context, LogExpenseActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
                 putExtra(EXTRA_TRANSACTION_ID, transactionId)
+                putExtra(EXTRA_TRIP_ONLY, tripOnly)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+
+    private fun tripPickerAction(
+        context: Context,
+        transactionId: String,
+        notificationId: Int,
+        label: String
+    ): NotificationCompat.Action =
+        NotificationCompat.Action.Builder(
+            0,
+            label,
+            pickerIntent(context, transactionId, notificationId, tripOnly = true)
+        ).build()
 
     private fun dismissIntent(context: Context, transactionId: String, notificationId: Int): PendingIntent =
         PendingIntent.getBroadcast(
@@ -279,7 +327,17 @@ object ExpensePromptNotifier {
             ).apply {
                 description = "Asks where an auto-detected expense belongs, and reminds you until you answer."
             }
+            val loggedChannel = NotificationChannel(
+                LOGGED_CHANNEL_ID,
+                "Logged Expense Confirmation",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Brief silent confirmation when an expense is logged."
+                setSound(null, null)
+                enableVibration(false)
+            }
             manager.createNotificationChannel(channel)
+            manager.createNotificationChannel(loggedChannel)
         }
     }
 }

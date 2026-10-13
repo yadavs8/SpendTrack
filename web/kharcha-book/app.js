@@ -176,7 +176,7 @@
     if (isProjectMotherPaid(d)) return false;
     // If it's a project entry paid by User, it IS included in family settlement reimbursement!
     if (isProjectEntry(d)) return true;
-    return d.includes('🏠') || d.includes('family') || d.includes('niece') || d.includes('electricity') || d.includes('gas') || d.includes('bill');
+    return d.includes('🏠') || d.includes('family') || d.includes('niece') || d.includes('electricity') || d.includes('gas') || d.includes('bill') || d.includes('lavish kirana');
   }
 
   function getEntryScope(e) {
@@ -292,7 +292,7 @@
   // A UPI "pay me" link the other person taps on their phone; amount and note come pre-filled.
   function upiPayLink(vpa, name, amount, note) {
     return 'upi://pay?pa=' + encodeURIComponent(vpa) + '&pn=' + encodeURIComponent(name || 'Kharcha Book') +
-      '&am=' + Number(amount).toFixed(2) + '&cu=INR&tn=' + encodeURIComponent(note || 'Settle up');
+      '&am=' + Number(amount).toFixed(2) + '&cu=' + 'INR&tn=' + encodeURIComponent(note || 'Settle up');
   }
   // WhatsApp does not linkify upi:// everywhere, so the UPI ID and amount are spelled out too.
   function settleMessage(toName, amount, reason, myVpa) {
@@ -359,6 +359,7 @@
   }
   function rememberMerchantScope(desc, scope) {
     if (!desc || !scope) return;
+    if (/lavish\s+kirana/i.test(desc)) scope = 'family';
     var core = extractMerchantCore(desc);
     if (!core || core.length < 2) return;
     var map = merchantScopeMap();
@@ -367,6 +368,7 @@
   }
   function predictMerchantScope(desc) {
     if (!desc) return null;
+    if (/lavish\s+kirana/i.test(desc)) return 'family';
     var core = extractMerchantCore(desc);
     if (!core) return null;
     var map = merchantScopeMap();
@@ -394,11 +396,25 @@
     return 'Me';
   }
 
+  function extractTripNameFromDesc(desc) {
+    if (!desc) return '';
+    var m = String(desc).match(/^[✈\u{2708}\u{FE0F}\u{1F6EB}\u{1F6EC}]+\s*([^:\[]+):/u);
+    return m && m[1] ? m[1].trim() : '';
+  }
+
   function getTripSummary(monthEntries, tripName, explicitFriends) {
     var filterName = (tripName || '').trim().toLowerCase();
+    var allNamedTrips = getAllTrips().filter(function (t) { return t.toLowerCase() !== 'trip'; });
     var list = (monthEntries || []).filter(function (e) {
       if (!isExpense(e) || !isTripEntry(e)) return false;
       if (!filterName) return true;
+      var entryTrip = extractTripNameFromDesc(e.desc).toLowerCase();
+      if (entryTrip && entryTrip !== 'trip') {
+        return entryTrip === filterName;
+      }
+      if (entryTrip === 'trip' && allNamedTrips.length <= 1) {
+        return true;
+      }
       var d = (e.desc || '').toLowerCase();
       return d.includes(filterName);
     });
@@ -475,7 +491,7 @@
   function getPersonalCashFlow(monthEntries) {
     var list = monthEntries || [];
     var salaries = list.filter(function (e) { return isSalary(e); }).reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
-    var personalExpenses = list.filter(function (e) { return isExpense(e) && !isFamilyEntry(e.desc); });
+    var personalExpenses = list.filter(function (e) { return isExpense(e) && !isFamilyEntry(e.desc) && !isTripEntry(e); });
     // ATM cash not yet itemised is still money spent (see isCashWithdrawal).
     var personalSpent = (personalExpenses.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) + paise(cashSummary(list).unaccounted)) / 100;
     var investments = list.filter(isInvestment);
@@ -1056,7 +1072,7 @@
 
   var CATEGORY_RULES = [
     { re: /swiggy|zomato|\beats\b|\bfood\b|restaurant|\bcafe\b|domino|pizza/i, emoji: '🍔', label: function (p) { return 'Food & Dining (' + p + ')'; }, scope: 'personal' },
-    { re: /zepto|blinkit|instamart|grocery|dmart|supermarket|bigbasket|bazaar/i, emoji: '🛒', label: function (p) { return 'General Grocery (' + p + ')'; }, scope: 'family' },
+    { re: /zepto|blinkit|instamart|grocery|dmart|supermarket|bigbasket|bazaar|kirana/i, emoji: '🛒', label: function (p) { return 'General Grocery (' + p + ')'; }, scope: 'family' },
     { re: /electricity|bescom|tata power|torrent power|light bill/i, emoji: '⚡', label: function () { return 'Electricity Bill'; }, scope: 'family' },
     { re: /\bgas\b|indane|bharat ?gas|cylinder/i, emoji: '🔥', label: function () { return 'Gas Bill'; }, scope: 'family' },
     { re: /airtel|\bjio\b|\bvi\b|vodafone|wifi|broadband|recharge/i, emoji: '📱', label: function () { return 'Mobile & WiFi'; }, scope: 'personal' },
@@ -1178,7 +1194,7 @@
 
       var lower = clean.toLowerCase();
       if (clean.indexOf('💵 Unaccounted cash') === 0) categoryName = '💵 Unaccounted cash';
-      else if (clean.includes('🛒') || lower.includes('grocery') || lower.includes('supermarket') || lower.includes('dmart') || lower.includes('zepto') || lower.includes('blinkit') || lower.includes('instamart') || lower.includes('bigbasket')) categoryName = '🛒 Grocery';
+      else if (clean.includes('🛒') || lower.includes('grocery') || lower.includes('supermarket') || lower.includes('dmart') || lower.includes('zepto') || lower.includes('blinkit') || lower.includes('instamart') || lower.includes('bigbasket') || lower.includes('kirana')) categoryName = '🛒 Grocery';
       else if (clean.includes('🥦') || lower.includes('vegetable') || lower.includes('sabzi') || lower.includes('fruits')) categoryName = '🥦 Vegetables';
       else if (clean.includes('🥛') || lower.includes('milk') || lower.includes('doodh') || lower.includes('dairy') || lower.includes('paneer') || lower.includes('curd')) categoryName = '🥛 Milk & Dairy';
       else if (clean.includes('⚡') || lower.includes('electricity') || lower.includes('power') || lower.includes('bescom') || lower.includes('light bill')) categoryName = '⚡ Electricity Bill';
@@ -1913,9 +1929,9 @@
   }
 
   /* ---------- render ---------- */
-  // Expenses of one month after the scope tab and search box are applied.
+  // Expenses of one month after the scope tab and search box are applied (excludes Trip entries, which live exclusively in Trips).
   function visibleEntries(key) {
-    var list = state.entries.filter(function (e) { return monthKey(e.ts) === key && isExpense(e); });
+    var list = state.entries.filter(function (e) { return monthKey(e.ts) === key && isExpense(e) && !isTripEntry(e); });
     if (state.scopeFilter === 'personal') {
       list = list.filter(function (e) { return !isFamilyEntry(e.desc); });
     } else if (state.scopeFilter === 'family') {
@@ -2077,7 +2093,7 @@
 
     // Cash Flow & Streams calculation for state.sel month
     var allMonthEntries = state.entries.filter(function (e) { return monthKey(e.ts) === state.sel; });
-    var monthExpenses = allMonthEntries.filter(isExpense);
+    var monthExpenses = allMonthEntries.filter(function (e) { return isExpense(e) && !isTripEntry(e); });
     var monthIncomings = allMonthEntries.filter(isIncome);
     var monthInvestments = allMonthEntries.filter(isInvestment);
     var settlement = getFamilySettlement(allMonthEntries);
@@ -2837,17 +2853,29 @@
   function scopeWord(entryDesc) { return /^\s*[🏠👤📈✈🔨💼👵💰👛]/u.test(entryDesc || ''); }
   function ordinal(n) { var s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
 
-  // Recognises payees by name ("Jagroop Shoshri Chand" is the milk vendor) and files them once, keeping the original name.
+  // Recognises payees by name ("Jagroop Shoshri Chand" is the milk vendor; "Lavish Kirana Store" is always Family) and files them once.
   async function applyRulesToEntries() {
     var KL = window.KharchaLedger;
     if (!KL || !state.entries.length) return;
     var rules = loadRules(), since = Date.now() - 120 * 86400000, done = {}, n = 0;
     for (var i = 0; i < state.entries.length && n < 40; i++) {
       var e = state.entries[i];
-      if (!e || e.synthetic || e.ts < since || !isExpense(e) || scopeWord(e.desc)) continue;
+      if (!e || e.synthetic || !isExpense(e) || isTripEntry(e)) continue;
+      var dLower = String(e.desc || '').toLowerCase();
+      // All Lavish Kirana Store expenses must live in Family; move any Personal / untagged ones to Family
+      if (dLower.indexOf('lavish kirana') >= 0 && !/^\s*🏠/u.test(e.desc || '')) {
+        var kiranaDesc = shiftScopeDesc(e.desc, 'family');
+        if (kiranaDesc !== e.desc) {
+          try { await store.update(e.id, { amount: e.amount, desc: kiranaDesc, spent_at: new Date(e.ts).toISOString() }); n++; done['Lavish Kirana Store'] = (done['Lavish Kirana Store'] || 0) + 1; } catch (err) { break; }
+        }
+        continue;
+      }
+      if (e.ts < since || scopeWord(e.desc)) continue;
       var r = KL.matchRule(e.desc, rules, { amount: e.amount, ts: e.ts });
-      if (!r || String(e.desc).toLowerCase().indexOf(r.name.toLowerCase()) >= 0) continue;
-      var nd = shiftScopeDesc(r.name + ' (' + String(e.desc).replace(/\s+/g, ' ').trim() + ')', r.scope);
+      if (!r) continue;
+      var hasRuleName = dLower.indexOf(r.name.toLowerCase()) >= 0;
+      var nd = shiftScopeDesc(hasRuleName ? String(e.desc).replace(/\s+/g, ' ').trim() : (r.name + ' (' + String(e.desc).replace(/\s+/g, ' ').trim() + ')'), r.scope);
+      if (nd === e.desc) continue;
       try { await store.update(e.id, { amount: e.amount, desc: nd, spent_at: new Date(e.ts).toISOString() }); n++; done[r.name] = (done[r.name] || 0) + 1; } catch (err) { break; }
     }
     if (n) toast('Recognised ' + Object.keys(done).join(', '));
@@ -4100,27 +4128,37 @@
     (state.entries || []).forEach(function (e) {
       if (e && e.desc) {
         var m = e.desc.match(/^[✈\u{2708}\u{FE0F}\u{1F6EB}\u{1F6EC}]+\s*([^:\[]+):/u);
-        if (m && m[1] && m[1].trim()) tripSet.add(m[1].trim());
+        if (m && m[1] && m[1].trim() && m[1].trim().toLowerCase() !== 'trip') {
+          tripSet.add(m[1].trim());
+        }
       }
     });
     // 2. Add from local storage saved trips
     try {
       var saved = JSON.parse(kv.get(ALL_TRIPS_KEY)) || [];
-      saved.forEach(function (t) { if (t && t.trim()) tripSet.add(t.trim()); });
+      saved.forEach(function (t) {
+        if (t && t.trim() && t.trim().toLowerCase() !== 'trip') tripSet.add(t.trim());
+      });
     } catch (e) {}
     // 3. Active trip if set
     var active = getActiveTripName();
-    if (active) tripSet.add(active);
+    if (active && active.toLowerCase() !== 'trip') tripSet.add(active);
 
     return Array.from(tripSet);
   }
 
   function saveTripToList(name) {
-    if (!name || !name.trim()) return;
+    if (!name || !name.trim() || name.trim().toLowerCase() === 'trip') return;
+    var clean = name.trim();
     var trips = getAllTrips();
-    if (!trips.includes(name.trim())) {
-      trips.push(name.trim());
-      try { kv.set(ALL_TRIPS_KEY, JSON.stringify(trips)); } catch (e) {}
+    if (!trips.includes(clean)) trips.push(clean);
+    try {
+      var saved = JSON.parse(kv.get(ALL_TRIPS_KEY) || '[]');
+      if (!Array.isArray(saved) || trips.length !== saved.length || !saved.includes(clean)) {
+        kv.set(ALL_TRIPS_KEY, JSON.stringify(trips));
+      }
+    } catch (e) {
+      try { kv.set(ALL_TRIPS_KEY, JSON.stringify(trips)); } catch (e2) {}
     }
   }
 
@@ -5466,6 +5504,7 @@
 
     var scope = getSelectedScope();
     var cleanDesc = rawDesc.replace(/^[🏠👤]\s*/, '');
+    if (/lavish\s+kirana/i.test(cleanDesc) && scope === 'personal') scope = 'family';
     var desc;
     if (scope === 'trip') {
       var tripName = ($('trip-pick') && $('trip-pick').value || '').trim();
@@ -5586,6 +5625,7 @@
       // Pick up trips/budgets changed on the phone -- unless a local change is still waiting to save.
       if (!kv.timer) await kv.load();
       render();
+      applyRulesToEntries().then(function () { render(); }).catch(function () {});
       tidyUp();
     } catch (e) {
       console.warn('Kharcha: background refresh failed', e);

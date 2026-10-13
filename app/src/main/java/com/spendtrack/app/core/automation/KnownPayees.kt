@@ -27,6 +27,7 @@ object KnownPayees {
         Rule("r-emi", "Flat EMI", listOf("emi", "flat emi", "home loan"), 5, 0.0, 0.0, false, "personal"),
         Rule("r-niece", "Niece allowance", listOf("priyanka mehta", "priyanka", "bhabi"), 1, 5000.0, 0.0, false, "family"),
         Rule("r-milk", "Milk vendor", listOf("jagroop", "shoshri chand"), 1, 0.0, 0.0, false, "family"),
+        Rule("r-kirana", "Lavish Kirana Store", listOf("lavish kirana", "lavish kirana store"), 0, 0.0, 0.0, false, "family"),
         Rule("r-lic", "LIC premium", listOf("lic", "lic of india", "life insurance corporation"), 22, 5000.0, 0.0, true, "investment"),
         Rule("r-insurance", "Insurance premium", listOf("insurance premium", "life insurance", "health insurance", "hdfc life", "icici pru", "max life", "star health", "bajaj allianz", "tata aia", "sbi life"), 16, 0.0, 2000.0, true, "personal")
     )

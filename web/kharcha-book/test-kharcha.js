@@ -385,6 +385,8 @@ assert(goaSummary.totalSpent === 9200, 'getTripSummary sums Goa trip spent: 4500
 assert(goaSummary.itemsCount === 3, 'getTripSummary counts 3 trip items (excludes grocery)');
 assert(goaSummary.daysCount === 2, 'getTripSummary counts 2 unique trip days');
 assert(goaSummary.dailyAvg === 4600, 'getTripSummary calculates daily average: 9200 / 2 = 4600');
+const tripCashFlow = getPersonalCashFlow(tripEntries);
+assert(tripCashFlow.personalSpent === 500, 'getPersonalCashFlow excludes trip expenses (9200) and only counts personal grocery (500)');
 
 // 18. Continuous Merchant Scope Memory Tests
 rememberMerchantScope('Swiggy Instamart Order', 'family');
@@ -393,6 +395,10 @@ assert(predictMerchantScope('Swiggy food delivery') === 'family', 'predictMercha
 rememberMerchantScope('Zerodha Broking Ltd', 'investment');
 assert(predictMerchantScope('Zerodha Broking Ltd') === 'investment', 'predictMerchantScope matches investment merchant');
 assert(predictMerchantScope('Random New Shop') === null, 'predictMerchantScope returns null for unknown merchant');
+assert(isFamilyEntry('Lavish Kirana Store') === true, 'isFamilyEntry treats Lavish Kirana Store as Family');
+assert(isFamilyEntry('👤 Lavish Kirana Store') === true, 'isFamilyEntry treats Personal-tagged Lavish Kirana Store as Family');
+assert(getEntryScope({ desc: 'Lavish Kirana Store' }) === 'family', 'getEntryScope returns family for Lavish Kirana Store');
+assert(predictMerchantScope('Lavish Kirana Store') === 'family', 'predictMerchantScope returns family for Lavish Kirana Store');
 
 // 19. Trip Friend Split & Balance Tests
 const tripSplitEntries = [
