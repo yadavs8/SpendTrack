@@ -44,8 +44,9 @@ create table if not exists public.trip_expenses (
   split_among   jsonb -- names this one expense is divided between; null = everyone on the trip
 );
 
--- Already-run v1 installs: adds the column that v1 didn't have yet. Safe to run again.
+-- Already-run v1 installs: adds columns that earlier schemas didn't have yet. Safe to run again.
 alter table public.trip_expenses add column if not exists split_among jsonb;
+alter table public.trips add column if not exists allow_guest_adds boolean not null default true;
 
 create index if not exists trip_expenses_trip_idx on public.trip_expenses (trip_id, spent_at desc);
 create index if not exists trip_members_trip_idx on public.trip_members (trip_id);
