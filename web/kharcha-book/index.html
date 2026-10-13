@@ -643,6 +643,15 @@
           <!-- Dynamic payer radio pills (Me, Friend 1, Friend 2...) rendered here -->
         </div>
       </div>
+      <div class="scope-picker" style="margin-top:8px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; width:100%; margin-bottom:4px;">
+          <span class="scope-label">Split Among:</span>
+          <span id="trip-split-summary" style="font-size:0.78rem; color:var(--muted); font-weight:600;">Everyone (equal)</span>
+        </div>
+        <div class="trip-split-chips" id="trip-split-chips" style="display:flex; flex-wrap:wrap; gap:6px;">
+          <!-- Dynamic multi-select split chips (Everyone, Me, Friend 1, Friend 2...) rendered here -->
+        </div>
+      </div>
       <div class="trip-quick-cats" id="trip-quick-cats">
         <button type="button" class="trip-quick-cat-btn" data-cat="stay" data-prefix="🏨 Stay: ">🏨 Stay</button>
         <button type="button" class="trip-quick-cat-btn" data-cat="fuel" data-prefix="⛽ Fuel: ">⛽ Fuel</button>

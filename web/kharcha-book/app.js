@@ -4254,8 +4254,14 @@
     return raw || 'Me';
   }
 
-  function tripShareLink(token) {
-    return location.origin + location.pathname.replace(/[^/]*$/, '') + 'trip.html?t=' + encodeURIComponent(token);
+  function tripShareLink(token, tripName) {
+    var base = location.origin + location.pathname.replace(/[^/]*$/, '') + 'trip.html?t=' + encodeURIComponent(token);
+    var friends = tripName ? getTripFriends(tripName) : [];
+    if (friends.length) {
+      var guestFriends = friends.map(function (f) { return f === 'Me' ? myDisplayName() : f; });
+      base += '&f=' + encodeURIComponent(guestFriends.join(','));
+    }
+    return base;
   }
 
   /** Looks up (and caches) this trip's row from Supabase, creating it if it never had one. */
@@ -4490,6 +4496,7 @@
   }
 
   var selectedTripPayer = 'Me';
+  var selectedTripSplit = null; // null = Everyone (all tripFriends)
 
   function getTripViewMode() {
     return localStorage.getItem('kharcha_trip_view_mode') || 'category';
@@ -4875,6 +4882,87 @@
       });
     }
 
+    // Render Split Among dynamic multi-select pills in Add Form
+    var splitChips = $('trip-split-chips');
+    var splitSummary = $('trip-split-summary');
+
+    function updateTripSplitSummaryText() {
+      if (!splitSummary) return;
+      var amtInput = $('trip-exp-amt');
+      var amt = parseAmount(amtInput ? amtInput.value : 0) || 0;
+      var totalCount = tripFriends.length;
+      var selectedList = (Array.isArray(selectedTripSplit) && selectedTripSplit.length) ? selectedTripSplit : tripFriends;
+      var count = selectedList.length;
+
+      if (!selectedTripSplit || selectedTripSplit.length === totalCount) {
+        var txt = 'Everyone (' + totalCount + (totalCount === 1 ? ' person' : ' people') + ')';
+        if (amt > 0 && totalCount > 0) {
+          txt += ' · ' + money(Math.round(amt / totalCount)) + ' each';
+        }
+        splitSummary.textContent = txt;
+      } else {
+        var names = selectedList.map(function (f) { return f === 'Me' ? 'Me' : f; }).join(', ');
+        var txt = count + ' of ' + totalCount + ' (' + names + ')';
+        if (amt > 0 && count > 0) {
+          txt += ' · ' + money(Math.round(amt / count)) + ' each';
+        }
+        splitSummary.textContent = txt;
+      }
+    }
+
+    function renderTripSplitUi() {
+      if (!splitChips) return;
+      splitChips.innerHTML = '';
+
+      var isAllActive = (!selectedTripSplit || selectedTripSplit.length === tripFriends.length);
+
+      // 1. "Everyone" chip
+      var allBtn = el('button', 'scope-pill' + (isAllActive ? ' active' : ''));
+      allBtn.type = 'button';
+      allBtn.textContent = '👥 Everyone';
+      allBtn.addEventListener('click', function () {
+        selectedTripSplit = null;
+        renderTripSplitUi();
+      });
+      splitChips.appendChild(allBtn);
+
+      // 2. Individual participant chips (Me, Friend 1, Friend 2...)
+      tripFriends.forEach(function (friend) {
+        var isSelected = isAllActive || (selectedTripSplit && selectedTripSplit.indexOf(friend) >= 0);
+        var chip = el('button', 'scope-pill' + (isSelected ? ' active' : ''));
+        chip.type = 'button';
+        var icon = friend === 'Me' ? '👤 ' : '🧑 ';
+        chip.textContent = (isSelected ? '✓ ' : '') + icon + friend;
+
+        chip.addEventListener('click', function () {
+          if (!selectedTripSplit) {
+            // All were active -> clicking this friend excludes them
+            selectedTripSplit = tripFriends.filter(function (f) { return f !== friend; });
+          } else {
+            var idx = selectedTripSplit.indexOf(friend);
+            if (idx >= 0) {
+              if (selectedTripSplit.length > 1) {
+                selectedTripSplit.splice(idx, 1);
+              } else {
+                toast('At least 1 person must share the expense!');
+              }
+            } else {
+              selectedTripSplit.push(friend);
+              if (selectedTripSplit.length === tripFriends.length) {
+                selectedTripSplit = null;
+              }
+            }
+          }
+          renderTripSplitUi();
+        });
+        splitChips.appendChild(chip);
+      });
+
+      updateTripSplitSummaryText();
+    }
+
+    if (splitChips) renderTripSplitUi();
+
     // Render Category Breakdown Cards Grid (Stay, Fuel, Food, Beverages, Other)
     var catGrid = $('trip-cat-grid');
     if (catGrid) {
@@ -5130,7 +5218,7 @@
         if (res.error || !res.data) throw res.error || new Error('Could not create the link.');
         tripInviteCache[tripName] = res.data;
         backfillTripExpensesToShared(tripName); // catch the shared ledger up with everything already logged
-        var link = tripShareLink(res.data.invite_token);
+        var link = tripShareLink(res.data.invite_token, tripName);
         var msg = 'Join our "' + tripName + '" trip on Kharcha Book -- see what\'s been spent and add your own: ' + link;
         window.open(whatsappLink(msg), '_blank');
         renderTripInviteRow(tripName);
@@ -5179,7 +5267,7 @@
             .then(function (res) {
               if (res.error || !res.data) throw res.error;
               tripInviteCache[tripName] = res.data;
-              var link = tripShareLink(res.data.invite_token);
+              var link = tripShareLink(res.data.invite_token, tripName);
               window.open(whatsappLink('New link for our "' + tripName + '" trip on Kharcha Book: ' + link), '_blank');
               renderTripInviteRow(tripName);
             }).catch(function () { toast('Could not make a new link.'); });
@@ -5383,6 +5471,25 @@
     tripExpAmtInput.addEventListener('input', function () {
       var a = parseAmount(tripExpAmtInput.value);
       addTripExpBtn.disabled = (a == null);
+      var ss = $('trip-split-summary');
+      if (ss) {
+        var curTrip = getSelectedViewTripName() || getActiveTripName();
+        var curFriends = curTrip ? getTripFriends(curTrip) : ['Me'];
+        var amt = a || 0;
+        var totalCount = curFriends.length;
+        var selectedList = (Array.isArray(selectedTripSplit) && selectedTripSplit.length) ? selectedTripSplit : curFriends;
+        var count = selectedList.length;
+        if (!selectedTripSplit || selectedTripSplit.length === totalCount) {
+          var txt = 'Everyone (' + totalCount + (totalCount === 1 ? ' person' : ' people') + ')';
+          if (amt > 0 && totalCount > 0) txt += ' · ' + money(Math.round(amt / totalCount)) + ' each';
+          ss.textContent = txt;
+        } else {
+          var names = selectedList.map(function (f) { return f === 'Me' ? 'Me' : f; }).join(', ');
+          var txt = count + ' of ' + totalCount + ' (' + names + ')';
+          if (amt > 0 && count > 0) txt += ' · ' + money(Math.round(amt / count)) + ' each';
+          ss.textContent = txt;
+        }
+      }
     });
   }
 
@@ -5402,7 +5509,13 @@
       var clean = cleanScopePrefix(rawDesc) || 'Expense';
       var payer = selectedTripPayer || 'Me';
       var payerTag = (payer && payer !== 'Me') ? (' [Paid by ' + payer + ']') : '';
-      var desc = '✈️ ' + tripName + ': ' + clean + payerTag;
+
+      var curFriends = getTripFriends(tripName);
+      var isSubset = Array.isArray(selectedTripSplit) && selectedTripSplit.length > 0 && selectedTripSplit.length < curFriends.length;
+      var splitList = isSubset ? selectedTripSplit.slice() : null;
+      var splitTag = isSubset ? (' [Split: ' + splitList.join(', ') + ']') : '';
+
+      var desc = '✈️ ' + tripName + ': ' + clean + payerTag + splitTag;
 
       var spentVal = $('trip-exp-date') ? $('trip-exp-date').value : '';
       var spentAt = spentVal ? new Date(spentVal).toISOString() : null;
@@ -5414,11 +5527,13 @@
         if ($('trip-exp-date')) $('trip-exp-date').value = '';
         var ts = spentAt ? Date.parse(spentAt) : Date.now();
         state.sel = monthKey(ts);
-        mirrorOwnerTripExpense(tripName, amt, clean + payerTag, spentAt, added && added.id);
+        mirrorOwnerTripExpense(tripName, amt, clean + payerTag + splitTag, spentAt, added && added.id, splitList);
         saveTripToList(tripName);
+        selectedTripSplit = null;
         render();
         var payerLabel = (payer && payer !== 'Me') ? (' (Paid by ' + payer + ')') : '';
-        toast('Logged ' + money(amt) + ' to ' + tripName + payerLabel);
+        var splitLabel = isSubset ? (' [Split among ' + splitList.length + ']') : '';
+        toast('Logged ' + money(amt) + ' to ' + tripName + payerLabel + splitLabel);
         tripExpAmtInput.focus();
       }).catch(function (err) {
         var msg = (err && (err.message || 'Check your connection.')) || 'Failed to save.';
@@ -5832,6 +5947,10 @@
     var how = methodLabel(e);
     if (how) dSpan.appendChild(el('small', 'method-badge method-' + e.method, (METHOD_ICONS[e.method] || '') + ' ' + how));
     if (hasReceipt(e.id)) dSpan.appendChild(el('small', 'method-badge', '📎'));
+    var tripSplit = parseTripSplit(e.desc) || (Array.isArray(e.splitAmong) ? e.splitAmong : null);
+    if (tripSplit && tripSplit.length) {
+      dSpan.appendChild(el('small', 'tag-split', '👥 Split: ' + tripSplit.join(', ')));
+    }
     b.appendChild(dSpan);
     b.appendChild(el('span', 'a', money(e.amount)));
 

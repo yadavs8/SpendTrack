@@ -501,10 +501,19 @@
     descField.appendChild(descInput);
 
     var splitField = el('div', 'field');
-    splitField.appendChild(el('label', null, 'Split between'));
+    var splitHead = el('div');
+    splitHead.style.display = 'flex';
+    splitHead.style.justifyContent = 'space-between';
+    splitHead.style.alignItems = 'center';
+    splitHead.appendChild(el('label', null, 'Split between'));
+    var splitSummary = el('span', 'split-summary-sub', 'Everyone (equal)');
+    splitSummary.style.fontSize = '0.78rem';
+    splitSummary.style.color = 'var(--muted)';
+    splitSummary.style.fontWeight = '600';
+    splitHead.appendChild(splitSummary);
+    splitField.appendChild(splitHead);
+
     var chipBox = el('div', 'chip-box');
-    var chipAll = el('span', 'chip active', 'Everyone (equal)');
-    chipBox.appendChild(chipAll);
     splitField.appendChild(chipBox);
 
     var addErr = el('p', 'err'); addErr.hidden = true;
@@ -527,37 +536,72 @@
     var knownParticipants = [];
     var selectedSplitNames = null; // null = everyone
 
-    chipAll.addEventListener('click', function () {
-      selectedSplitNames = null;
-      var chips = chipBox.querySelectorAll('.chip');
-      chips.forEach(function (c) { c.classList.remove('active'); });
-      chipAll.classList.add('active');
-    });
+    function updateSplitSummary() {
+      if (!splitSummary) return;
+      var amt = parseFloat((amtInput.value || '').replace(/,/g, '')) || 0;
+      var totalCount = knownParticipants.length;
+      var selectedList = (Array.isArray(selectedSplitNames) && selectedSplitNames.length) ? selectedSplitNames : knownParticipants;
+      var count = selectedList.length;
+
+      if (!selectedSplitNames || selectedSplitNames.length === totalCount) {
+        var txt = 'Everyone (' + totalCount + (totalCount === 1 ? ' person' : ' people') + ')';
+        if (amt > 0 && totalCount > 0) {
+          txt += ' · ' + money(Math.round(amt / totalCount)) + ' each';
+        }
+        splitSummary.textContent = txt;
+      } else {
+        var names = selectedList.join(', ');
+        var txt = count + ' of ' + totalCount + ' (' + names + ')';
+        if (amt > 0 && count > 0) {
+          txt += ' · ' + money(Math.round(amt / count)) + ' each';
+        }
+        splitSummary.textContent = txt;
+      }
+    }
+
+    amtInput.addEventListener('input', updateSplitSummary);
 
     function updateSplitChips(participants) {
       knownParticipants = participants || [];
       chipBox.innerHTML = '';
-      chipAll.className = 'chip' + (!selectedSplitNames ? ' active' : '');
+
+      var isAllActive = (!selectedSplitNames || selectedSplitNames.length === knownParticipants.length);
+
+      var chipAll = el('span', 'chip' + (isAllActive ? ' active' : ''), '👥 Everyone');
+      chipAll.addEventListener('click', function () {
+        selectedSplitNames = null;
+        updateSplitChips(knownParticipants);
+      });
       chipBox.appendChild(chipAll);
 
       knownParticipants.forEach(function (name) {
-        var chip = el('span', 'chip', name);
-        if (selectedSplitNames && selectedSplitNames.indexOf(name) >= 0) chip.classList.add('active');
+        var isSelected = isAllActive || (selectedSplitNames && selectedSplitNames.indexOf(name) >= 0);
+        var chip = el('span', 'chip' + (isSelected ? ' active' : ''));
+        chip.textContent = (isSelected ? '✓ ' : '') + name;
+
         chip.addEventListener('click', function () {
           if (!selectedSplitNames) {
-            // First time switching from everyone -> select clicked person + self
-            selectedSplitNames = [name];
-            if (myName && selectedSplitNames.indexOf(myName) < 0) selectedSplitNames.push(myName);
+            // All were active. Tapping this person excludes them.
+            selectedSplitNames = knownParticipants.filter(function (x) { return x !== name; });
           } else {
             var idx = selectedSplitNames.indexOf(name);
-            if (idx >= 0) selectedSplitNames.splice(idx, 1);
-            else selectedSplitNames.push(name);
-            if (!selectedSplitNames.length) selectedSplitNames = null; // fall back to everyone
+            if (idx >= 0) {
+              if (selectedSplitNames.length > 1) {
+                selectedSplitNames.splice(idx, 1);
+              }
+            } else {
+              selectedSplitNames.push(name);
+              if (selectedSplitNames.length === knownParticipants.length) {
+                selectedSplitNames = null;
+              }
+            }
           }
           updateSplitChips(knownParticipants);
         });
         chipBox.appendChild(chip);
       });
+
+      updateSplitSummary();
     }
 
     function refresh() {
@@ -586,6 +630,17 @@
         // Collect all distinct names
         var namesSet = new Set();
         if (myName) namesSet.add(myName);
+
+        try {
+          var urlParamFriends = (new URLSearchParams(window.location.search).get('f') || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+          urlParamFriends.forEach(function (f) { namesSet.add(f); });
+          var savedFriends = JSON.parse(localStorage.getItem('kharcha_trip_friends_' + (tripName || '')) || '[]');
+          savedFriends.forEach(function (f) { if (f) namesSet.add(f.trim()); });
+          if (urlParamFriends.length) {
+            localStorage.setItem('kharcha_trip_friends_' + (tripName || ''), JSON.stringify(Array.from(namesSet)));
+          }
+        } catch (e) {}
+
         items.forEach(function (e) {
           if (e.added_by_name) namesSet.add(e.added_by_name.trim());
           if (Array.isArray(e.split_among)) {
@@ -817,7 +872,8 @@
       if (!desc) { addErr.textContent = 'Add a short description.'; addErr.hidden = false; return; }
       addBtn.disabled = true;
 
-      var splitPayload = (Array.isArray(selectedSplitNames) && selectedSplitNames.length) ? selectedSplitNames : null;
+      var isSubset = Array.isArray(selectedSplitNames) && selectedSplitNames.length > 0 && selectedSplitNames.length < knownParticipants.length;
+      var splitPayload = isSubset ? selectedSplitNames : null;
 
       sb.rpc('trip_add_expense', {
         p_invite_token: token, p_guest_token: membership.guest_token,

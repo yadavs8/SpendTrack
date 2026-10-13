@@ -2005,3 +2005,24 @@ button.cat-row { width: 100%; text-align: left; background: none; border: 0; pad
   border-color: #0284C7;
   color: #0284C7;
 }
+
+.tag-split {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 2px 7px;
+  border-radius: 5px;
+  margin-top: 3px;
+  display: inline-block;
+}
+.trip-split-chips .scope-pill {
+  user-select: none;
+}
+.trip-split-chips .scope-pill.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
