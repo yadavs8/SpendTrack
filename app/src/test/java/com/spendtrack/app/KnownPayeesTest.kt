@@ -20,6 +20,11 @@ class KnownPayeesTest {
         assertEquals("family", r?.scope)
     }
 
+    @Test fun lavishKiranaStoreIsFamily() {
+        val r = KnownPayees.match("Lavish Kirana Store", null, null, 350.0, at(13), rules)
+        assertEquals("r-kirana", r?.id); assertEquals("family", r?.scope)
+    }
+
     @Test fun licOnThe22ndIsInvestment() {
         val r = KnownPayees.match("LIC of India", null, null, 5000.0, at(22), rules)
         assertEquals("investment", r?.scope)

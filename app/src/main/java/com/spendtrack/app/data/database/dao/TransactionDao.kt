@@ -75,8 +75,9 @@ interface TransactionDao {
     @Query("""
         SELECT * FROM transactions 
         WHERE (amount = :amount AND dateTime BETWEEN :startWindow AND :endWindow)
-           OR (upiReference IS NOT NULL AND upiReference = :upiRef)
-        LIMIT 5
+           OR (:upiRef IS NOT NULL AND :upiRef != '' AND (upiReference = :upiRef OR bankReference = :upiRef))
+        ORDER BY dateTime DESC
+        LIMIT 25
     """)
     suspend fun findPotentialDuplicates(amount: Double, startWindow: Long, endWindow: Long, upiRef: String?): List<TransactionEntity>
 
@@ -112,21 +113,29 @@ interface TransactionDao {
     suspend fun getAllTransactionsSync(): List<TransactionEntity>
 
     /**
-     * Ready to push to Kharcha Book: real (not excluded/demo) expenses that are either answered, or
-     * carry a bank/UPI ref -- those go up immediately under the merchant name, and answering the
-     * Personal/Family prompt later upserts the same row by ref_no. Unanswered ones without a ref
-     * wait, since pushing them twice would create a duplicate.
+     * Ready to push to Kharcha Book: real (not excluded/demo) transactions that have been resolved
+     * (`needsReview = 0`). Waiting until the user answers Personal / Family / Trips prevents
+     * premature un-scoped rows and duplicate SMS + UPI notification entries in Kharcha Book.
      */
     @Query("""
         SELECT * FROM transactions
         WHERE syncedToCloud = 0 AND isExcluded = 0 AND isDemo = 0 AND needsCloudDelete = 0
             AND transactionType IN ('EXPENSE', 'INCOME', 'CASH_WITHDRAWAL')
-            AND (needsReview = 0
-                 OR (upiReference IS NOT NULL AND upiReference != '')
-                 OR (bankReference IS NOT NULL AND bankReference != ''))
+            AND needsReview = 0
         ORDER BY dateTime ASC
     """)
     suspend fun getUnsyncedExpenses(): List<TransactionEntity>
+
+    @Query("SELECT description FROM transactions WHERE description LIKE '✈️ %:%' AND isDemo = 0 AND isExcluded = 0 ORDER BY dateTime DESC LIMIT 200")
+    suspend fun getLocalTripDescriptions(): List<String>
+
+    @Query("""
+        SELECT * FROM transactions
+        WHERE isDemo = 0 AND isExcluded = 0 AND transactionType = 'EXPENSE'
+            AND (merchantName LIKE '%lavish kirana%' OR description LIKE '%lavish kirana%')
+            AND (description IS NULL OR (description NOT LIKE '🏠%' AND description NOT LIKE '✈️%'))
+    """)
+    suspend fun getUnmovedLavishKiranaExpenses(): List<TransactionEntity>
 
     @Query("UPDATE transactions SET syncedToCloud = 1 WHERE id = :id")
     suspend fun markSynced(id: String)

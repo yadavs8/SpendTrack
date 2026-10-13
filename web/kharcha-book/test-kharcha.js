@@ -54,10 +54,13 @@ const windowMock = {
 };
 windowMock.window = windowMock;
 
+const ledgerCode = fs.readFileSync(path.join(__dirname, 'ledger-logic.js'), 'utf8');
+vm.runInNewContext(ledgerCode, windowMock);
+
 const code = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8');
 vm.runInNewContext(code, windowMock);
 
-const { parseAmount, normDesc, money, groupByDay, byDescription, monthTotals, toLocalISOString, isFamilyEntry, parseBankSMS, parseSMSDate, findDuplicate, categoryBreakdown, monthCompare, isIncome, isMotherSettlement, isMotherPension, isSalary, isExpense, isInvestment, getFamilySettlement, getPersonalCashFlow, isProjectEntry, isProjectMotherPaid, getProjectSummary, isTripEntry, getTripSummary, parseTripPayer, getEntryScope, shiftScopeDesc, rememberMerchantScope, predictMerchantScope, recentSpendsForTrip, recurringBills, monthForecast, upiPayLink, settleMessage, whatsappLink } = windowMock.__kharcha;
+const { parseAmount, normDesc, money, groupByDay, byDescription, monthTotals, toLocalISOString, isFamilyEntry, parseBankSMS, parseSMSDate, findDuplicate, categoryBreakdown, monthCompare, isIncome, isMotherSettlement, isMotherPension, isSalary, isExpense, isInvestment, getFamilySettlement, getPersonalCashFlow, isProjectEntry, isProjectMotherPaid, getProjectSummary, isTripEntry, getTripSummary, parseTripPayer, getTripTheme, getEntryScope, shiftScopeDesc, rememberMerchantScope, predictMerchantScope, recentSpendsForTrip, recurringBills, monthForecast, upiPayLink, settleMessage, whatsappLink } = windowMock.__kharcha;
 
 let passed = 0;
 let failed = 0;
@@ -317,6 +320,8 @@ assert(isInvestment({ desc: 'Reliance shares' }) === true, 'isInvestment identif
 assert(isInvestment({ desc: '🛒 Grocery' }) === false, 'isInvestment rejects grocery');
 assert(isInvestment({ desc: '💼 Salary 1' }) === false, 'isInvestment rejects salary');
 assert(isExpense({ desc: '📈 SIP Axis Bluechip' }) === false, 'isExpense excludes investments');
+assert(isExpense({ desc: '✈️ Goa Trip: Hotel' }) === false, 'isExpense excludes trip expenses');
+assert(isExpense({ desc: '✈️ Manali Trip: Airbnb' }) === false, 'isExpense excludes airbnb trip expense');
 assert(isIncome({ desc: '📈 SIP Axis Bluechip' }) === false, 'isIncome excludes investments');
 
 // Verify cash flow correctly isolates investments from personal spends
@@ -385,6 +390,11 @@ assert(goaSummary.totalSpent === 9200, 'getTripSummary sums Goa trip spent: 4500
 assert(goaSummary.itemsCount === 3, 'getTripSummary counts 3 trip items (excludes grocery)');
 assert(goaSummary.daysCount === 2, 'getTripSummary counts 2 unique trip days');
 assert(goaSummary.dailyAvg === 4600, 'getTripSummary calculates daily average: 9200 / 2 = 4600');
+assert(goaSummary.categories.stay.total === 3200, 'getTripSummary categorizes Hotel Resort under Stay Expenses (3200)');
+assert(goaSummary.categories.food.total === 1500, 'getTripSummary categorizes Beach Dinner under Food Expenses (1500)');
+assert(goaSummary.categories.other.total === 4500, 'getTripSummary categorizes Flight under Other (4500)');
+const tripCashFlow = getPersonalCashFlow(tripEntries);
+assert(tripCashFlow.personalSpent === 500, 'getPersonalCashFlow excludes trip expenses (9200) and only counts personal grocery (500)');
 
 // 18. Continuous Merchant Scope Memory Tests
 rememberMerchantScope('Swiggy Instamart Order', 'family');
@@ -393,6 +403,10 @@ assert(predictMerchantScope('Swiggy food delivery') === 'family', 'predictMercha
 rememberMerchantScope('Zerodha Broking Ltd', 'investment');
 assert(predictMerchantScope('Zerodha Broking Ltd') === 'investment', 'predictMerchantScope matches investment merchant');
 assert(predictMerchantScope('Random New Shop') === null, 'predictMerchantScope returns null for unknown merchant');
+assert(isFamilyEntry('Lavish Kirana Store') === true, 'isFamilyEntry treats Lavish Kirana Store as Family');
+assert(isFamilyEntry('👤 Lavish Kirana Store') === true, 'isFamilyEntry treats Personal-tagged Lavish Kirana Store as Family');
+assert(getEntryScope({ desc: 'Lavish Kirana Store' }) === 'family', 'getEntryScope returns family for Lavish Kirana Store');
+assert(predictMerchantScope('Lavish Kirana Store') === 'family', 'predictMerchantScope returns family for Lavish Kirana Store');
 
 // 19. Trip Friend Split & Balance Tests
 const tripSplitEntries = [
@@ -423,6 +437,18 @@ assert(manaliSummary.totalSpent === 9000, 'Manali total spent = 6000 + 3000 = 90
 assert(manaliSummary.participants.length === 3, 'Manali has 3 participants (Me, Rohit, Amit)');
 assert(manaliSummary.perPersonShare === 3000, 'Each person share = 9000 / 3 = 3000');
 
+// A "[Split: ...]" tag on an entry's description must make it through getTripSummary end-to-end
+// and actually change that person's real owed share in balances, not just the rough per-head badge.
+const splitTaggedEntries = [
+  { id: 's1', amount: 300, desc: '✈️ Goa Trip: Hotel [Paid by Me]', ts: Date.now() },
+  { id: 's2', amount: 200, desc: '✈️ Goa Trip: Liquor [Paid by Bijoy] [Split: Bijoy, Rohan]', ts: Date.now() }
+];
+const goaSplitSummary = getTripSummary(splitTaggedEntries, 'Goa Trip', ['Me', 'Bijoy', 'Rohan']);
+const meBal = goaSplitSummary.balances.find(b => b.name === 'Me');
+const bijoyBal = goaSplitSummary.balances.find(b => b.name === 'Bijoy');
+assert(meBal.share === 100, 'getTripSummary: a [Split: ...] tag keeps Me out of the Liquor, only sharing the Hotel');
+assert(bijoyBal.share === 100 + 100, 'getTripSummary: Bijoy shares the Hotel plus half the tagged Liquor');
+
 const balMe = manaliSummary.balances.find(b => b.name === 'Me');
 const balRohit = manaliSummary.balances.find(b => b.name === 'Rohit');
 const balAmit = manaliSummary.balances.find(b => b.name === 'Amit');
@@ -433,6 +459,21 @@ assert(balRohit.paid === 3000, 'Rohit paid 3000');
 assert(balRohit.net === 0, 'Rohit is settled (paid 3000 - share 3000)');
 assert(balAmit.paid === 0, 'Amit paid 0');
 assert(balAmit.net === -3000, 'Amit owes 3000 (paid 0 - share 3000)');
+
+// 20b. Dynamic Trip Destination Themes and Artwork
+const manaliTheme = getTripTheme('Manali Trip');
+assert(manaliTheme.tag.includes('Himalayas'), 'getTripTheme identifies Manali as Himalayas mountain theme');
+assert(manaliTheme.art.includes('snow-capped'), 'getTripTheme generates snow-capped mountain SVG art for Manali');
+
+const goaTheme = getTripTheme('Goa Vacation');
+assert(goaTheme.tag.includes('Coastal') || goaTheme.tag.includes('Beach'), 'getTripTheme identifies Goa as Coastal/Beach theme');
+assert(goaTheme.art.includes('Palm Tree'), 'getTripTheme generates beach sunset and palm tree SVG art for Goa');
+
+const jaipurTheme = getTripTheme('Jaipur Weekend');
+assert(jaipurTheme.tag.includes('Heritage') || jaipurTheme.tag.includes('Royal'), 'getTripTheme identifies Jaipur as Heritage theme');
+
+const defaultTheme = getTripTheme('');
+assert(defaultTheme.tag.includes('Adventure') || defaultTheme.tag.includes('Travel'), 'getTripTheme returns fallback adventure theme when empty');
 
 // 21. Investment words must be whole words
 assert(isInvestment({ desc: 'Sipping Chai Cafe' }) === false, 'isInvestment ignores "sip" inside another word');
@@ -586,6 +627,40 @@ assert(whatsappLink('a b').startsWith('https://wa.me/?text=a%20b'), 'whatsappLin
   assert(K.isBankOut({ id: 'e', amount: 4274, desc: 'Credit card bill', ts: 1 }) === true, 'bank: paying the card bill does');
   assert(K.isBankOut({ id: 'f', amount: 906, desc: '👛 Amazon Pay · Blinkit', ts: 1 }) === false, 'bank: a wallet spend does not');
   assert(K.isBankIn({ id: 'g', amount: 38000, desc: '💼 Salary 2', ts: 1 }) === true, 'bank: salary comes in');
+}
+
+{
+  // tripSettlement: a per-expense splitAmong subset must only affect those named -- everyone
+  // else is untouched by that one expense, even though they're still a trip participant overall.
+  const KL = windowMock.KharchaLedger;
+  const participants = ['Me', 'Bijoy', 'Rohan'];
+
+  // No splitAmong given at all -> old default, split across every participant.
+  const r1 = KL.tripSettlement([{ id: '1', label: 'Hotel', amount: 300, payer: 'Me' }], participants);
+  const bijoy1 = r1.people.find(p => p.name === 'Bijoy');
+  assert(bijoy1.share === 100, 'tripSettlement: no splitAmong falls back to splitting across everyone');
+
+  // Liquor bought for just Bijoy and Rohan -- "Me" must not owe anything toward it.
+  const r2 = KL.tripSettlement([
+    { id: '1', label: 'Hotel', amount: 300, payer: 'Me' },
+    { id: '2', label: 'Liquor', amount: 200, payer: 'Bijoy', splitAmong: ['Bijoy', 'Rohan'] }
+  ], participants);
+  const me2 = r2.people.find(p => p.name === 'Me');
+  const bijoy2 = r2.people.find(p => p.name === 'Bijoy');
+  const rohan2 = r2.people.find(p => p.name === 'Rohan');
+  assert(me2.share === 100, 'tripSettlement: Me only shares the Hotel (split 3 ways), not the Liquor');
+  assert(bijoy2.share === 100 + 100, 'tripSettlement: Bijoy shares Hotel (1/3) plus half the Liquor he split with Rohan');
+  assert(rohan2.share === 100 + 100, 'tripSettlement: Rohan shares Hotel (1/3) plus half the Liquor');
+  assert(me2.paid === 300 && me2.net === 200, 'tripSettlement: Me paid 300, owes share of 100, so is owed 200 net');
+
+  // A name in splitAmong that wasn't in the explicit participants list is still picked up as a
+  // real participant -- same as a payer not in that list already was. A friend typed into
+  // "split between" on the guest page, not pre-added via "+ Add Friend", must still count.
+  const r3 = KL.tripSettlement([{ id: '1', label: 'Snacks', amount: 90, payer: 'Me', splitAmong: ['Me', 'Priya'] }], participants);
+  const me3 = r3.people.find(p => p.name === 'Me');
+  const priya3 = r3.people.find(p => p.name === 'Priya');
+  assert(me3.share === 45, 'tripSettlement: a name only ever seen in splitAmong still splits the expense properly');
+  assert(!!priya3 && priya3.share === 45 && priya3.net === -45, 'tripSettlement: that name is picked up as a real participant, same as an unlisted payer already was');
 }
 
 console.log(`\nResults: ${passed} passed, ${failed} failed.`);

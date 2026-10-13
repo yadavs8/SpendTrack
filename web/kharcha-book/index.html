@@ -9,18 +9,18 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <script>try{var __t=localStorage.getItem("kharcha_theme");if(__t==="dark"||__t==="light"||__t==="thanos")document.documentElement.setAttribute("data-theme",__t);}catch(e){}</script>
 <style>#splash{position:fixed;inset:0;z-index:20000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:#EDF2F3;animation:splashOut .5s ease 4.3s forwards}:root[data-theme=dark] #splash{background:#0B1120;color:#F1F5F9}:root[data-theme=thanos] #splash{background:#1a0b2e;color:#f3e8ff}@media (prefers-color-scheme:dark){:root:not([data-theme=light]):not([data-theme=thanos]) #splash{background:#0B1120;color:#F1F5F9}}#splash.out{opacity:0;transition:opacity .45s ease;pointer-events:none}#splash canvas{width:128px;height:200px;margin:-50px 0 -50px}.splash-name{font:700 1.25rem system-ui,sans-serif;letter-spacing:.01em;opacity:.85}@keyframes splashOut{to{opacity:0;visibility:hidden}}</style>
-<link rel="stylesheet" href="styles.css?v=80">
-<link rel="stylesheet" href="modern.css?v=80">
-<link rel="manifest" href="manifest.webmanifest?v=80">
+<link rel="stylesheet" href="styles.css?v=96">
+<link rel="stylesheet" href="modern.css?v=96">
+<link rel="manifest" href="manifest.webmanifest?v=96">
 <meta name="theme-color" content="#0B5D75">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Kharcha">
-<link rel="apple-touch-icon" href="apple-touch-icon.png?v=80">
-<link rel="icon" href="icon-192.png?v=80" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=96">
+<link rel="icon" href="icon-192.png?v=96" type="image/png">
 <script>
   (function() {
-    var V = '44';
+    var V = '96';
     if (localStorage.getItem('kharcha_app_v') !== V) {
       localStorage.setItem('kharcha_app_v', V);
       if ('caches' in window) {
@@ -42,10 +42,10 @@
 <script>try{if(sessionStorage.getItem("kharcha_splash")){var __s=document.getElementById("splash");if(__s)__s.remove();}}catch(e){}</script>
 <main class="app">
   <header class="top">
-    <h1><img class="logo" src="logo-mark.png?v=80" width="36" height="36" alt="">Kharcha Book</h1>
+    <h1><img class="logo" src="logo-mark.png?v=96" width="36" height="36" alt="">Kharcha Book</h1>
     <div class="top-r">
       <span class="sync" id="sync" data-state="pending">Loading…</span>
-      <button type="button" class="installbtn" id="force-update-btn" title="Force clear cache & reload latest version">v43 🔄</button>
+      <button type="button" class="installbtn" id="force-update-btn" title="Force clear cache & reload latest version">v96 🔄</button>
       <button type="button" class="installbtn" id="app-settings-btn" title="Phone app settings" aria-label="Phone app settings" hidden>⚙️</button>
       <button type="button" class="installbtn" id="install-btn" hidden>📲 Install App</button>
       <button type="button" class="signout" id="signout" hidden>Sign out</button>
@@ -551,6 +551,24 @@
             <option value="">No Trips Created</option>
           </select>
           <button type="button" class="trip-icon-btn" id="trip-rename-btn" title="Rename Trip">✏️</button>
+          <button type="button" class="trip-icon-btn" id="trip-invite-btn" title="Invite friends to this trip">👥</button>
+        </div>
+      </div>
+
+      <!-- Invite status: shown once a link exists for the current trip. The 👥 button above
+           doubles as "share again" once a link already exists. -->
+      <div class="trip-invite-row" id="trip-invite-row" hidden>
+        <span class="trip-invite-note" id="trip-invite-note"></span>
+        <button type="button" class="trip-icon-btn-sm" id="trip-invite-toggle-btn" title="Turn the link on/off"></button>
+        <button type="button" class="trip-icon-btn-sm" id="trip-invite-regen-btn" title="Make a new link (stops the old one working)">🔄</button>
+      </div>
+
+      <!-- Visual Destination Illustration / Scene Banner -->
+      <div class="trip-visual-banner" id="trip-visual-banner" aria-hidden="true">
+        <div class="tvb-art" id="tvb-art"></div>
+        <div class="tvb-meta">
+          <span class="tvb-tag" id="tvb-tag">🏔️ Himalayas Expedition</span>
+          <span class="tvb-place" id="tvb-place">Manali, Himachal Pradesh</span>
         </div>
       </div>
 
@@ -587,6 +605,9 @@
         </div>
       </div>
 
+      <!-- Category Breakdown Grid (Stay, Fuel, Food, Beverages, Other) -->
+      <div class="trip-cat-grid" id="trip-cat-grid"></div>
+
       <!-- Multi-Friend Participants & Manager -->
       <div class="trip-friends-sec" id="trip-friends-sec">
         <div class="tfs-head">
@@ -619,6 +640,13 @@
           <!-- Dynamic payer radio pills (Me, Friend 1, Friend 2...) rendered here -->
         </div>
       </div>
+      <div class="trip-quick-cats" id="trip-quick-cats">
+        <button type="button" class="trip-quick-cat-btn" data-cat="stay" data-prefix="🏨 Stay: ">🏨 Stay</button>
+        <button type="button" class="trip-quick-cat-btn" data-cat="fuel" data-prefix="⛽ Fuel: ">⛽ Fuel</button>
+        <button type="button" class="trip-quick-cat-btn" data-cat="food" data-prefix="🍔 Food: ">🍔 Food</button>
+        <button type="button" class="trip-quick-cat-btn" data-cat="beverages" data-prefix="🍻 Beverages: ">🍻 Beverages</button>
+        <button type="button" class="trip-quick-cat-btn" data-cat="other" data-prefix="🎟️ ">🎟️ Activities</button>
+      </div>
       <div class="add-row">
         <div class="field">
           <label for="trip-exp-amt">Amount</label>
@@ -626,7 +654,7 @@
         </div>
         <div class="field">
           <label for="trip-exp-desc">Description</label>
-          <input class="input" id="trip-exp-desc" maxlength="60" placeholder="e.g. Flight, Hotel, Dinner, Taxi, Drinks…">
+          <input class="input" id="trip-exp-desc" maxlength="60" placeholder="e.g. Airbnb, Fuel / Petrol, Restaurant, Drinks…">
         </div>
       </div>
       <div class="add-row add-row-extra">
@@ -642,8 +670,15 @@
       <p class="err" id="trip-exp-err" role="alert" hidden></p>
     </form>
 
-    <h2 class="sec-title" style="margin-top:16px;">Trip Expenses Timeline</h2>
-    <div id="trip-days" aria-live="polite"></div>
+    <div class="trip-view-toggle-row">
+      <h2 class="sec-title" id="trip-entries-title" style="margin:0;">Trip Expenses</h2>
+      <div class="trip-view-modes">
+        <button type="button" class="trip-view-mode-btn active" id="tvm-cat" data-mode="category">📂 By Category</button>
+        <button type="button" class="trip-view-mode-btn" id="tvm-date" data-mode="date">📅 By Date</button>
+      </div>
+    </div>
+    <div id="trip-cat-sections" aria-live="polite"></div>
+    <div id="trip-days" aria-live="polite" hidden></div>
   </section>
 
   <!-- Sticky bottom bar: the current month's total, always visible while scrolling. -->
@@ -722,17 +757,17 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=80" onerror="void 0"></script>
-<script src="ledger-logic.js?v=80"></script>
-<script src="app.js?v=80"></script>
-<script src="modern.js?v=80"></script>
-<script src="insights.js?v=80"></script>
-<script src="card.js?v=80"></script>
-<script src="phone.js?v=80"></script>
+<script src="config.js?v=96" onerror="void 0"></script>
+<script src="ledger-logic.js?v=96"></script>
+<script src="app.js?v=96"></script>
+<script src="modern.js?v=96"></script>
+<script src="insights.js?v=96"></script>
+<script src="card.js?v=96"></script>
+<script src="phone.js?v=96"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('sw.js?v=80').then(function (reg) {
+      navigator.serviceWorker.register('sw.js?v=96').then(function (reg) {
         reg.update();
         reg.addEventListener('updatefound', function () {
           var newWorker = reg.installing;

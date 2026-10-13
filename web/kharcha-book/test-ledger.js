@@ -351,6 +351,7 @@ t('LIC on the 22nd and small insurance on the 16th are recognised; look-alikes a
   assert.strictEqual(on('LIC of India', 9, 5000), null);                 // not near its day
   assert.strictEqual(on('Star Health Insurance Premium', 16, 1800).scope, 'personal');
   assert.strictEqual(on('Star Health Insurance Premium', 16, 9000), null); // above the cap
+  assert.strictEqual(on('Lavish Kirana Store', 13, 420).scope, 'family');
   assert.strictEqual(on('Zomato', 16, 300), null);
 });
 t('new built-in rules are added once, never over the ones you have', () => {
@@ -373,6 +374,8 @@ t('duplicates: the same SMS twice goes; two real payments and rows with a bank r
   assert.strictEqual(far.sure.length + far.maybe.length, 0);
   const copyNoRef = L.findDuplicates([{ id: 'a', amount: 450, desc: 'Zomato', refNo: '9', ts: NOW - 60000 }, { id: 'b', amount: 450, desc: 'Zomato', raw: 'SMS', ts: NOW - 20000 }], NOW);
   assert.strictEqual(copyNoRef.sure.length, 1); assert.strictEqual(copyNoRef.sure[0].drop.id, 'b');
+  const tripVsUnscoped = L.findDuplicates([{ id: 'sms', amount: 4500, desc: 'Airbnb', refNo: '612', raw: 'SMS', ts: NOW - 120000 }, { id: 'gpay', amount: 4500, desc: '✈️ Manali Trip: Airbnb', raw: 'GPay', ts: NOW - 60000 }], NOW);
+  assert.strictEqual(tripVsUnscoped.sure.length, 1); assert.strictEqual(tripVsUnscoped.sure[0].keep.id, 'gpay'); assert.strictEqual(tripVsUnscoped.sure[0].drop.id, 'sms');
 });
 t('a Rs 2 test transfer between your two banks is one transfer, found without any name', () => {
   const NOW = D(2026, 10, 11);
@@ -408,4 +411,31 @@ t('credit card: the SMS available limit gives the amount owed; else your startin
   assert.strictEqual(L.cardState(rows.map(r => Object.assign({}, r, { raw: undefined })), card, {}, pred).outstanding, null);
 });
 
+t('trip categories: identifies stay, fuel, food, and beverages headers correctly', () => {
+  assert.strictEqual(L.tripItemCategory('✈️ Manali trip: Airbnb Payments').key, 'stay');
+  assert.strictEqual(L.tripItemCategory('✈️ Manali trip: Grand Hotel Manali').name, 'Stay Expenses');
+  assert.strictEqual(L.tripItemCategory('✈️ Manali trip: HPCL Fuel Station').key, 'fuel');
+  assert.strictEqual(L.tripItemCategory('✈️ Manali trip: Indian Oil Petrol').name, 'Fuel Expenses');
+  assert.strictEqual(L.tripItemCategory('✈️ Manali trip: Chopsticks Restaurant').key, 'food');
+  assert.strictEqual(L.tripItemCategory('✈️ Manali trip: Cafe 1947 dinner').name, 'Food Expenses');
+  assert.strictEqual(L.tripItemCategory('✈️ Manali trip: English Wine & Beer Shop').key, 'beverages');
+  assert.strictEqual(L.tripItemCategory('✈️ Manali trip: Old Monk Rum & Liquor').name, 'Beverages');
+  assert.strictEqual(L.tripItemCategory('✈️ Manali trip: Paragliding Solang').key, 'other');
+
+  const sample = [
+    { id: '1', amount: 18000, desc: '✈️ Manali: Airbnb Stay' },
+    { id: '2', amount: 3500, desc: '✈️ Manali: Petrol Pump Fuel' },
+    { id: '3', amount: 1200, desc: '✈️ Manali: Johnson Cafe lunch' },
+    { id: '4', amount: 2400, desc: '✈️ Manali: Wine & Beer Shop drinks' },
+    { id: '5', amount: 500, desc: '✈️ Manali: Taxi cab' }
+  ];
+  const cats = L.tripCategoriesSummary(sample);
+  assert.strictEqual(cats.stay.total, 18000);
+  assert.strictEqual(cats.fuel.total, 3500);
+  assert.strictEqual(cats.food.total, 1200);
+  assert.strictEqual(cats.beverages.total, 2400);
+  assert.strictEqual(cats.other.total, 500);
+});
+
 console.log(n + ' tests passed');
+

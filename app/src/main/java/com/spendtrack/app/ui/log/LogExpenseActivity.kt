@@ -70,28 +70,51 @@ class LogExpenseActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         ServiceLocator.init(applicationContext)
         val transactionId = intent.getStringExtra(ExpensePromptNotifier.EXTRA_TRANSACTION_ID)
+        val tripOnly = intent.getBooleanExtra(ExpensePromptNotifier.EXTRA_TRIP_ONLY, false)
         val cashMode = transactionId == null && intent.action == ACTION_ADD_CASH
         if (transactionId == null && !cashMode) { finish(); return }
-
-        // Trips may have been created on the web since the phone last looked.
-        lifecycleScope.launch { runCatching { ServiceLocator.cloudSyncRepository.refreshSharedSettings() } }
 
         setContent {
             SpendTrackTheme {
                 var txn by remember { mutableStateOf<TransactionEntity?>(null) }
+                var knownTrips by remember { mutableStateOf<List<String>>(emptyList()) }
+                var ready by remember { mutableStateOf(cashMode) }
+
+                val settingsTrips by ServiceLocator.settingsManager.tripNamesFlow.collectAsState(initial = emptyList())
+                val activeTrip by ServiceLocator.settingsManager.activeTripNameFlow.collectAsState(initial = null)
+
                 if (transactionId != null) {
                     LaunchedEffect(transactionId) {
-                        txn = ServiceLocator.transactionRepository.getTransactionById(transactionId)
-                        if (txn == null) finish()
+                        val loaded = ServiceLocator.transactionRepository.getTransactionById(transactionId)
+                        if (loaded == null) {
+                            finish()
+                            return@LaunchedEffect
+                        }
+                        txn = loaded
+                        // Refresh shared settings quickly so web trips are included
+                        kotlinx.coroutines.withTimeoutOrNull(1800) {
+                            runCatching { ServiceLocator.cloudSyncRepository.refreshSharedSettings() }
+                        }
+                        val allTrips = ServiceLocator.transactionRepository.getAllKnownTrips()
+                        knownTrips = allTrips
+                        // If the user clicked "✈️ Trips" on the notification and only 1 trip exists,
+                        // save directly to that single trip without asking again!
+                        if (tripOnly && allTrips.size == 1) {
+                            ExpenseFiler.file(applicationContext, transactionId, ExpenseScope.TRIP, allTrips.single())
+                            finish()
+                            return@LaunchedEffect
+                        }
+                        ready = true
                     }
                 }
-                val trips by ServiceLocator.settingsManager.tripNamesFlow.collectAsState(initial = emptyList())
-                val activeTrip by ServiceLocator.settingsManager.activeTripNameFlow.collectAsState(initial = null)
-                if (cashMode || txn != null) {
+
+                val mergedTrips = (knownTrips + settingsTrips).distinct()
+                if (ready && (cashMode || txn != null)) {
                     LogSheet(
                         txn = txn,
-                        trips = trips,
+                        trips = mergedTrips,
                         activeTrip = activeTrip,
+                        tripOnly = tripOnly,
                         onDismiss = { finish() },
                         onChoose = { scope, trip, note, makeActive, cashAmount ->
                             choose(txn?.id, cashAmount, scope, trip, note, makeActive)
@@ -132,6 +155,7 @@ private fun LogSheet(
     txn: TransactionEntity?,
     trips: List<String>,
     activeTrip: String?,
+    tripOnly: Boolean = false,
     onDismiss: () -> Unit,
     onChoose: (scope: String, trip: String?, note: String?, makeActive: Boolean, cashAmount: Double?) -> Unit
 ) {
@@ -140,9 +164,6 @@ private fun LogSheet(
     val cashAmount = amountText.replace(",", "").toDoubleOrNull()?.takeIf { it > 0 && it < 1e8 }
     var note by remember { mutableStateOf("") }
     var newTrip by remember { mutableStateOf("") }
-    // Defaults off: a trip typed in here might be a booking for a trip that hasn't started yet
-    // (a hotel/flight paid for ahead of time). Auto-activating it would wrongly put every
-    // personal spend between now and departure into "on this trip" mode.
     var makeActive by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -185,8 +206,12 @@ private fun LogSheet(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = ExpensePromptNotifier.whenLabel(txn.dateTime) +
-                            if (!txn.needsReview) " · already logged, choose again to move it" else "",
+                        text = if (tripOnly && trips.size > 1) {
+                            "${ExpensePromptNotifier.whenLabel(txn.dateTime)} · Which trip should this go to?"
+                        } else {
+                            ExpensePromptNotifier.whenLabel(txn.dateTime) +
+                                if (!txn.needsReview) " · already logged, choose again to move it" else ""
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outline
                     )
@@ -203,6 +228,16 @@ private fun LogSheet(
                     LaunchedEffect(Unit) { runCatching { amountFocus.requestFocus() } }
                 }
 
+                if (tripOnly && trips.isNotEmpty()) {
+                    Text("✈️ Select Trip", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        trips.forEach { trip ->
+                            val label = if (trip == activeTrip) "✈️ $trip (active)" else "✈️ $trip"
+                            Button(onClick = { pick(ExpenseScope.TRIP, trip) }, enabled = canPick) { Text(label) }
+                        }
+                    }
+                }
+
                 OutlinedTextField(
                     value = note,
                     onValueChange = { note = it.take(50) },
@@ -211,24 +246,26 @@ private fun LogSheet(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Text("Log to", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.outline)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilledTonalButton(onClick = { pick(ExpenseScope.PERSONAL) }, enabled = canPick) { Text("👤 Personal") }
-                    FilledTonalButton(onClick = { pick(ExpenseScope.FAMILY) }, enabled = canPick) { Text("🏠 Family") }
-                    FilledTonalButton(onClick = { pick(ExpenseScope.INVESTMENT) }, enabled = canPick) { Text("📈 Investment") }
-                    FilledTonalButton(onClick = { pick(ExpenseScope.PROJECT) }, enabled = canPick) { Text("🔨 Project") }
-                    if (!cashMode) FilledTonalButton(onClick = { pick(ExpenseScope.TRANSFER) }, enabled = canPick) { Text("🔁 Own transfer") }
-                }
-
-                if (trips.isNotEmpty()) {
-                    Text("Trips", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.outline)
+                if (!tripOnly) {
+                    Text("Log to", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.outline)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        trips.forEach { trip ->
-                            val label = if (trip == activeTrip) "✈️ $trip (active)" else "✈️ $trip"
-                            if (trip == activeTrip) {
-                                Button(onClick = { pick(ExpenseScope.TRIP, trip) }, enabled = canPick) { Text(label) }
-                            } else {
-                                OutlinedButton(onClick = { pick(ExpenseScope.TRIP, trip) }, enabled = canPick) { Text(label) }
+                        FilledTonalButton(onClick = { pick(ExpenseScope.PERSONAL) }, enabled = canPick) { Text("👤 Personal") }
+                        FilledTonalButton(onClick = { pick(ExpenseScope.FAMILY) }, enabled = canPick) { Text("🏠 Family") }
+                        FilledTonalButton(onClick = { pick(ExpenseScope.INVESTMENT) }, enabled = canPick) { Text("📈 Investment") }
+                        FilledTonalButton(onClick = { pick(ExpenseScope.PROJECT) }, enabled = canPick) { Text("🔨 Project") }
+                        if (!cashMode) FilledTonalButton(onClick = { pick(ExpenseScope.TRANSFER) }, enabled = canPick) { Text("🔁 Own transfer") }
+                    }
+
+                    if (trips.isNotEmpty()) {
+                        Text("Trips", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.outline)
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            trips.forEach { trip ->
+                                val label = if (trip == activeTrip) "✈️ $trip (active)" else "✈️ $trip"
+                                if (trip == activeTrip) {
+                                    Button(onClick = { pick(ExpenseScope.TRIP, trip) }, enabled = canPick) { Text(label) }
+                                } else {
+                                    OutlinedButton(onClick = { pick(ExpenseScope.TRIP, trip) }, enabled = canPick) { Text(label) }
+                                }
                             }
                         }
                     }
@@ -239,7 +276,7 @@ private fun LogSheet(
                     OutlinedTextField(
                         value = newTrip,
                         onValueChange = { newTrip = it.take(30) },
-                        label = { Text("e.g. Goa") },
+                        label = { Text("e.g. Manali Trip") },
                         singleLine = true,
                         modifier = Modifier.weight(1f)
                     )

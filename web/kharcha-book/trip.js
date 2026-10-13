@@ -1,0 +1,413 @@
+// Kharcha Book -- shared trip guest page. Deliberately standalone: no personal-finance code,
+// no bank parsing, no auth, nothing from app.js. A friend here never gets a Supabase account --
+// every call below goes through a token-checked Postgres function (see
+// supabase/kharcha_trip_sharing_v1.sql), never a direct table read/write.
+(function () {
+  'use strict';
+
+  var CFG = window.KHARCHA_CONFIG || null;
+  var params = new URLSearchParams(location.search);
+  var token = (params.get('t') || '').trim();
+  var app = document.getElementById('app');
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function money(n) {
+    return '₹' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+  }
+  // Same destination-art generator as the main app's Trips view (duplicated here rather than
+  // shared, on purpose -- this page loads nothing from app.js). Picks a themed gradient + tiny
+  // inline-SVG illustration from the trip's name (mountains, beach, desert/heritage, city...),
+  // with a generic travel scene as the fallback.
+  function getTripTheme(tripName) {
+    var raw = (tripName || '').trim();
+    var s = raw.toLowerCase();
+    var theme = {
+      tag: '✈️ Travel & Adventure',
+      place: raw || 'Explore the World',
+      art: '<svg viewBox="0 0 400 190" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">' +
+        '<defs><linearGradient id="g-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#1E293B"/><stop offset="100%" stop-color="#0F172A"/></linearGradient></defs>' +
+        '<rect width="400" height="190" fill="url(#g-sky)"/>' +
+        '<circle cx="340" cy="40" r="18" fill="#F8FAFC" opacity="0.3"/>' +
+        '<path d="M0,190 L40,135 L85,190 L130,120 L175,190 L240,105 L300,190 L350,128 L400,190 Z" fill="#334155" opacity="0.5"/>' +
+        '</svg>'
+    };
+    if (!raw) return theme;
+
+    if (s.includes('manali') || s.includes('kasol') || s.includes('rohtang') || s.includes('spiti') ||
+        s.includes('ladakh') || s.includes('leh') || s.includes('shimla') || s.includes('kullu') ||
+        s.includes('himachal') || s.includes('uttarakhand') || s.includes('kedarnath') || s.includes('rishikesh') ||
+        s.includes('kashmir') || s.includes('gulmarg') || s.includes('mountain') || s.includes('hill') ||
+        s.includes('trek') || s.includes('hike') || s.includes('snow') || s.includes('camp')) {
+      theme.tag = '🏔️ Himalayas Expedition';
+      theme.place = raw;
+      theme.art = '<svg viewBox="0 0 400 190" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">' +
+        '<defs>' +
+          '<linearGradient id="mt-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#082F49"/><stop offset="60%" stop-color="#0C4A6E"/><stop offset="100%" stop-color="#0284C7"/></linearGradient>' +
+        '</defs>' +
+        '<rect width="400" height="190" fill="url(#mt-sky)"/>' +
+        '<circle cx="340" cy="38" r="17" fill="#FEF08A" opacity="0.85"/>' +
+        '<path d="M20,190 L80,65 L140,190 Z" fill="#38BDF8" opacity="0.35"/>' +
+        '<path d="M80,65 L98,95 L80,88 L62,95 Z" fill="#FFFFFF" opacity="0.85"/>' +
+        '<path d="M110,190 L190,35 L270,190 Z" fill="#0284C7" opacity="0.5"/>' +
+        '<path d="M190,35 L212,68 L190,60 L168,68 Z" fill="#FFFFFF" opacity="0.95"/>' +
+        '<path d="M240,190 L310,52 L380,190 Z" fill="#0369A1" opacity="0.6"/>' +
+        '<path d="M310,52 L328,80 L310,74 L292,80 Z" fill="#FFFFFF" opacity="0.9"/>' +
+        '<path d="M-10,190 L50,105 L120,190 Z" fill="#0F172A" opacity="0.8"/>' +
+        '<path d="M290,190 L355,98 L410,190 Z" fill="#0F172A" opacity="0.8"/>' +
+        '</svg>';
+      return theme;
+    }
+
+    if (s.includes('goa') || s.includes('gokarna') || s.includes('beach') || s.includes('coast') ||
+        s.includes('kerala') || s.includes('pondicherry') || s.includes('bali') || s.includes('maldives') ||
+        s.includes('phuket') || s.includes('sea') || s.includes('ocean') || s.includes('island') ||
+        s.includes('andaman') || s.includes('alibaug') || s.includes('varkala')) {
+      theme.tag = '🏖️ Coastal Getaway';
+      theme.place = raw;
+      theme.art = '<svg viewBox="0 0 400 190" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">' +
+        '<defs><linearGradient id="bc-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#FB923C"/><stop offset="45%" stop-color="#FDE047"/><stop offset="70%" stop-color="#38BDF8"/><stop offset="100%" stop-color="#0284C7"/></linearGradient></defs>' +
+        '<rect width="400" height="190" fill="url(#bc-sky)"/>' +
+        '<circle cx="200" cy="80" r="26" fill="#FEF08A" opacity="0.95"/>' +
+        '<path d="M0,115 L400,115 L400,190 L0,190 Z" fill="#0284C7" opacity="0.65"/>' +
+        '<path d="M0,132 C60,128 120,136 180,132 C240,128 300,136 360,132 C380,130 395,131 400,132 L400,190 L0,190 Z" fill="#0369A1" opacity="0.8"/>' +
+        '<path d="M30,190 Q36,140 48,112" stroke="#78350F" stroke-width="5" fill="none"/>' +
+        '<path d="M48,112 Q20,108 12,124 M48,112 Q32,96 30,82 M48,112 Q55,92 66,84 M48,112 Q68,100 78,112 M48,112 Q58,124 52,136" stroke="#15803D" stroke-width="3" fill="none" stroke-linecap="round"/>' +
+        '</svg>';
+      return theme;
+    }
+
+    if (s.includes('jaipur') || s.includes('udaipur') || s.includes('jaisalmer') || s.includes('jodhpur') ||
+        s.includes('rajasthan') || s.includes('desert') || s.includes('dubai') || s.includes('safari') ||
+        s.includes('palace') || s.includes('fort') || s.includes('agra')) {
+      theme.tag = '🏰 Heritage & Royal';
+      theme.place = raw;
+      theme.art = '<svg viewBox="0 0 400 190" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">' +
+        '<defs><linearGradient id="ds-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#C2410C"/><stop offset="50%" stop-color="#F59E0B"/><stop offset="100%" stop-color="#FCD34D"/></linearGradient></defs>' +
+        '<rect width="400" height="190" fill="url(#ds-sky)"/>' +
+        '<circle cx="320" cy="48" r="22" fill="#FFFBEB" opacity="0.9"/>' +
+        '<path d="M0,190 L0,150 L40,150 L40,135 C40,120 55,120 55,135 L55,150 L90,150 L90,110 C90,90 110,90 110,110 L110,150 L160,150 L160,128 C160,110 175,110 175,128 L175,150 L220,150 L220,190 Z" fill="#78350F" opacity="0.6"/>' +
+        '<path d="M0,190 Q100,135 220,165 Q310,185 400,145 L400,190 Z" fill="#B45309" opacity="0.85"/>' +
+        '</svg>';
+      return theme;
+    }
+
+    if (s.includes('mumbai') || s.includes('bangalore') || s.includes('bengaluru') || s.includes('delhi') ||
+        s.includes('london') || s.includes('singapore') || s.includes('bangkok') || s.includes('city') ||
+        s.includes('urban') || s.includes('tokyo') || s.includes('york')) {
+      theme.tag = '🏙️ City Life & Skyline';
+      theme.place = raw;
+      theme.art = '<svg viewBox="0 0 400 190" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">' +
+        '<rect width="400" height="190" fill="#1E1B4B"/>' +
+        '<circle cx="340" cy="38" r="16" fill="#E0E7FF" opacity="0.8"/>' +
+        '<rect x="20" y="95" width="28" height="95" fill="#4338CA" opacity="0.6"/>' +
+        '<rect x="55" y="70" width="35" height="120" fill="#312E81" opacity="0.8"/>' +
+        '<rect x="95" y="105" width="25" height="85" fill="#4338CA" opacity="0.7"/>' +
+        '<polygon points="135,190 145,55 155,190" fill="#6366F1" opacity="0.5"/>' +
+        '<rect x="160" y="78" width="40" height="112" fill="#312E81" opacity="0.9"/>' +
+        '<rect x="210" y="52" width="32" height="138" fill="#4338CA" opacity="0.8"/>' +
+        '<rect x="250" y="100" width="30" height="90" fill="#312E81" opacity="0.7"/>' +
+        '<rect x="290" y="75" width="38" height="115" fill="#4338CA" opacity="0.85"/>' +
+        '<rect x="335" y="110" width="45" height="80" fill="#312E81" opacity="0.9"/>' +
+        '</svg>';
+      return theme;
+    }
+
+    return theme;
+  }
+
+  /** The welcome banner shown at the top of both the join screen and the trip view. */
+  function renderHero(tripName) {
+    var theme = getTripTheme(tripName);
+    var hero = el('div', 'hero');
+    var art = el('div', 'hero-art'); art.innerHTML = theme.art;
+    var shade = el('div', 'hero-shade');
+    var inner = el('div', 'hero-inner');
+    inner.appendChild(el('span', 'hero-tag', theme.tag));
+    inner.appendChild(el('h1', 'hero-title', tripName ? 'Welcome to ' + tripName : 'Welcome'));
+    inner.appendChild(el('p', 'hero-sub', 'Kharcha Book shared trip'));
+    hero.appendChild(art); hero.appendChild(shade); hero.appendChild(inner);
+    return hero;
+  }
+
+  function showError(msg) {
+    app.innerHTML = '';
+    var box = el('div', 'center');
+    box.appendChild(el('div', null, '😕'));
+    box.appendChild(el('p', null, msg));
+    app.appendChild(box);
+  }
+
+  if (!token) { showError('This link is missing its invite code. Ask whoever sent it to resend it.'); return; }
+
+  /* ---------- Installable like a real app ----------
+     So a friend doesn't have to keep digging up the WhatsApp message: once they add this to
+     their home screen, the icon reopens straight back to this exact trip (the manifest's
+     start_url is this page's own URL, token and all) and they're still recognized automatically
+     via the guest_token already saved in their browser. */
+  (function setupInstallable() {
+    var base = location.origin + location.pathname.replace(/[^/]*$/, '');
+    var manifest = {
+      name: 'Kharcha Book — Trip',
+      short_name: 'Trip',
+      start_url: location.href,
+      scope: base,
+      display: 'standalone',
+      background_color: '#0B1120',
+      theme_color: '#0284C7',
+      icons: [
+        { src: base + 'icon-192.png', sizes: '192x192', type: 'image/png' },
+        { src: base + 'icon-512.png', sizes: '512x512', type: 'image/png' }
+      ]
+    };
+    var blob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
+    var link = document.createElement('link');
+    link.rel = 'manifest';
+    link.href = URL.createObjectURL(blob);
+    document.head.appendChild(link);
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register(base + 'sw.js').catch(function () {}); // shared with the main app; best-effort
+    }
+  })();
+
+  var deferredInstallPrompt = null;
+  window.addEventListener('beforeinstallprompt', function (ev) {
+    ev.preventDefault();
+    deferredInstallPrompt = ev;
+    var btn = document.getElementById('install-btn');
+    if (btn) btn.hidden = false;
+  });
+  function renderInstallRow(container) {
+    // Running standalone already (installed and opened from the home screen) -- nothing to offer.
+    if (window.matchMedia('(display-mode: standalone)').matches || navigator.standalone) return;
+    var row = el('div', 'install-row');
+    var p = el('p', null, 'Add this to your home screen so you don\'t need to find this link again.');
+    var btn = el('button', 'ghost', '📲 Install');
+    btn.id = 'install-btn';
+    btn.hidden = !deferredInstallPrompt; // shown once the browser offers it (Chrome/Edge); hidden otherwise
+    btn.addEventListener('click', function () {
+      if (!deferredInstallPrompt) return;
+      deferredInstallPrompt.prompt();
+      deferredInstallPrompt.userChoice.finally(function () { deferredInstallPrompt = null; btn.hidden = true; });
+    });
+    row.appendChild(p); row.appendChild(btn);
+    container.appendChild(row);
+    // Safari/iOS never fires beforeinstallprompt -- tell them the manual way instead of showing nothing.
+    if (/iphone|ipad|ipod/i.test(navigator.userAgent) && !navigator.standalone) {
+      p.textContent = 'Add this to your home screen: tap Share, then "Add to Home Screen".';
+      btn.hidden = true;
+    }
+  }
+  if (!CFG || !window.supabase) { showError('Could not load Kharcha Book. Check your connection and reload.'); return; }
+
+  var sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
+  var storeKey = 'kharcha_guest_' + token;
+
+  function savedMembership() {
+    try { return JSON.parse(localStorage.getItem(storeKey) || 'null'); } catch (e) { return null; }
+  }
+  function saveMembership(m) {
+    try { localStorage.setItem(storeKey, JSON.stringify(m)); } catch (e) {}
+  }
+
+  function join(displayName, existingGuestToken) {
+    return sb.rpc('trip_join', {
+      p_invite_token: token,
+      p_display_name: displayName || null,
+      p_existing_guest_token: existingGuestToken || null
+    }).then(function (res) {
+      if (res.error) throw res.error;
+      var row = res.data && res.data[0];
+      if (!row) throw new Error('Could not join this trip.');
+      return row;
+    });
+  }
+
+  function renderJoinForm(tripName) {
+    app.innerHTML = '';
+    app.appendChild(renderHero(tripName));
+    var card = el('div', 'card');
+    card.appendChild(el('p', 'sub', "Enter your name to see what's been spent and add your own."));
+    var field = el('div', 'field');
+    var label = el('label', null, 'Your name');
+    var input = el('input'); input.placeholder = 'e.g. Rohit'; input.maxLength = 40;
+    field.appendChild(label); field.appendChild(input);
+    card.appendChild(field);
+    var err = el('p', 'err'); err.hidden = true;
+    var btn = el('button', 'primary', 'Join trip');
+    btn.addEventListener('click', function () {
+      var name = input.value.trim();
+      if (!name) { err.textContent = 'Enter your name.'; err.hidden = false; return; }
+      btn.disabled = true; err.hidden = true;
+      join(name, null).then(function (row) {
+        saveMembership({ guest_token: row.guest_token, display_name: row.display_name });
+        renderTrip(row.trip_name);
+      }).catch(function (e) {
+        err.textContent = (e && e.message) || 'Could not join. Try again.';
+        err.hidden = false;
+        btn.disabled = false;
+      });
+    });
+    input.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') btn.click(); });
+    card.appendChild(err); card.appendChild(btn);
+    app.appendChild(card);
+    input.focus();
+  }
+
+  function renderTrip(tripName) {
+    var membership = savedMembership();
+    app.innerHTML = '';
+
+    app.appendChild(renderHero(tripName));
+    var head = el('div');
+    head.appendChild(el('p', 'sub', 'You: ' + (membership ? membership.display_name : '')));
+    app.appendChild(head);
+
+    var summaryCard = el('div', 'card');
+    var totalEl = el('p', 'total', '₹0');
+    var noteEl = el('p', 'total-note', 'Loading…');
+    summaryCard.appendChild(totalEl); summaryCard.appendChild(noteEl);
+    app.appendChild(summaryCard);
+
+    var byPersonCard = el('div', 'card');
+    var byPersonHeading = el('h2', null, 'Who\'s spent what');
+    byPersonHeading.style.margin = '0 0 10px';
+    byPersonHeading.style.fontSize = '1rem';
+    byPersonCard.appendChild(byPersonHeading);
+    var byPersonList = el('ul', 'list');
+    byPersonCard.appendChild(byPersonList);
+    app.appendChild(byPersonCard);
+
+    var listCard = el('div', 'card');
+    var listHeading = el('h2', null, 'All expenses');
+    listHeading.style.margin = '0 0 10px';
+    listHeading.style.fontSize = '1rem';
+    listCard.appendChild(listHeading);
+    var listEl = el('ul', 'list');
+    listCard.appendChild(listEl);
+    app.appendChild(listCard);
+
+    var addCard = el('div', 'card');
+    var addHeading = el('h2', null, '+ Add your expense');
+    addHeading.style.margin = '0 0 12px';
+    addHeading.style.fontSize = '1rem';
+    addCard.appendChild(addHeading);
+    var amtField = el('div', 'field');
+    amtField.appendChild(el('label', null, 'Amount'));
+    var amtInput = el('input'); amtInput.inputMode = 'decimal'; amtInput.placeholder = '0';
+    amtField.appendChild(amtInput);
+    var descField = el('div', 'field');
+    descField.appendChild(el('label', null, 'What was it?'));
+    var descInput = el('input'); descInput.maxLength = 80; descInput.placeholder = 'e.g. Lunch, Cab, Hotel share';
+    descField.appendChild(descInput);
+    var addErr = el('p', 'err'); addErr.hidden = true;
+    var addBtn = el('button', 'primary', 'Add expense');
+    addCard.appendChild(amtField); addCard.appendChild(descField); addCard.appendChild(addErr); addCard.appendChild(addBtn);
+    app.appendChild(addCard);
+
+    var installCard = el('div', 'card');
+    renderInstallRow(installCard);
+    if (installCard.children.length) app.appendChild(installCard);
+
+    var brand = el('p', 'brand');
+    brand.innerHTML = 'Powered by Kharcha Book';
+    app.appendChild(brand);
+
+    function refresh() {
+      sb.rpc('trip_summary', { p_invite_token: token }).then(function (res) {
+        if (res.error || !res.data || !res.data.length) throw res.error || new Error('no data');
+        var s = res.data[0];
+        totalEl.textContent = money(s.total);
+        noteEl.textContent = (s.expense_count || 0) + (s.expense_count === 1 ? ' expense logged' : ' expenses logged');
+        var items = s.expenses || [];
+
+        // Who's spent what: a running per-person total, lowest contributor to highest.
+        byPersonList.innerHTML = '';
+        if (!items.length) {
+          byPersonList.appendChild(el('li', 'empty', 'Nobody has added anything yet.'));
+        } else {
+          var byPerson = {};
+          items.forEach(function (e) { byPerson[e.added_by_name] = (byPerson[e.added_by_name] || 0) + Number(e.amount); });
+          Object.keys(byPerson).sort(function (a, b) { return byPerson[b] - byPerson[a]; }).forEach(function (name) {
+            var row = el('li', 'row');
+            row.appendChild(el('span', 'row-desc', name));
+            row.appendChild(el('span', 'row-amt', money(byPerson[name])));
+            byPersonList.appendChild(row);
+          });
+        }
+
+        listEl.innerHTML = '';
+        if (!items.length) {
+          listEl.appendChild(el('li', 'empty', 'No expenses yet -- be the first to add one.'));
+        } else {
+          items.forEach(function (e) {
+            var row = el('li', 'row');
+            var l = el('div', 'row-l');
+            l.appendChild(el('span', 'row-desc', e.description));
+            l.appendChild(el('span', 'row-meta', e.added_by_name + ' · ' + new Date(e.spent_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })));
+            row.appendChild(l);
+            row.appendChild(el('span', 'row-amt', money(e.amount)));
+            listEl.appendChild(row);
+          });
+        }
+      }).catch(function () {
+        noteEl.textContent = 'Could not load the latest numbers -- showing what we last saw.';
+      });
+    }
+
+    addBtn.addEventListener('click', function () {
+      var amt = parseFloat((amtInput.value || '').replace(/,/g, ''));
+      var desc = descInput.value.trim();
+      addErr.hidden = true;
+      if (!amt || amt <= 0) { addErr.textContent = 'Enter an amount greater than zero.'; addErr.hidden = false; return; }
+      if (!desc) { addErr.textContent = 'Add a short description.'; addErr.hidden = false; return; }
+      addBtn.disabled = true;
+      sb.rpc('trip_add_expense', {
+        p_invite_token: token, p_guest_token: membership.guest_token,
+        p_amount: amt, p_description: desc
+      }).then(function (res) {
+        if (res.error) throw res.error;
+        amtInput.value = ''; descInput.value = '';
+        refresh();
+      }).catch(function (e) {
+        addErr.textContent = (e && e.message) || 'Could not save. Try again.';
+        addErr.hidden = false;
+      }).finally(function () { addBtn.disabled = false; });
+    });
+    descInput.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') addBtn.click(); });
+
+    refresh();
+    // Lightweight auto-refresh while the page is open and visible -- good enough until a later
+    // phase adds Supabase Realtime instead of polling.
+    var timer = setInterval(function () { if (!document.hidden) refresh(); }, 20000);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) refresh(); });
+    window.addEventListener('beforeunload', function () { clearInterval(timer); });
+  }
+
+  // Entry point: recognize a returning guest via their saved token, else ask for a name.
+  var existing = savedMembership();
+  if (existing && existing.guest_token) {
+    join(null, existing.guest_token).then(function (row) {
+      saveMembership({ guest_token: row.guest_token, display_name: row.display_name });
+      renderTrip(row.trip_name);
+    }).catch(function () {
+      // Saved token no longer valid (link regenerated, etc.) -- fall back to joining fresh.
+      renderJoinForm();
+    });
+  } else {
+    // Still worth checking the token is live before asking for a name, so a dead link fails
+    // fast with a clear reason instead of after someone's typed their name. Also gets the trip's
+    // real name for the welcome hero, before anyone has joined yet.
+    sb.rpc('trip_summary', { p_invite_token: token }).then(function (res) {
+      if (res.error) throw res.error;
+      renderJoinForm(res.data && res.data[0] && res.data[0].trip_name);
+    }).catch(function (e) {
+      showError((e && e.message) || "This trip link isn't active anymore. Ask them to resend it.");
+    });
+  }
+})();

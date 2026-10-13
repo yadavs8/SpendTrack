@@ -78,7 +78,8 @@ class SmsReceiver : BroadcastReceiver() {
                             PromptReconciler.resolveIfEnteredByHand(context.applicationContext, txn.id)
                         if (!answered) {
                             val activeTrip = ServiceLocator.settingsManager.activeTripNameFlow.first()
-                            ExpensePromptNotifier.announce(context.applicationContext, txn, activeTrip)
+                            val knownTrips = ServiceLocator.transactionRepository.getAllKnownTrips()
+                            ExpensePromptNotifier.announce(context.applicationContext, txn, activeTrip, knownTrips)
                         }
                     }
                     runCatching { com.spendtrack.app.widget.KharchaWidget.refresh(context.applicationContext) }
@@ -86,11 +87,14 @@ class SmsReceiver : BroadcastReceiver() {
                     if (txn.transactionType == com.spendtrack.app.core.model.TransactionType.EXPENSE && !txn.isExcluded) {
                         runCatching { com.spendtrack.app.core.automation.AutomationRunner.checkBudgets(context.applicationContext) }
                     }
-                } else if (result is DeduplicationEngine.DeduplicationResult.MergedWithExisting &&
-                    result.updatedTransaction.transactionType == com.spendtrack.app.core.model.TransactionType.INTERNAL_TRANSFER) {
-                    NudgeScheduler.cancel(context.applicationContext, result.updatedTransaction.id)
-                    ExpensePromptNotifier.dismiss(context.applicationContext, result.updatedTransaction.id)
-                    ServiceLocator.cloudSyncRepository.syncPending()
+                } else if (result is DeduplicationEngine.DeduplicationResult.MergedWithExisting) {
+                    val merged = result.updatedTransaction
+                    if (!merged.needsReview || merged.isExcluded ||
+                        merged.transactionType == com.spendtrack.app.core.model.TransactionType.INTERNAL_TRANSFER) {
+                        NudgeScheduler.cancel(context.applicationContext, merged.id)
+                        ExpensePromptNotifier.dismiss(context.applicationContext, merged.id)
+                        ServiceLocator.cloudSyncRepository.syncPending()
+                    }
                 }
             } catch (e: Exception) {
                 SafeLogger.e("Error processing incoming SMS", e)

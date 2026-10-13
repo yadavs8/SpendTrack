@@ -67,6 +67,23 @@ class CloudSyncRepository(
                 if (del.isSuccess) transactionDao.markCloudDeleted(gone.id)
             }
 
+            // Ensure all Lavish Kirana Store expenses live in Family locally and re-sync if they have a ref.
+            for (kirana in transactionDao.getUnmovedLavishKiranaExpenses()) {
+                val hasRef = !kirana.upiReference.isNullOrBlank() || !kirana.bankReference.isNullOrBlank()
+                val familyDesc = com.spendtrack.app.core.model.ExpenseScope.describe(
+                    kirana.merchantName, kirana.description, kirana.isEdited, com.spendtrack.app.core.model.ExpenseScope.FAMILY
+                )
+                transactionDao.updateTransaction(
+                    kirana.copy(
+                        description = familyDesc,
+                        needsReview = false,
+                        isEdited = true,
+                        syncedToCloud = if (hasRef) false else kirana.syncedToCloud,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                )
+            }
+
             val pending = transactionDao.getUnsyncedExpenses()
             if (pending.isEmpty()) {
                 // Nothing left to send is itself a successful sync (e.g. right after a fresh

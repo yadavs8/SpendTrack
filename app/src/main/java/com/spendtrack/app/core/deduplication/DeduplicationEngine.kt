@@ -8,7 +8,7 @@ import kotlin.math.abs
 
 class DeduplicationEngine(
     private val transactionDao: TransactionDao,
-    private val timeWindowMillis: Long = 5 * 60 * 1000L // 5 minutes window
+    private val timeWindowMillis: Long = 15 * 60 * 1000L // 15 minutes window
 ) {
 
     sealed class DeduplicationResult {
@@ -23,25 +23,31 @@ class DeduplicationEngine(
     ): DeduplicationResult {
         val startWindow = parsed.dateTime - timeWindowMillis
         val endWindow = parsed.dateTime + timeWindowMillis
+        val parsedRef = parsed.upiReference?.takeIf { it.isNotBlank() }
+            ?: parsed.bankReference?.takeIf { it.isNotBlank() }
 
         // Search for potential candidate transactions in DB
         val candidates = transactionDao.findPotentialDuplicates(
             amount = parsed.amount,
             startWindow = startWindow,
             endWindow = endWindow,
-            upiRef = parsed.upiReference
+            upiRef = parsedRef
         )
 
         for (candidate in candidates) {
-            // Different UPI references = two real payments (e.g. paying ₹90 twice), never merge them.
-            if (!parsed.upiReference.isNullOrBlank() && !candidate.upiReference.isNullOrBlank() &&
-                candidate.upiReference != parsed.upiReference) continue
+            val candidateRef = candidate.upiReference?.takeIf { it.isNotBlank() }
+                ?: candidate.bankReference?.takeIf { it.isNotBlank() }
 
-            val isExactRefMatch = !parsed.upiReference.isNullOrBlank() &&
-                    candidate.upiReference == parsed.upiReference
+            // Different UPI/bank references = two real payments (e.g. paying ₹90 twice), never merge them.
+            if (!parsedRef.isNullOrBlank() && !candidateRef.isNullOrBlank() &&
+                candidateRef != parsedRef) continue
+
+            val isExactRefMatch = !parsedRef.isNullOrBlank() && candidateRef == parsedRef
 
             val isSameAmount = candidate.amount == parsed.amount
-            val isWithinWindow = abs(candidate.dateTime - parsed.dateTime) <= timeWindowMillis
+            val timeDiff = abs(candidate.dateTime - parsed.dateTime)
+            val isWithinWindow = timeDiff <= timeWindowMillis
+            val isWithin10Min = timeDiff <= 10 * 60 * 1000L
             val isExactMerchant = isExactMerchantMatch(candidate.merchantName, normalizedMerchant)
             val isFuzzyMerchant = isFuzzyMerchantMatch(candidate.merchantName, normalizedMerchant)
             val isMerchantMatch = isExactMerchant || isFuzzyMerchant || candidate.merchantName.isNullOrBlank() || normalizedMerchant.isBlank()
@@ -50,30 +56,24 @@ class DeduplicationEngine(
                     !candidate.accountLast4.isNullOrBlank() &&
                     candidate.accountLast4 != parsed.accountLast4
 
-            val hasConflictingRef = !parsed.upiReference.isNullOrBlank() &&
-                    !candidate.upiReference.isNullOrBlank() &&
-                    candidate.upiReference != parsed.upiReference
+            val hasConflictingRef = !parsedRef.isNullOrBlank() &&
+                    !candidateRef.isNullOrBlank() &&
+                    candidateRef != parsedRef
 
-            // Candidate and parsed source analysis for dual ingestion pairing
+            // Candidate and parsed source analysis for dual ingestion pairing (e.g., GPay notification + Bank SMS)
             val candidateIsUpiApp = candidate.sourcePackage != null && com.spendtrack.app.core.parser.TransactionParser.MONITORED_UPI_PACKAGES.contains(candidate.sourcePackage)
             val parsedIsUpiApp = parsed.sourcePackage != null && com.spendtrack.app.core.parser.TransactionParser.MONITORED_UPI_PACKAGES.contains(parsed.sourcePackage)
+            val isComplementaryDualSource = (candidateIsUpiApp != parsedIsUpiApp) || (candidate.source != parsed.source)
 
-            // Comprehensive merge conditions:
-            // 1. Exact UPI reference / UTR match
-            // 2. Same amount within 5 min for same merchant with no conflicting ref or account (catches repeated notification updates, PhonePe/GPay updates, and SMS)
-            // Without any ref on either side, "same merchant" falling back to "merchant is blank"
-            // is not real evidence -- two genuinely separate ₹50 autos with no UTR yet must NOT
-            // merge into one. Require either a ref on at least one side, or an actual (non-blank)
-            // merchant match, before the no-ref heuristic is allowed to merge.
-            val hasAnyRefEvidence = !parsed.upiReference.isNullOrBlank() || !candidate.upiReference.isNullOrBlank()
+            val hasAnyRefEvidence = !parsedRef.isNullOrBlank() || !candidateRef.isNullOrBlank()
             val hasRealMerchantMatch = isExactMerchant || isFuzzyMerchant
             val heuristicMergeAllowed = hasAnyRefEvidence || hasRealMerchantMatch
-            // Money in and money out are never the same event unless the bank ref says so (the
-            // two legs of a self-transfer share one ref -- merging those is exactly right).
             val sameDirection = isIncoming(candidate.transactionType) == isIncoming(parsed.transactionType)
             val shouldMerge = isExactRefMatch || (
-                sameDirection && isSameAmount && isWithinWindow && isMerchantMatch && !hasConflictingRef &&
-                    !hasConflictingAccount && heuristicMergeAllowed
+                sameDirection && isSameAmount && !hasConflictingRef && !hasConflictingAccount && (
+                    (isWithinWindow && isMerchantMatch && heuristicMergeAllowed) ||
+                    (isWithin10Min && hasAnyRefEvidence && (isComplementaryDualSource || !candidate.needsReview))
+                )
             )
 
             // A refund can quote the original payment's ref; it is matched to that expense later, not merged.

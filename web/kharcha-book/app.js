@@ -108,7 +108,7 @@
 
   function isTransferEntry(e) { return !!e && /^\s*\u{1F501}/u.test(e.desc || ''); }
   function isExpense(e) {
-    return !isIncome(e) && !isTransferEntry(e) && !isInvestment(e) && !isCashWithdrawal(e) && !isWalletTopup(e) && !(e && e.kind === 'transfer');
+    return !isIncome(e) && !isTransferEntry(e) && !isInvestment(e) && !isTripEntry(e) && !isCashWithdrawal(e) && !isWalletTopup(e) && !(e && e.kind === 'transfer');
   }
 
   /* ---------- Cash wallet ---------- */
@@ -176,7 +176,7 @@
     if (isProjectMotherPaid(d)) return false;
     // If it's a project entry paid by User, it IS included in family settlement reimbursement!
     if (isProjectEntry(d)) return true;
-    return d.includes('🏠') || d.includes('family') || d.includes('niece') || d.includes('electricity') || d.includes('gas') || d.includes('bill');
+    return d.includes('🏠') || d.includes('family') || d.includes('niece') || d.includes('electricity') || d.includes('gas') || d.includes('bill') || d.includes('lavish kirana');
   }
 
   function getEntryScope(e) {
@@ -292,7 +292,7 @@
   // A UPI "pay me" link the other person taps on their phone; amount and note come pre-filled.
   function upiPayLink(vpa, name, amount, note) {
     return 'upi://pay?pa=' + encodeURIComponent(vpa) + '&pn=' + encodeURIComponent(name || 'Kharcha Book') +
-      '&am=' + Number(amount).toFixed(2) + '&cu=INR&tn=' + encodeURIComponent(note || 'Settle up');
+      '&am=' + Number(amount).toFixed(2) + '&cu=' + 'INR&tn=' + encodeURIComponent(note || 'Settle up');
   }
   // WhatsApp does not linkify upi:// everywhere, so the UPI ID and amount are spelled out too.
   function settleMessage(toName, amount, reason, myVpa) {
@@ -359,6 +359,7 @@
   }
   function rememberMerchantScope(desc, scope) {
     if (!desc || !scope) return;
+    if (/lavish\s+kirana/i.test(desc)) scope = 'family';
     var core = extractMerchantCore(desc);
     if (!core || core.length < 2) return;
     var map = merchantScopeMap();
@@ -367,6 +368,7 @@
   }
   function predictMerchantScope(desc) {
     if (!desc) return null;
+    if (/lavish\s+kirana/i.test(desc)) return 'family';
     var core = extractMerchantCore(desc);
     if (!core) return null;
     var map = merchantScopeMap();
@@ -394,11 +396,35 @@
     return 'Me';
   }
 
+  /** The subset of trip-mates a specific entry was split between ("[Split: Bijoy, Rohan]"), or
+     null when it wasn't tagged -- meaning "split across everyone", the original default. */
+  function parseTripSplit(desc) {
+    if (!desc) return null;
+    var m = String(desc).match(/\[Split: ([^\]]+)\]/i);
+    if (!m || !m[1]) return null;
+    var names = m[1].split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    return names.length ? names : null;
+  }
+
+  function extractTripNameFromDesc(desc) {
+    if (!desc) return '';
+    var m = String(desc).match(/^[✈\u{2708}\u{FE0F}\u{1F6EB}\u{1F6EC}]+\s*([^:\[]+):/u);
+    return m && m[1] ? m[1].trim() : '';
+  }
+
   function getTripSummary(monthEntries, tripName, explicitFriends) {
     var filterName = (tripName || '').trim().toLowerCase();
+    var allNamedTrips = getAllTrips().filter(function (t) { return t.toLowerCase() !== 'trip'; });
     var list = (monthEntries || []).filter(function (e) {
-      if (!isExpense(e) || !isTripEntry(e)) return false;
+      if (!isTripEntry(e) || isIncome(e) || isTransferEntry(e) || isInvestment(e)) return false;
       if (!filterName) return true;
+      var entryTrip = extractTripNameFromDesc(e.desc).toLowerCase();
+      if (entryTrip && entryTrip !== 'trip') {
+        return entryTrip === filterName;
+      }
+      if (entryTrip === 'trip' && allNamedTrips.length <= 1) {
+        return true;
+      }
       var d = (e.desc || '').toLowerCase();
       return d.includes(filterName);
     });
@@ -426,27 +452,48 @@
     });
 
     // If explicitFriends wasn't passed and only Me paid or binary Friend
-    var allParticipants = Array.from(friendSet);
-    if (allParticipants.length === 1 && allParticipants[0] === 'Me' && (!explicitFriends || !explicitFriends.length)) {
+    var seedParticipants = Array.from(friendSet);
+    if (seedParticipants.length === 1 && seedParticipants[0] === 'Me' && (!explicitFriends || !explicitFriends.length)) {
       // Default to 2 people (Me & Friend) for 50/50 balance preview
       if (list.some(function (e) { return parseTripPayer(e.desc) !== 'Me'; })) {
-        allParticipants.push('Friend');
+        seedParticipants.push('Friend');
       }
     }
+
+    var KL = window.KharchaLedger;
+    // Splitwise-style: each expense is only divided between whoever it was actually tagged for
+    // (a round of drinks just two of five people had), not blindly across every trip participant.
+    // Untagged entries (no "[Split: ...]", and nothing yet for guest-added ones that predate this)
+    // fall back to splitting across everyone, same as the app always did before this.
+    var settled = KL ? KL.tripSettlement(
+      list.map(function (e) {
+        return {
+          id: e.id,
+          label: KL.tripItemLabel(e.desc),
+          amount: e.amount,
+          payer: parseTripPayer(e.desc),
+          splitAmong: e.splitAmong || parseTripSplit(e.desc)
+        };
+      }),
+      seedParticipants
+    ) : null;
+
+    var allParticipants = settled ? settled.people.map(function (p) { return p.name; }) : seedParticipants;
+    var meFirst = function (a, b) { return a === 'Me' ? -1 : b === 'Me' ? 1 : 0; };
+    allParticipants.sort(meFirst);
+
     var numPeople = Math.max(1, allParticipants.length);
+    // A single rough "if split evenly" figure for display (the per-head badge) -- the real,
+    // possibly-uneven share each person actually owes lives in balances[].share below.
     var perPersonShare = totalSpent > 0 ? Math.round((totalSpent * 100) / numPeople) / 100 : 0;
 
-    // Balances breakdown
-    var balances = allParticipants.map(function (person) {
-      var paid = payerTotals[person] || 0;
-      var net = (paid * 100 - perPersonShare * 100) / 100;
-      return {
-        name: person,
-        paid: paid,
-        share: perPersonShare,
-        net: net // > 0: gets back from group, < 0: owes to group
-      };
-    });
+    var balances = settled
+      ? settled.people.map(function (p) { return { name: p.name, paid: p.paid, share: p.share, net: p.net }; }).sort(meFirst)
+      : allParticipants.map(function (person) {
+          var paid = payerTotals[person] || 0;
+          var net = (paid * 100 - perPersonShare * 100) / 100;
+          return { name: person, paid: paid, share: perPersonShare, net: net };
+        });
 
     // Backward-compatible properties for 2-party view
     var paidByMe = payerTotals['Me'] || 0;
@@ -455,12 +502,21 @@
     var paidByFriend = friendEntries.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
     var netDiff = (paidByMe * 100 - paidByFriend * 100) / 200;
 
+    var categories = (KL && KL.tripCategoriesSummary) ? KL.tripCategoriesSummary(list) : {
+      stay: { key: 'stay', name: 'Stay Expenses', emoji: '🏨', total: 0, count: 0, items: [] },
+      fuel: { key: 'fuel', name: 'Fuel Expenses', emoji: '⛽', total: 0, count: 0, items: [] },
+      food: { key: 'food', name: 'Food Expenses', emoji: '🍔', total: 0, count: 0, items: [] },
+      beverages: { key: 'beverages', name: 'Beverages', emoji: '🍻', total: 0, count: 0, items: [] },
+      other: { key: 'other', name: 'Activities & Other', emoji: '🎟️', total: 0, count: 0, items: [] }
+    };
+
     return {
       entries: list,
       totalSpent: totalSpent,
       itemsCount: list.length,
       daysCount: numDays,
       dailyAvg: dailyAvg,
+      categories: categories,
       participants: allParticipants,
       perPersonShare: perPersonShare,
       balances: balances,
@@ -475,7 +531,7 @@
   function getPersonalCashFlow(monthEntries) {
     var list = monthEntries || [];
     var salaries = list.filter(function (e) { return isSalary(e); }).reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
-    var personalExpenses = list.filter(function (e) { return isExpense(e) && !isFamilyEntry(e.desc); });
+    var personalExpenses = list.filter(function (e) { return isExpense(e) && !isFamilyEntry(e.desc) && !isTripEntry(e); });
     // ATM cash not yet itemised is still money spent (see isCashWithdrawal).
     var personalSpent = (personalExpenses.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) + paise(cashSummary(list).unaccounted)) / 100;
     var investments = list.filter(isInvestment);
@@ -1056,7 +1112,7 @@
 
   var CATEGORY_RULES = [
     { re: /swiggy|zomato|\beats\b|\bfood\b|restaurant|\bcafe\b|domino|pizza/i, emoji: '🍔', label: function (p) { return 'Food & Dining (' + p + ')'; }, scope: 'personal' },
-    { re: /zepto|blinkit|instamart|grocery|dmart|supermarket|bigbasket|bazaar/i, emoji: '🛒', label: function (p) { return 'General Grocery (' + p + ')'; }, scope: 'family' },
+    { re: /zepto|blinkit|instamart|grocery|dmart|supermarket|bigbasket|bazaar|kirana/i, emoji: '🛒', label: function (p) { return 'General Grocery (' + p + ')'; }, scope: 'family' },
     { re: /electricity|bescom|tata power|torrent power|light bill/i, emoji: '⚡', label: function () { return 'Electricity Bill'; }, scope: 'family' },
     { re: /\bgas\b|indane|bharat ?gas|cylinder/i, emoji: '🔥', label: function () { return 'Gas Bill'; }, scope: 'family' },
     { re: /airtel|\bjio\b|\bvi\b|vodafone|wifi|broadband|recharge/i, emoji: '📱', label: function () { return 'Mobile & WiFi'; }, scope: 'personal' },
@@ -1178,7 +1234,7 @@
 
       var lower = clean.toLowerCase();
       if (clean.indexOf('💵 Unaccounted cash') === 0) categoryName = '💵 Unaccounted cash';
-      else if (clean.includes('🛒') || lower.includes('grocery') || lower.includes('supermarket') || lower.includes('dmart') || lower.includes('zepto') || lower.includes('blinkit') || lower.includes('instamart') || lower.includes('bigbasket')) categoryName = '🛒 Grocery';
+      else if (clean.includes('🛒') || lower.includes('grocery') || lower.includes('supermarket') || lower.includes('dmart') || lower.includes('zepto') || lower.includes('blinkit') || lower.includes('instamart') || lower.includes('bigbasket') || lower.includes('kirana')) categoryName = '🛒 Grocery';
       else if (clean.includes('🥦') || lower.includes('vegetable') || lower.includes('sabzi') || lower.includes('fruits')) categoryName = '🥦 Vegetables';
       else if (clean.includes('🥛') || lower.includes('milk') || lower.includes('doodh') || lower.includes('dairy') || lower.includes('paneer') || lower.includes('curd')) categoryName = '🥛 Milk & Dairy';
       else if (clean.includes('⚡') || lower.includes('electricity') || lower.includes('power') || lower.includes('bescom') || lower.includes('light bill')) categoryName = '⚡ Electricity Bill';
@@ -1240,7 +1296,7 @@
     parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, parseSMSDate: parseSMSDate, findDuplicate: findDuplicate, categoryBreakdown: categoryBreakdown, monthCompare: monthCompare,
     isIncome: isIncome, isMotherSettlement: isMotherSettlement, isMotherPension: isMotherPension, isSalary: isSalary, isExpense: isExpense, isInvestment: isInvestment, getFamilySettlement: getFamilySettlement, getPersonalCashFlow: getPersonalCashFlow,
     isProjectEntry: isProjectEntry, isProjectMotherPaid: isProjectMotherPaid, getProjectSummary: getProjectSummary,
-    isTripEntry: isTripEntry, getTripSummary: getTripSummary, parseTripPayer: parseTripPayer,
+    isTripEntry: isTripEntry, getTripSummary: getTripSummary, parseTripPayer: parseTripPayer, getTripTheme: getTripTheme,
     getAllTrips: getAllTrips, getTripFriends: getTripFriends, addTripFriend: addTripFriend, removeTripFriend: removeTripFriend,
     getEntryScope: getEntryScope, shiftScopeDesc: shiftScopeDesc,
     rememberMerchantScope: rememberMerchantScope, predictMerchantScope: predictMerchantScope,
@@ -1913,9 +1969,9 @@
   }
 
   /* ---------- render ---------- */
-  // Expenses of one month after the scope tab and search box are applied.
+  // Expenses of one month after the scope tab and search box are applied (excludes Trip entries, which live exclusively in Trips).
   function visibleEntries(key) {
-    var list = state.entries.filter(function (e) { return monthKey(e.ts) === key && isExpense(e); });
+    var list = state.entries.filter(function (e) { return monthKey(e.ts) === key && isExpense(e) && !isTripEntry(e); });
     if (state.scopeFilter === 'personal') {
       list = list.filter(function (e) { return !isFamilyEntry(e.desc); });
     } else if (state.scopeFilter === 'family') {
@@ -2077,7 +2133,7 @@
 
     // Cash Flow & Streams calculation for state.sel month
     var allMonthEntries = state.entries.filter(function (e) { return monthKey(e.ts) === state.sel; });
-    var monthExpenses = allMonthEntries.filter(isExpense);
+    var monthExpenses = allMonthEntries.filter(function (e) { return isExpense(e) && !isTripEntry(e); });
     var monthIncomings = allMonthEntries.filter(isIncome);
     var monthInvestments = allMonthEntries.filter(isInvestment);
     var settlement = getFamilySettlement(allMonthEntries);
@@ -2085,7 +2141,11 @@
     var projSummary = getProjectSummary(allMonthEntries);
     var curViewTrip = getSelectedViewTripName();
     var curViewFriends = curViewTrip ? getTripFriends(curViewTrip) : ['Me'];
-    var tripSummary = getTripSummary(allMonthEntries, curViewTrip, curViewFriends);
+    // Friends' spending added via the WhatsApp link, folded in so totals, categories and the
+    // split/settle-up math all include it automatically -- not shown as a separate side number.
+    if (curViewTrip) fetchGuestTripEntries(curViewTrip);
+    var entriesWithGuestTrip = curViewTrip ? state.entries.concat(getGuestTripEntries(curViewTrip)) : state.entries;
+    var tripSummary = getTripSummary(entriesWithGuestTrip, curViewTrip, curViewFriends);
 
     renderCashFlow(cashFlow, settlement);
     renderStreamSwitcher(monthExpenses.length, monthIncomings.length, projSummary.entries.length, monthInvestments.length, tripSummary.entries.length);
@@ -2108,7 +2168,16 @@
     renderSettlementView(settlement);
     renderProjectView(projSummary);
     renderInvestmentsView(monthInvestments);
-    renderTripsView(tripSummary, allMonthEntries);
+    // The active-trip banner (shown on the Spends tab) computes its own total for whichever trip
+    // is active, which may differ from the trip currently being viewed on the Trips tab -- make
+    // sure its guest entries are fetched/merged too, not just the viewed trip's.
+    var activeTripForBanner = getActiveTripName();
+    if (activeTripForBanner && activeTripForBanner !== curViewTrip) fetchGuestTripEntries(activeTripForBanner);
+    var entriesForTripsView = entriesWithGuestTrip;
+    if (activeTripForBanner && activeTripForBanner !== curViewTrip) {
+      entriesForTripsView = entriesForTripsView.concat(getGuestTripEntries(activeTripForBanner));
+    }
+    renderTripsView(tripSummary, entriesForTripsView);
 
     renderSync();
     try { document.dispatchEvent(new Event('kharcha:render')); } catch (e) {}
@@ -2837,17 +2906,29 @@
   function scopeWord(entryDesc) { return /^\s*[🏠👤📈✈🔨💼👵💰👛]/u.test(entryDesc || ''); }
   function ordinal(n) { var s = ['th', 'st', 'nd', 'rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
 
-  // Recognises payees by name ("Jagroop Shoshri Chand" is the milk vendor) and files them once, keeping the original name.
+  // Recognises payees by name ("Jagroop Shoshri Chand" is the milk vendor; "Lavish Kirana Store" is always Family) and files them once.
   async function applyRulesToEntries() {
     var KL = window.KharchaLedger;
     if (!KL || !state.entries.length) return;
     var rules = loadRules(), since = Date.now() - 120 * 86400000, done = {}, n = 0;
     for (var i = 0; i < state.entries.length && n < 40; i++) {
       var e = state.entries[i];
-      if (!e || e.synthetic || e.ts < since || !isExpense(e) || scopeWord(e.desc)) continue;
+      if (!e || e.synthetic || !isExpense(e) || isTripEntry(e)) continue;
+      var dLower = String(e.desc || '').toLowerCase();
+      // All Lavish Kirana Store expenses must live in Family; move any Personal / untagged ones to Family
+      if (dLower.indexOf('lavish kirana') >= 0 && !/^\s*🏠/u.test(e.desc || '')) {
+        var kiranaDesc = shiftScopeDesc(e.desc, 'family');
+        if (kiranaDesc !== e.desc) {
+          try { await store.update(e.id, { amount: e.amount, desc: kiranaDesc, spent_at: new Date(e.ts).toISOString() }); n++; done['Lavish Kirana Store'] = (done['Lavish Kirana Store'] || 0) + 1; } catch (err) { break; }
+        }
+        continue;
+      }
+      if (e.ts < since || scopeWord(e.desc)) continue;
       var r = KL.matchRule(e.desc, rules, { amount: e.amount, ts: e.ts });
-      if (!r || String(e.desc).toLowerCase().indexOf(r.name.toLowerCase()) >= 0) continue;
-      var nd = shiftScopeDesc(r.name + ' (' + String(e.desc).replace(/\s+/g, ' ').trim() + ')', r.scope);
+      if (!r) continue;
+      var hasRuleName = dLower.indexOf(r.name.toLowerCase()) >= 0;
+      var nd = shiftScopeDesc(hasRuleName ? String(e.desc).replace(/\s+/g, ' ').trim() : (r.name + ' (' + String(e.desc).replace(/\s+/g, ' ').trim() + ')'), r.scope);
+      if (nd === e.desc) continue;
       try { await store.update(e.id, { amount: e.amount, desc: nd, spent_at: new Date(e.ts).toISOString() }); n++; done[r.name] = (done[r.name] || 0) + 1; } catch (err) { break; }
     }
     if (n) toast('Recognised ' + Object.keys(done).join(', '));
@@ -2935,7 +3016,13 @@
     try {
       var res = KL.findDuplicates(state.entries, Date.now(), 45), gone = [];
       for (var i = 0; i < res.sure.length; i++) {
-        var d = res.sure[i].drop;
+        var d = res.sure[i].drop, k = res.sure[i].keep;
+        if (d && k && !scopeWord(k.desc) && scopeWord(d.desc)) {
+          var adopted = shiftScopeDesc(k.desc, getEntryScope(d), extractTripName(d.desc));
+          if (adopted !== k.desc) {
+            try { await store.update(k.id, { amount: k.amount, desc: adopted, spent_at: new Date(k.ts).toISOString(), method: k.method || null }); } catch (e) {}
+          }
+        }
         try { await store.remove(d.id); gone.push(d); } catch (err) { break; }
       }
       var dismissed = loadJsonObj('kharcha_dup_dismissed');
@@ -3485,6 +3572,12 @@
     if (stream === 'bank') renderBank();
     if (stream === 'wallet') renderWallet();
     if (stream === 'monthly') renderMonthly();
+
+    var heroEl = $('st-hero');
+    var isDedicatedStream = ['trips', 'projects', 'investments', 'udhaar', 'wallet', 'bank', 'rules', 'monthly', 'insights', 'card', 'phone'].indexOf(stream) >= 0;
+    if (heroEl) heroEl.hidden = isDedicatedStream;
+    var stk = $('sticky-month-bar');
+    if (stk) stk.style.display = isDedicatedStream ? 'none' : '';
 
     document.querySelectorAll('.streambtn').forEach(function (btn) {
       btn.classList.toggle('active', btn.dataset.stream === stream);
@@ -4100,27 +4193,37 @@
     (state.entries || []).forEach(function (e) {
       if (e && e.desc) {
         var m = e.desc.match(/^[✈\u{2708}\u{FE0F}\u{1F6EB}\u{1F6EC}]+\s*([^:\[]+):/u);
-        if (m && m[1] && m[1].trim()) tripSet.add(m[1].trim());
+        if (m && m[1] && m[1].trim() && m[1].trim().toLowerCase() !== 'trip') {
+          tripSet.add(m[1].trim());
+        }
       }
     });
     // 2. Add from local storage saved trips
     try {
       var saved = JSON.parse(kv.get(ALL_TRIPS_KEY)) || [];
-      saved.forEach(function (t) { if (t && t.trim()) tripSet.add(t.trim()); });
+      saved.forEach(function (t) {
+        if (t && t.trim() && t.trim().toLowerCase() !== 'trip') tripSet.add(t.trim());
+      });
     } catch (e) {}
     // 3. Active trip if set
     var active = getActiveTripName();
-    if (active) tripSet.add(active);
+    if (active && active.toLowerCase() !== 'trip') tripSet.add(active);
 
     return Array.from(tripSet);
   }
 
   function saveTripToList(name) {
-    if (!name || !name.trim()) return;
+    if (!name || !name.trim() || name.trim().toLowerCase() === 'trip') return;
+    var clean = name.trim();
     var trips = getAllTrips();
-    if (!trips.includes(name.trim())) {
-      trips.push(name.trim());
-      try { kv.set(ALL_TRIPS_KEY, JSON.stringify(trips)); } catch (e) {}
+    if (!trips.includes(clean)) trips.push(clean);
+    try {
+      var saved = JSON.parse(kv.get(ALL_TRIPS_KEY) || '[]');
+      if (!Array.isArray(saved) || trips.length !== saved.length || !saved.includes(clean)) {
+        kv.set(ALL_TRIPS_KEY, JSON.stringify(trips));
+      }
+    } catch (e) {
+      try { kv.set(ALL_TRIPS_KEY, JSON.stringify(trips)); } catch (e2) {}
     }
   }
 
@@ -4137,6 +4240,174 @@
         kv.remove(ACTIVE_TRIP_KEY);
       }
     } catch (e) {}
+  }
+
+  /* ---------- Shared trips: invite a friend via WhatsApp (no account needed on their side) ----------
+     trips / trip_members / trip_expenses live in Supabase (supabase/kharcha_trip_sharing_v1.sql).
+     A guest never gets a Supabase session; every call they make is through a SECURITY DEFINER
+     Postgres function that re-checks their token itself. The owner's side below just calls the
+     matching owner-only RPCs (trip_get_or_create / trip_set_invite / trip_add_owner_expense). */
+  var tripInviteCache = {}; // tripName -> { id, invite_token, invite_enabled } (fetched lazily, per session)
+
+  function myDisplayName() {
+    var raw = ((kv.get('kharcha_owner_identity') || '').split(',')[0] || '').trim();
+    return raw || 'Me';
+  }
+
+  function tripShareLink(token) {
+    return location.origin + location.pathname.replace(/[^/]*$/, '') + 'trip.html?t=' + encodeURIComponent(token);
+  }
+
+  /** Looks up (and caches) this trip's row from Supabase, creating it if it never had one. */
+  async function ensureTripRow(tripName) {
+    if (tripInviteCache[tripName]) return tripInviteCache[tripName];
+    if (!sb) return null;
+    var res = await sb.rpc('trip_get_or_create', { p_name: tripName });
+    console.log('Kharcha: trip_get_or_create ->', res);
+    if (res.error) throw res.error;
+    if (!res.data) return null;
+    tripInviteCache[tripName] = res.data;
+    return res.data;
+  }
+
+  /** Fire-and-forget copy of the owner's own trip spend into the shared ledger, if this trip has
+     ever been shared. Never blocks or fails the primary save -- that already succeeded locally. */
+  // Remembers which shared-ledger row (trip_expenses.id) mirrors which of your own local entries
+  // (daily_expenses.id), so deleting your own entry later can clean up its mirror precisely --
+  // never by guessing from amount/description/time, which risks deleting the wrong row.
+  var TRIP_MIRROR_MAP_KEY = 'kharcha_trip_mirror_map';
+  function loadTripMirrorMap() {
+    try { return JSON.parse(localStorage.getItem(TRIP_MIRROR_MAP_KEY) || '{}'); } catch (e) { return {}; }
+  }
+  function rememberTripMirror(localEntryId, tripExpenseId) {
+    try {
+      var m = loadTripMirrorMap();
+      m[localEntryId] = tripExpenseId;
+      localStorage.setItem(TRIP_MIRROR_MAP_KEY, JSON.stringify(m));
+    } catch (e) {}
+  }
+  /** Looks up and forgets the mirror for a local entry in one step (it's about to be deleted). */
+  function takeTripMirror(localEntryId) {
+    try {
+      var m = loadTripMirrorMap();
+      var id = m[localEntryId];
+      if (id) { delete m[localEntryId]; localStorage.setItem(TRIP_MIRROR_MAP_KEY, JSON.stringify(m)); }
+      return id || null;
+    } catch (e) { return null; }
+  }
+
+  function mirrorOwnerTripExpense(tripName, amount, description, spentAtIso, localEntryId, splitAmong) {
+    if (!sb) return;
+    ensureTripRow(tripName).then(function (trip) {
+      if (!trip) return;
+      return sb.rpc('trip_add_owner_expense', {
+        p_trip_id: trip.id, p_added_by_name: myDisplayName(),
+        p_amount: amount, p_description: description, p_spent_at: spentAtIso || null,
+        p_split_among: (Array.isArray(splitAmong) && splitAmong.length) ? splitAmong : null
+      });
+    }).then(function (res) {
+      if (res && !res.error && res.data && localEntryId) rememberTripMirror(localEntryId, res.data.id);
+    }).catch(function () {}); // best-effort; the owner's own copy in daily_expenses is already saved
+  }
+
+  /** Deletes a trip entry's mirrored row in the shared ledger, if it has one. Best-effort and
+     silent -- the local delete is already the source of truth and must never wait on this. */
+  function deleteTripMirrorIfAny(localEntryId) {
+    if (!sb) return;
+    var mirrorId = takeTripMirror(localEntryId);
+    if (!mirrorId) return;
+    sb.from('trip_expenses').delete().eq('id', mirrorId).then(function (res) {
+      if (!res.error) { for (var k in tripGuestEntriesCache) delete tripGuestEntriesCache[k]; } // force a resync
+    }).catch(function () {});
+  }
+
+  /** Catches up the shared ledger with everything already logged for this trip locally, before
+     mirroring existed (or from before this trip was ever shared) -- so inviting someone shows the
+     whole trip's history, not just what gets added from today onward. Entries already mirrored
+     (tracked in the map) are skipped, so this is safe to call every time "Invite" is tapped, not
+     just the first time. */
+  function backfillTripExpensesToShared(tripName) {
+    if (!tripName || !sb) return;
+    var localEntries = getTripSummary(state.entries, tripName, []).entries;
+    var map = loadTripMirrorMap();
+    localEntries.filter(function (e) { return !map[e.id]; }).forEach(function (e) {
+      mirrorOwnerTripExpense(tripName, e.amount, cleanScopePrefix(e.desc), new Date(e.ts).toISOString(), e.id, parseTripSplit(e.desc));
+    });
+  }
+
+  /** Renders the invite status row (or hides it) for whichever trip is currently being viewed. */
+  // Guest-added expenses, converted to the exact shape every other trip calculation already
+  // reads (desc with a "[Paid by X]" tag, amount, ts) so they flow through getTripSummary's
+  // existing totals/categories/balances math unchanged -- no separate "friends' total" bolted on
+  // the side. Only rows with a member_id are included: a null member_id is the owner's own entry
+  // mirrored in (see trip_add_owner_expense), already counted once via state.entries, so merging
+  // it back in here would double it.
+  var tripGuestEntriesCache = {}; // tripName -> array, or undefined before the first fetch resolves
+
+  function getGuestTripEntries(tripName) {
+    return (tripName && tripGuestEntriesCache[tripName]) || [];
+  }
+
+  /** Removes any trip_expenses row -- yours or a friend's -- straight from the trip entries list.
+     Guarded by the "owner deletes any trip expense on own trip" RLS policy: only works on trips
+     you own, regardless of who originally added the row. */
+  function deleteSharedTripExpense(tripExpenseId, tripName) {
+    if (!sb || !tripExpenseId) return;
+    sb.from('trip_expenses').delete().eq('id', tripExpenseId).then(function (res) {
+      if (res.error) { toast('Could not delete: ' + res.error.message); return; }
+      delete tripGuestEntriesCache[tripName]; // force a fresh fetch next render, not the stale cache
+      render();
+      toast('Deleted');
+    }).catch(function () { toast('Could not delete. Check your connection.'); });
+  }
+
+  function fetchGuestTripEntries(tripName) {
+    if (!tripName || !sb || tripGuestEntriesCache[tripName] !== undefined) return;
+    ensureTripRow(tripName).then(function (trip) {
+      if (!trip || !trip.invite_token) { tripGuestEntriesCache[tripName] = []; return; }
+      return sb.rpc('trip_summary', { p_invite_token: trip.invite_token }).then(function (res) {
+        if (res.error || !res.data || !res.data.length) { tripGuestEntriesCache[tripName] = []; return; }
+        var guestRows = (res.data[0].expenses || []).filter(function (e) { return e.member_id; });
+        var synth = guestRows.map(function (e) {
+          return {
+            id: 'guest:' + tripName + ':' + e.id,
+            tripExpenseId: e.id, // the real trip_expenses row id -- needed to delete it
+            amount: Number(e.amount),
+            desc: '✈️ ' + tripName + ': ' + e.description + ' [Paid by ' + e.added_by_name + ']',
+            ts: Date.parse(e.spent_at),
+            splitAmong: Array.isArray(e.split_among) ? e.split_among : null,
+            isGuestEntry: true // not a daily_expenses row -- editable here (via delete), not the usual edit form
+          };
+        });
+        tripGuestEntriesCache[tripName] = synth;
+        render(); // now that friends' contributions are known, redo totals/categories/balances with them
+      });
+    }).catch(function () { tripGuestEntriesCache[tripName] = []; });
+  }
+
+  function renderTripInviteRow(tripName) {
+    var row = $('trip-invite-row');
+    var note = $('trip-invite-note');
+    var toggleBtn = $('trip-invite-toggle-btn');
+    if (!row || !note || !toggleBtn) return;
+    if (!tripName || !sb) { row.hidden = true; return; }
+
+    sb.rpc('trip_get_or_create', { p_name: tripName }).then(function (res) {
+      if (res.error || !res.data) { row.hidden = true; return; }
+      var trip = res.data;
+      tripInviteCache[tripName] = trip;
+      if (!trip.invite_token) { row.hidden = true; return; } // never invited anyone yet -> nothing to show
+      row.hidden = false;
+      note.textContent = trip.invite_enabled ? 'Friends can view & add via your link' : 'Link is paused -- friends can\'t open it';
+      toggleBtn.textContent = trip.invite_enabled ? '⏸️' : '▶️';
+      toggleBtn.title = trip.invite_enabled ? 'Pause the link' : 'Resume the link';
+
+      var guestEntries = getGuestTripEntries(tripName);
+      if (guestEntries.length) {
+        var fTotal = guestEntries.reduce(function (sum, e) { return sum + e.amount; }, 0);
+        note.textContent += ' · 👥 ' + money(fTotal) + ' added by friends (' + guestEntries.length + ')';
+      }
+    }).catch(function () { row.hidden = true; });
   }
 
   function getSelectedViewTripName() {
@@ -4208,6 +4479,145 @@
 
   var selectedTripPayer = 'Me';
 
+  function getTripViewMode() {
+    return localStorage.getItem('kharcha_trip_view_mode') || 'category';
+  }
+  function setTripViewMode(m) {
+    try { localStorage.setItem('kharcha_trip_view_mode', m); } catch (e) {}
+  }
+
+  /* ---------- Trip Theme & Art Generator ---------- */
+  function getTripTheme(tripName) {
+    var raw = (tripName || '').trim();
+    var s = raw.toLowerCase();
+    // Default wanderlust / adventure
+    var theme = {
+      tag: '✈️ Travel & Adventure',
+      place: raw || 'Explore the World',
+      gradient: 'linear-gradient(135deg, #1E293B 0%, #0F172A 100%)',
+      art: '<svg viewBox="0 0 400 120" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">' +
+        '<defs><linearGradient id="g-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#1E293B"/><stop offset="100%" stop-color="#0F172A"/></linearGradient></defs>' +
+        '<rect width="400" height="120" fill="url(#g-sky)"/>' +
+        '<circle cx="340" cy="30" r="14" fill="#F8FAFC" opacity="0.3"/>' +
+        '<path d="M0,120 L40,85 L85,120 L130,75 L175,120 L240,65 L300,120 L350,80 L400,120 Z" fill="#334155" opacity="0.5"/>' +
+        '</svg>'
+    };
+
+    if (!raw) {
+      theme.tag = '✈️ Ready for Adventure';
+      theme.place = 'Create Your First Trip';
+      return theme;
+    }
+
+    // Mountains / Hills / Snow (Manali, Kasol, Rohtang, Spiti, Ladakh, Shimla, etc.)
+    if (s.includes('manali') || s.includes('kasol') || s.includes('rohtang') || s.includes('spiti') ||
+        s.includes('ladakh') || s.includes('leh') || s.includes('shimla') || s.includes('kullu') ||
+        s.includes('himachal') || s.includes('uttarakhand') || s.includes('kedarnath') || s.includes('rishikesh') ||
+        s.includes('kashmir') || s.includes('gulmarg') || s.includes('mountain') || s.includes('hill') ||
+        s.includes('trek') || s.includes('hike') || s.includes('snow') || s.includes('camp')) {
+      theme.tag = '🏔️ Himalayas Expedition';
+      theme.place = raw.includes('Manali') ? 'Manali, Himachal Pradesh' : (raw.includes('Kasol') ? 'Kasol & Parvati Valley' : (raw.includes('Spiti') ? 'Spiti Valley' : (raw + ' (Mountains)')));
+      theme.gradient = 'linear-gradient(135deg, #0C4A6E 0%, #082F49 60%, #0369A1 100%)';
+      theme.art = '<svg viewBox="0 0 400 120" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">' +
+        '<defs>' +
+          '<linearGradient id="mt-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#082F49"/><stop offset="60%" stop-color="#0C4A6E"/><stop offset="100%" stop-color="#0284C7"/></linearGradient>' +
+          '<linearGradient id="mt-pine" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#064E3B"/><stop offset="100%" stop-color="#022C22"/></linearGradient>' +
+        '</defs>' +
+        '<rect width="400" height="120" fill="url(#mt-sky)"/>' +
+        '<circle cx="340" cy="28" r="13" fill="#FEF08A" opacity="0.85"/>' +
+        '<!-- Far snow-capped peaks -->' +
+        '<path d="M20,120 L80,35 L140,120 Z" fill="#38BDF8" opacity="0.35"/>' +
+        '<path d="M80,35 L98,60 L80,54 L62,60 Z" fill="#FFFFFF" opacity="0.85"/>' +
+        '<path d="M110,120 L190,20 L270,120 Z" fill="#0284C7" opacity="0.5"/>' +
+        '<path d="M190,20 L212,48 L190,42 L168,48 Z" fill="#FFFFFF" opacity="0.95"/>' +
+        '<path d="M240,120 L310,32 L380,120 Z" fill="#0369A1" opacity="0.6"/>' +
+        '<path d="M310,32 L328,55 L310,50 L292,55 Z" fill="#FFFFFF" opacity="0.9"/>' +
+        '<!-- Fore mountain silhouettes -->' +
+        '<path d="M-10,120 L50,65 L120,120 Z" fill="#0F172A" opacity="0.8"/>' +
+        '<path d="M290,120 L355,60 L410,120 Z" fill="#0F172A" opacity="0.8"/>' +
+        '<!-- Pine trees row -->' +
+        '<path d="M140,120 L146,95 L152,120 M148,120 L156,90 L164,120 M160,120 L168,96 L176,120 M215,120 L222,92 L229,120 M225,120 L233,88 L241,120 M237,120 L244,95 L251,120" stroke="#064E3B" stroke-width="4" fill="none" opacity="0.9"/>' +
+        '</svg>';
+      return theme;
+    }
+
+    // Beach / Coastal / Tropical (Goa, Gokarna, Kerala, Pondicherry, Bali, Maldives, Phuket, etc.)
+    if (s.includes('goa') || s.includes('gokarna') || s.includes('beach') || s.includes('coast') ||
+        s.includes('kerala') || s.includes('pondicherry') || s.includes('bali') || s.includes('maldives') ||
+        s.includes('phuket') || s.includes('sea') || s.includes('ocean') || s.includes('island') ||
+        s.includes('andaman') || s.includes('alibaug') || s.includes('varkala')) {
+      theme.tag = '🏖️ Coastal Getaway';
+      theme.place = raw.includes('Goa') ? 'Goa, Sun & Sands' : (raw.includes('Gokarna') ? 'Gokarna Beach' : (raw + ' (Beach)'));
+      theme.gradient = 'linear-gradient(135deg, #F97316 0%, #EA580C 40%, #0284C7 100%)';
+      theme.art = '<svg viewBox="0 0 400 120" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">' +
+        '<defs>' +
+          '<linearGradient id="bc-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#FB923C"/><stop offset="45%" stop-color="#FDE047"/><stop offset="70%" stop-color="#38BDF8"/><stop offset="100%" stop-color="#0284C7"/></linearGradient>' +
+        '</defs>' +
+        '<rect width="400" height="120" fill="url(#bc-sky)"/>' +
+        '<!-- Sunset Sun -->' +
+        '<circle cx="200" cy="52" r="22" fill="#FEF08A" opacity="0.95"/>' +
+        '<!-- Ocean Horizon & Waves -->' +
+        '<path d="M0,72 L400,72 L400,120 L0,120 Z" fill="#0284C7" opacity="0.65"/>' +
+        '<path d="M0,86 C60,82 120,90 180,86 C240,82 300,90 360,86 C380,84 395,85 400,86 L400,120 L0,120 Z" fill="#0369A1" opacity="0.8"/>' +
+        '<path d="M0,98 C70,94 130,102 210,96 C280,92 340,102 400,98 L400,120 L0,120 Z" fill="#FDE047" opacity="0.9"/>' +
+        '<!-- Palm Tree left -->' +
+        '<path d="M30,120 Q36,80 48,58" stroke="#78350F" stroke-width="4" fill="none"/>' +
+        '<path d="M48,58 Q20,55 12,68 M48,58 Q32,45 30,34 M48,58 Q55,42 66,35 M48,58 Q68,50 78,60 M48,58 Q58,68 52,78" stroke="#15803D" stroke-width="2.5" fill="none" stroke-linecap="round"/>' +
+        '<!-- Birds in sky -->' +
+        '<path d="M120,30 Q125,25 130,30 Q135,25 140,30 M150,38 Q154,34 158,38 Q162,34 166,38" stroke="#7C2D12" stroke-width="1.5" fill="none"/>' +
+        '</svg>';
+      return theme;
+    }
+
+    // Desert / Heritage / Royal (Rajasthan, Jaipur, Udaipur, Jaisalmer, Dubai, Jodhpur)
+    if (s.includes('jaipur') || s.includes('udaipur') || s.includes('jaisalmer') || s.includes('jodhpur') ||
+        s.includes('rajasthan') || s.includes('desert') || s.includes('dubai') || s.includes('safari') ||
+        s.includes('palace') || s.includes('fort') || s.includes('agra')) {
+      theme.tag = '🏰 Heritage & Royal';
+      theme.place = raw.includes('Jaipur') ? 'Jaipur, The Pink City' : (raw.includes('Udaipur') ? 'Udaipur, City of Lakes' : (raw + ' (Heritage)'));
+      theme.gradient = 'linear-gradient(135deg, #9A3412 0%, #D97706 50%, #B45309 100%)';
+      theme.art = '<svg viewBox="0 0 400 120" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">' +
+        '<defs>' +
+          '<linearGradient id="ds-sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#C2410C"/><stop offset="50%" stop-color="#F59E0B"/><stop offset="100%" stop-color="#FCD34D"/></linearGradient>' +
+        '</defs>' +
+        '<rect width="400" height="120" fill="url(#ds-sky)"/>' +
+        '<circle cx="320" cy="35" r="18" fill="#FFFBEB" opacity="0.9"/>' +
+        '<!-- Palace Domes & Fort Silhouette -->' +
+        '<path d="M0,120 L0,95 L40,95 L40,85 C40,75 55,75 55,85 L55,95 L90,95 L90,70 C90,55 110,55 110,70 L110,95 L160,95 L160,80 C160,68 175,68 175,80 L175,95 L220,95 L220,120 Z" fill="#78350F" opacity="0.6"/>' +
+        '<!-- Desert Sand Dunes -->' +
+        '<path d="M0,120 Q100,85 220,105 Q310,118 400,92 L400,120 Z" fill="#B45309" opacity="0.85"/>' +
+        '<path d="M120,120 Q240,95 400,108 L400,120 Z" fill="#78350F" opacity="0.95"/>' +
+        '</svg>';
+      return theme;
+    }
+
+    // Metro / Urban / City (Delhi, Mumbai, Bangalore, London, New York, Singapore, Bangkok)
+    if (s.includes('mumbai') || s.includes('bangalore') || s.includes('bengaluru') || s.includes('delhi') ||
+        s.includes('london') || s.includes('singapore') || s.includes('bangkok') || s.includes('city') ||
+        s.includes('urban') || s.includes('tokyo') || s.includes('dubai') || s.includes('york')) {
+      theme.tag = '🏙️ City Life & Skyline';
+      theme.place = raw;
+      theme.gradient = 'linear-gradient(135deg, #312E81 0%, #1E1B4B 60%, #4338CA 100%)';
+      theme.art = '<svg viewBox="0 0 400 120" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">' +
+        '<rect width="400" height="120" fill="#1E1B4B"/>' +
+        '<circle cx="340" cy="28" r="12" fill="#E0E7FF" opacity="0.8"/>' +
+        '<!-- Skyline buildings -->' +
+        '<rect x="20" y="55" width="28" height="65" fill="#4338CA" opacity="0.6"/>' +
+        '<rect x="55" y="40" width="35" height="80" fill="#312E81" opacity="0.8"/>' +
+        '<rect x="95" y="65" width="25" height="55" fill="#4338CA" opacity="0.7"/>' +
+        '<polygon points="135,120 145,25 155,120" fill="#6366F1" opacity="0.5"/>' +
+        '<rect x="160" y="48" width="40" height="72" fill="#312E81" opacity="0.9"/>' +
+        '<rect x="210" y="32" width="32" height="88" fill="#4338CA" opacity="0.8"/>' +
+        '<rect x="250" y="60" width="30" height="60" fill="#312E81" opacity="0.7"/>' +
+        '<rect x="290" y="45" width="38" height="75" fill="#4338CA" opacity="0.85"/>' +
+        '<rect x="335" y="70" width="45" height="50" fill="#312E81" opacity="0.9"/>' +
+        '</svg>';
+      return theme;
+    }
+
+    return theme;
+  }
+
   function renderTripsView(tripSummary, monthEntries) {
     var activeTrip = getActiveTripName();
     var viewTrip = getSelectedViewTripName();
@@ -4225,6 +4635,20 @@
         var activeSummary = getTripSummary(monthEntries, activeTrip, getTripFriends(activeTrip));
         atbSpent.textContent = money(activeSummary.totalSpent);
       }
+    }
+
+    renderTripInviteRow(viewTrip);
+
+    // Update Visual Destination Art Banner for Trips View
+    var visualBanner = $('trip-visual-banner');
+    var tvbArt = $('tvb-art');
+    var tvbTag = $('tvb-tag');
+    var tvbPlace = $('tvb-place');
+    if (visualBanner) {
+      var theme = getTripTheme(viewTrip || activeTrip);
+      if (tvbArt) tvbArt.innerHTML = theme.art;
+      if (tvbTag) tvbTag.textContent = theme.tag;
+      if (tvbPlace) tvbPlace.textContent = theme.place;
     }
 
     // Populate Trip Selector Dropdown
@@ -4439,42 +4863,182 @@
       });
     }
 
-    // Timeline entries
+    // Render Category Breakdown Cards Grid (Stay, Fuel, Food, Beverages, Other)
+    var catGrid = $('trip-cat-grid');
+    if (catGrid) {
+      catGrid.innerHTML = '';
+      var catOrder = ['stay', 'fuel', 'food', 'beverages', 'other'];
+      var activeCatKeys = catOrder.filter(function (k) {
+        return tripSummary.categories && tripSummary.categories[k] && tripSummary.categories[k].count > 0;
+      });
+      var displayKeys = activeCatKeys.length ? activeCatKeys : ['stay', 'fuel', 'food', 'beverages'];
+      displayKeys.forEach(function (k) {
+        var c = (tripSummary.categories && tripSummary.categories[k]) || { name: k, emoji: '🏷️', total: 0, count: 0 };
+        var card = el('div', 'trip-cat-card');
+        card.setAttribute('role', 'button');
+        card.setAttribute('tabindex', '0');
+        card.appendChild(el('span', 'trip-cat-card-title', c.emoji + ' ' + c.name));
+        card.appendChild(el('span', 'trip-cat-card-amt', money(c.total)));
+        card.appendChild(el('span', 'trip-cat-card-sub', c.count + (c.count === 1 ? ' item' : ' items')));
+        card.addEventListener('click', function () {
+          setTripViewMode('category');
+          render();
+          var targetSec = $('trip-cat-sec-' + k);
+          if (targetSec) {
+            targetSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            var wrapper = targetSec.querySelector('.entries-wrapper');
+            var head = targetSec.querySelector('.trip-cat-head');
+            if (wrapper && !wrapper.classList.contains('expanded')) {
+              wrapper.classList.add('expanded');
+              if (head) head.classList.add('expanded');
+            }
+          }
+        });
+        catGrid.appendChild(card);
+      });
+    }
+
+    // View mode: 'category' (default) vs 'date'
+    var currentMode = getTripViewMode();
+    var tvmCat = $('tvm-cat');
+    var tvmDate = $('tvm-date');
+    if (tvmCat && tvmDate) {
+      tvmCat.classList.toggle('active', currentMode === 'category');
+      tvmDate.classList.toggle('active', currentMode === 'date');
+    }
+
+    var catSecsBox = $('trip-cat-sections');
     var daysBox = $('trip-days');
-    if (!daysBox) return;
-    daysBox.textContent = '';
 
     if (!tripSummary.entries.length) {
-      var em = el('div', 'empty');
-      em.appendChild(el('p', null, viewTrip
+      var emptyMsg = viewTrip
         ? ('No expenses logged yet for ' + viewTrip + ' in ' + monthLabel(state.sel) + '. Add hotel, food, or travel above!')
-        : ('No trips created yet. Tap "+ New Trip" to start tracking!')));
-      daysBox.appendChild(em);
+        : ('No trips created yet. Tap "+ New Trip" to start tracking!');
+      if (catSecsBox) {
+        catSecsBox.innerHTML = '';
+        var emC = el('div', 'empty');
+        emC.appendChild(el('p', null, emptyMsg));
+        catSecsBox.appendChild(emC);
+        catSecsBox.hidden = (currentMode !== 'category');
+      }
+      if (daysBox) {
+        daysBox.innerHTML = '';
+        var emD = el('div', 'empty');
+        emD.appendChild(el('p', null, emptyMsg));
+        daysBox.appendChild(emD);
+        daysBox.hidden = (currentMode !== 'date');
+      }
       return;
     }
 
-    var days = groupByDay(tripSummary.entries);
-    days.forEach(function (g, idx) {
-      var wrap = el('section', 'day');
-      var isExpanded = true;
-      var wrapper = el('div', 'entries-wrapper expanded');
-      var ul = el('ul', 'entries');
-      g.items.forEach(function (e) {
-        var li = el('li');
-        li.appendChild(state.editing === e.id && state.draft ? editRow(e) : entryRow(e));
-        ul.appendChild(li);
-      });
-      wrapper.appendChild(ul);
+    if (currentMode === 'category') {
+      if (catSecsBox) catSecsBox.hidden = false;
+      if (daysBox) daysBox.hidden = true;
+      if (catSecsBox) {
+        catSecsBox.innerHTML = '';
+        var catOrder = ['stay', 'fuel', 'food', 'beverages', 'other'];
+        catOrder.forEach(function (cKey) {
+          var c = tripSummary.categories && tripSummary.categories[cKey];
+          if (!c || !c.items.length) return;
 
-      var head = dayHead(g, isExpanded, function () {
-        var nextExpanded = !wrapper.classList.contains('expanded');
-        head.classList.toggle('expanded', nextExpanded);
-        wrapper.classList.toggle('expanded', nextExpanded);
-      }, idx);
+          var sec = el('section', 'trip-cat-section');
+          sec.id = 'trip-cat-sec-' + cKey;
+          var headBtn = el('button', 'trip-cat-head expanded');
+          headBtn.type = 'button';
 
-      wrap.appendChild(head);
-      wrap.appendChild(wrapper);
-      daysBox.appendChild(wrap);
+          var left = el('div', 'trip-cat-head-left');
+          left.appendChild(el('span', 'trip-cat-badge', c.emoji + ' ' + c.name));
+          left.appendChild(el('span', 'trip-cat-count', c.count + (c.count === 1 ? ' item' : ' items')));
+
+          var right = el('div', 'trip-cat-head-right');
+          right.appendChild(el('span', 'trip-cat-total-amt', money(c.total)));
+          right.appendChild(el('span', 'chevron', '▾'));
+
+          headBtn.appendChild(left);
+          headBtn.appendChild(right);
+
+          var wrapper = el('div', 'entries-wrapper expanded');
+          var ul = el('ul', 'entries');
+          var sorted = c.items.slice().sort(function (a, b) { return b.ts - a.ts; });
+          sorted.forEach(function (e) {
+            var li = el('li');
+            li.appendChild(state.editing === e.id && state.draft ? editRow(e) : entryRow(e));
+            ul.appendChild(li);
+          });
+          wrapper.appendChild(ul);
+
+          headBtn.addEventListener('click', function () {
+            var nextExpanded = !wrapper.classList.contains('expanded');
+            headBtn.classList.toggle('expanded', nextExpanded);
+            wrapper.classList.toggle('expanded', nextExpanded);
+          });
+
+          sec.appendChild(headBtn);
+          sec.appendChild(wrapper);
+          catSecsBox.appendChild(sec);
+        });
+      }
+    } else {
+      if (catSecsBox) catSecsBox.hidden = true;
+      if (daysBox) {
+        daysBox.hidden = false;
+        daysBox.innerHTML = '';
+        var days = groupByDay(tripSummary.entries);
+        days.forEach(function (g, idx) {
+          var wrap = el('section', 'day');
+          var isExpanded = true;
+          var wrapper = el('div', 'entries-wrapper expanded');
+          var ul = el('ul', 'entries');
+          g.items.forEach(function (e) {
+            var li = el('li');
+            li.appendChild(state.editing === e.id && state.draft ? editRow(e) : entryRow(e));
+            ul.appendChild(li);
+          });
+          wrapper.appendChild(ul);
+
+          var head = dayHead(g, isExpanded, function () {
+            var nextExpanded = !wrapper.classList.contains('expanded');
+            head.classList.toggle('expanded', nextExpanded);
+            wrapper.classList.toggle('expanded', nextExpanded);
+          }, idx);
+
+          wrap.appendChild(head);
+          wrap.appendChild(wrapper);
+          daysBox.appendChild(wrap);
+        });
+      }
+    }
+  }
+
+  // Trip View Mode Toggle Listeners
+  var tvmCatBtn = $('tvm-cat');
+  if (tvmCatBtn) {
+    tvmCatBtn.addEventListener('click', function () {
+      setTripViewMode('category');
+      render();
+    });
+  }
+  var tvmDateBtn = $('tvm-date');
+  if (tvmDateBtn) {
+    tvmDateBtn.addEventListener('click', function () {
+      setTripViewMode('date');
+      render();
+    });
+  }
+
+  // Trip Quick Category Chips in Add Form
+  var tripQuickCatsBox = $('trip-quick-cats');
+  if (tripQuickCatsBox) {
+    tripQuickCatsBox.addEventListener('click', function (ev) {
+      var btn = ev.target.closest('.trip-quick-cat-btn');
+      if (!btn) return;
+      var prefix = btn.getAttribute('data-prefix');
+      var descInp = $('trip-exp-desc');
+      if (!descInp || !prefix) return;
+      var curVal = descInp.value.trim();
+      var clean = curVal.replace(/^(?:🏨\s*Stay:\s*|⛽\s*Fuel:\s*|🍔\s*Food:\s*|🍻\s*Beverages:\s*|🎟️\s*)+/i, '');
+      descInp.value = prefix + clean;
+      descInp.focus();
     });
   }
 
@@ -4532,6 +5096,74 @@
           if (b > 0) setTripBudget(newName, b);
           render();
           toast('Renamed trip to ' + newName);
+        }
+      });
+    });
+  }
+
+  // First tap: creates the trip's shared row (if it doesn't have one yet), turns the invite link
+  // on, and opens WhatsApp to send it. Later taps: just re-opens WhatsApp with the same link
+  // (turning it back on first, if it had been paused).
+  var tripInviteBtn = $('trip-invite-btn');
+  if (tripInviteBtn) {
+    tripInviteBtn.addEventListener('click', function () {
+      var tripName = getSelectedViewTripName();
+      if (!tripName) { toast('Select or create a trip first!'); return; }
+      if (!sb) { toast('Sign in to Cloud Sync first to invite friends.'); return; }
+      tripInviteBtn.disabled = true;
+      ensureTripRow(tripName).then(function (trip) {
+        if (!trip) throw new Error('Could not reach Kharcha Book.');
+        return sb.rpc('trip_set_invite', { p_trip_id: trip.id, p_enabled: true, p_regenerate: !trip.invite_token });
+      }).then(function (res) {
+        if (res.error || !res.data) throw res.error || new Error('Could not create the link.');
+        tripInviteCache[tripName] = res.data;
+        backfillTripExpensesToShared(tripName); // catch the shared ledger up with everything already logged
+        var link = tripShareLink(res.data.invite_token);
+        var msg = 'Join our "' + tripName + '" trip on Kharcha Book -- see what\'s been spent and add your own: ' + link;
+        window.open(whatsappLink(msg), '_blank');
+        renderTripInviteRow(tripName);
+      }).catch(function (err) {
+        toast((err && err.message) || 'Could not create the invite link.');
+      }).finally(function () { tripInviteBtn.disabled = false; });
+    });
+  }
+
+  var tripInviteToggleBtn = $('trip-invite-toggle-btn');
+  if (tripInviteToggleBtn) {
+    tripInviteToggleBtn.addEventListener('click', function () {
+      var tripName = getSelectedViewTripName();
+      var trip = tripName && tripInviteCache[tripName];
+      if (!trip || !sb) return;
+      sb.rpc('trip_set_invite', { p_trip_id: trip.id, p_enabled: !trip.invite_enabled })
+        .then(function (res) {
+          if (res.error || !res.data) throw res.error;
+          tripInviteCache[tripName] = res.data;
+          renderTripInviteRow(tripName);
+          toast(res.data.invite_enabled ? 'Link turned back on' : 'Link paused -- friends can\'t open it for now');
+        }).catch(function () { toast('Could not change the link.'); });
+    });
+  }
+
+  var tripInviteRegenBtn = $('trip-invite-regen-btn');
+  if (tripInviteRegenBtn) {
+    tripInviteRegenBtn.addEventListener('click', function () {
+      var tripName = getSelectedViewTripName();
+      var trip = tripName && tripInviteCache[tripName];
+      if (!trip || !sb) return;
+      showConfirmModal({
+        title: 'Make a new link?',
+        message: 'The old link stops working immediately -- anyone still holding it (including friends already using it) will need the new one.',
+        confirmText: 'Make new link',
+        isDanger: true,
+        onConfirm: function () {
+          sb.rpc('trip_set_invite', { p_trip_id: trip.id, p_enabled: true, p_regenerate: true })
+            .then(function (res) {
+              if (res.error || !res.data) throw res.error;
+              tripInviteCache[tripName] = res.data;
+              var link = tripShareLink(res.data.invite_token);
+              window.open(whatsappLink('New link for our "' + tripName + '" trip on Kharcha Book: ' + link), '_blank');
+              renderTripInviteRow(tripName);
+            }).catch(function () { toast('Could not make a new link.'); });
         }
       });
     });
@@ -4757,12 +5389,13 @@
       var spentAt = spentVal ? new Date(spentVal).toISOString() : null;
 
       addTripExpBtn.disabled = true;
-      store.add({ amount: amt, desc: desc, spent_at: spentAt }).then(function () {
+      store.add({ amount: amt, desc: desc, spent_at: spentAt }).then(function (added) {
         tripExpAmtInput.value = '';
         if ($('trip-exp-desc')) $('trip-exp-desc').value = '';
         if ($('trip-exp-date')) $('trip-exp-date').value = '';
         var ts = spentAt ? Date.parse(spentAt) : Date.now();
         state.sel = monthKey(ts);
+        mirrorOwnerTripExpense(tripName, amt, clean + payerTag, spentAt, added && added.id);
         saveTripToList(tripName);
         render();
         var payerLabel = (payer && payer !== 'Me') ? (' (Paid by ' + payer + ')') : '';
@@ -4805,6 +5438,10 @@
   var CAT_COLORS = ['#0EA5E9', '#8B5CF6', '#F59E0B', '#10B981', '#EC4899', '#F97316'];
   var CAT_OTHER = '#94A3B8';
   var catSel = null;
+  // Collapsed by default: the chart + full list ate a lot of space for info a one-line summary
+  // already covers most of the time. Stays expanded across re-renders in the same session once
+  // the user opens it (picking a different month, say), but starts collapsed on a fresh load.
+  var catSecExpanded = false;
   function renderCategoryBreakdown(list, cmp, prevKey) {
     var sec = $('category-sec');
     var container = $('cat-breakdown');
@@ -4828,6 +5465,26 @@
 
     function draw(animate) {
       container.textContent = '';
+
+      // Always-visible one-line summary: total + the biggest category. Tap to see the full
+      // donut and per-category breakdown.
+      var head = el('button', 'cat-summary-head' + (catSecExpanded ? ' expanded' : ''));
+      head.type = 'button';
+      head.setAttribute('aria-expanded', catSecExpanded ? 'true' : 'false');
+      head.setAttribute('aria-label', (catSecExpanded ? 'Collapse' : 'Expand') + ' category breakdown');
+      var top1 = segs[0];
+      var headText = el('span', 'cat-summary-text');
+      headText.appendChild(el('b', null, money(grandP / 100)));
+      if (top1) {
+        headText.appendChild(el('span', 'cat-summary-top',
+          ' · Most on ' + top1.name + ' (' + Math.round(paise(top1.total) / grandP * 100) + '%)'));
+      }
+      head.appendChild(headText);
+      head.appendChild(el('span', 'chevron', '▼'));
+      head.addEventListener('click', function () { catSecExpanded = !catSecExpanded; draw(false); });
+      container.appendChild(head);
+
+      var wrapper = el('div', 'cat-wrapper' + (catSecExpanded ? ' expanded' : ''));
       var wrap = el('div', 'dn');
       var chart = el('div', 'dn-chart');
       var svg = document.createElementNS(svgNS, 'svg');
@@ -4903,7 +5560,7 @@
         row.addEventListener('keydown', function (ev) { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(); } });
         ul.appendChild(row);
       });
-      wrap.appendChild(ul); container.appendChild(wrap);
+      wrap.appendChild(ul); wrapper.appendChild(wrap); container.appendChild(wrapper);
     }
     draw(!reducedMotionPref());
   }
@@ -5160,6 +5817,21 @@
     b.appendChild(el('span', 'a', money(e.amount)));
 
     b.addEventListener('click', function () {
+      // Not a real daily_expenses row, so the usual edit form has nothing to save against --
+      // offer delete (the thing you'd actually want to do to a friend's entry) instead.
+      if (e.isGuestEntry) {
+        showConfirmModal({
+          title: 'Delete this trip expense?',
+          message: e.desc.replace(/^✈️ [^:]+:\s*/, '') + ' -- ' + money(e.amount) + '. This removes it for everyone on the trip.',
+          confirmText: 'Delete',
+          isDanger: true,
+          onConfirm: function () {
+            var tripName = extractTripNameFromDesc(e.desc);
+            deleteSharedTripExpense(e.tripExpenseId, tripName);
+          }
+        });
+        return;
+      }
       state.editing = e.id;
       state.draft = { amount: String(e.amount), desc: e.desc, spent_at: toLocalISOString(e.ts), method: e.method || '' };
       render();
@@ -5325,14 +5997,23 @@
         return;
       }
       clearTimeout(armTimer);
-      var hadReceipt = hasReceipt(e.id), undone = false;
+      var hadReceipt = hasReceipt(e.id), undone = false, wasTripEntry = isTripEntry(e);
       store.remove(e.id).then(function () {
         state.editing = null; render();
         if (hadReceipt) setTimeout(function () { if (!undone) removeReceipt(e.id).catch(function () {}); }, 9000);   // the photo goes with the entry unless Undo is used
+        // This entry's copy in the shared trip ledger (if it was ever a trip entry) goes with it,
+        // so friends stop seeing something you just deleted.
+        if (wasTripEntry) deleteTripMirrorIfAny(e.id);
         toast('Deleted ' + e.desc + ' ' + money(e.amount), function () {
           undone = true;
           store.add({ amount: e.amount, desc: e.desc, spent_at: new Date(e.ts).toISOString(), method: e.method || undefined, kind: e.kind || undefined })
-            .then(function (ne) { if (hadReceipt && ne) moveReceipt(e.id, ne.id).catch(function () {}); render(); toast('Restored'); }).catch(function () { toast('Could not undo. Try again.'); });
+            .then(function (ne) {
+              if (hadReceipt && ne) moveReceipt(e.id, ne.id).catch(function () {});
+              if (wasTripEntry && ne) {
+                mirrorOwnerTripExpense(extractTripNameFromDesc(e.desc), e.amount, cleanScopePrefix(e.desc), new Date(e.ts).toISOString(), ne.id);
+              }
+              render(); toast('Restored');
+            }).catch(function () { toast('Could not undo. Try again.'); });
         });
       }).catch(function () { msg.textContent = 'Could not delete. Try again.'; msg.hidden = false; });
     });
@@ -5466,9 +6147,10 @@
 
     var scope = getSelectedScope();
     var cleanDesc = rawDesc.replace(/^[🏠👤]\s*/, '');
-    var desc;
+    if (/lavish\s+kirana/i.test(cleanDesc) && scope === 'personal') scope = 'family';
+    var desc, tripName = null;
     if (scope === 'trip') {
-      var tripName = ($('trip-pick') && $('trip-pick').value || '').trim();
+      tripName = ($('trip-pick') && $('trip-pick').value || '').trim();
       if (!tripName) { showErr('Choose a trip, or add a new one first.'); return; }
       desc = shiftScopeDesc(cleanDesc, 'trip', tripName);
     } else {
@@ -5481,10 +6163,11 @@
     var btn = $('addbtn');
     btn.disabled = true;
     var paidVia = $('paid-via') ? $('paid-via').value : '';
-    store.add({ amount: amt, desc: desc, spent_at: spentAt, method: paidVia || null }).then(function () {
+    store.add({ amount: amt, desc: desc, spent_at: spentAt, method: paidVia || null }).then(function (added) {
       $('amt').value = ''; $('desc').value = ''; $('spent-date').value = '';
       var ts = spentAt ? Date.parse(spentAt) : Date.now();
       state.sel = monthKey(ts);
+      if (tripName) mirrorOwnerTripExpense(tripName, amt, cleanDesc, spentAt, added && added.id);
       render();
       toast('Added ' + money(amt) + ' for ' + desc);
       $('amt').focus();
@@ -5586,6 +6269,7 @@
       // Pick up trips/budgets changed on the phone -- unless a local change is still waiting to save.
       if (!kv.timer) await kv.load();
       render();
+      applyRulesToEntries().then(function () { render(); }).catch(function () {});
       tidyUp();
     } catch (e) {
       console.warn('Kharcha: background refresh failed', e);

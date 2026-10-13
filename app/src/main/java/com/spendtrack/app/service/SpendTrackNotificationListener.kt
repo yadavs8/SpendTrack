@@ -135,12 +135,11 @@ class SpendTrackNotificationListener : NotificationListenerService() {
                                 if (!answered && (txn.needsReview || ServiceLocator.settingsManager.showConfirmationNotifs.first())) {
                                     // Ask right away (and keep reminding until answered), or announce where it was filed.
                                     val activeTrip = ServiceLocator.settingsManager.activeTripNameFlow.first()
-                                    ExpensePromptNotifier.announce(applicationContext, txn, activeTrip)
+                                    val knownTrips = ServiceLocator.transactionRepository.getAllKnownTrips()
+                                    ExpensePromptNotifier.announce(applicationContext, txn, activeTrip, knownTrips)
                                 }
                             }
                         }
-                        // Lands in Kharcha Book now if it has a bank/UPI ref (answering later
-                        // updates the same row); see TransactionDao.getUnsyncedExpenses.
                         runCatching { com.spendtrack.app.widget.KharchaWidget.refresh(applicationContext) }
                         ServiceLocator.cloudSyncRepository.syncPending()
                         if (txn.transactionType == com.spendtrack.app.core.model.TransactionType.EXPENSE && !txn.isExcluded) {
@@ -149,9 +148,10 @@ class SpendTrackNotificationListener : NotificationListenerService() {
                     }
                     is DeduplicationEngine.DeduplicationResult.MergedWithExisting -> {
                         // Second copy of a payment we already have (e.g. Truecaller + Messages): no new prompt.
-                        // If the merge revealed a transfer between own accounts, its pending prompt goes away.
+                        // If the payment was already answered or is an internal transfer, clear any lingering prompt.
                         val merged = result.updatedTransaction
-                        if (merged.transactionType == com.spendtrack.app.core.model.TransactionType.INTERNAL_TRANSFER) {
+                        if (!merged.needsReview || merged.isExcluded ||
+                            merged.transactionType == com.spendtrack.app.core.model.TransactionType.INTERNAL_TRANSFER) {
                             NudgeScheduler.cancel(applicationContext, merged.id)
                             ExpensePromptNotifier.dismiss(applicationContext, merged.id)
                             ServiceLocator.cloudSyncRepository.syncPending()

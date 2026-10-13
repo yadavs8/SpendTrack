@@ -31,7 +31,49 @@
     return t || 'Expense';
   }
 
-  /* expenses: [{ id, label, amount (rupees), payer }]; participants: [names]. Everyone splits every expense equally.
+  /* Trip Categories:
+     - stay: Stay Expenses (🏨)
+     - fuel: Fuel Expenses (⛽)
+     - food: Food Expenses (🍔)
+     - beverages: Beverages (🍻)
+     - other: Activities & Other (🎟️) */
+  var TRIP_CATEGORY_DEFS = [
+    { key: 'stay', name: 'Stay Expenses', emoji: '🏨', re: /\b(?:airbnb|hotel|resort|homestay|oyo|booking(?:\.com)?|agoda|villa|hostel|stay|lodge|lodging|guest\s*house|inn|cottage|treebo|fabhotel|chalet|campsite|camp|tent)\b/i },
+    { key: 'fuel', name: 'Fuel Expenses', emoji: '⛽', re: /\b(?:fuel|petrol|diesel|hpcl|iocl|bpcl|shell|cng|gas\s*station|petroleum)\b/i },
+    { key: 'food', name: 'Food Expenses', emoji: '🍔', re: /\b(?:restaurant|cafe|dhaba|dining|food|swiggy|zomato|eats|breakfast|lunch|dinner|meal|snacks|pizza|burger|bakery|sweet|mithai|mcdonald|domino|kfc|subway|biryani|roti|chai|coffee|starbucks)\b/i },
+    { key: 'beverages', name: 'Beverages', emoji: '🍻', re: /\b(?:liquor|alcohol|wine|beer|beverage|beverages|drinks|drink|theka|bar|pub|brewery|whiskey|whisky|scotch|vodka|rum|gin|cocktail|cocktails|spirits|wine\s*(?:and|&)?\s*beer)\b/i }
+  ];
+
+  function tripItemCategory(desc) {
+    var raw = tripItemLabel(desc).toLowerCase();
+    for (var i = 0; i < TRIP_CATEGORY_DEFS.length; i++) {
+      if (TRIP_CATEGORY_DEFS[i].re.test(raw)) return TRIP_CATEGORY_DEFS[i];
+    }
+    return { key: 'other', name: 'Activities & Other', emoji: '🎟️' };
+  }
+
+  function tripCategoriesSummary(expenses) {
+    var cats = {
+      stay: { key: 'stay', name: 'Stay Expenses', emoji: '🏨', total: 0, count: 0, items: [] },
+      fuel: { key: 'fuel', name: 'Fuel Expenses', emoji: '⛽', total: 0, count: 0, items: [] },
+      food: { key: 'food', name: 'Food Expenses', emoji: '🍔', total: 0, count: 0, items: [] },
+      beverages: { key: 'beverages', name: 'Beverages', emoji: '🍻', total: 0, count: 0, items: [] },
+      other: { key: 'other', name: 'Activities & Other', emoji: '🎟️', total: 0, count: 0, items: [] }
+    };
+    (expenses || []).forEach(function (e) {
+      var c = tripItemCategory(e.desc || e.label);
+      var target = cats[c.key] || cats.other;
+      target.total = (toPaise(target.total) + toPaise(e.amount)) / 100;
+      target.count += 1;
+      target.items.push(e);
+    });
+    return cats;
+  }
+
+  /* expenses: [{ id, label, amount (rupees), payer, splitAmong? }]; participants: [names].
+     splitAmong is the subset of names this one expense is divided between (a round of drinks
+     only 3 of the 5 trip-mates had) -- omit it, or leave it empty, and that expense falls back to
+     splitting across everyone, same as before.
      Returns:
        people:    [{ name, paid, share, net }]   net > 0 gets money back, net < 0 owes
        transfers: fewest payments that settle everyone [{ from, to, amount }]
@@ -40,7 +82,10 @@
   function tripSettlement(expenses, participants) {
     var names = [];
     (participants || []).forEach(function (n) { if (n && names.indexOf(n) < 0) names.push(n); });
-    (expenses || []).forEach(function (e) { if (e.payer && names.indexOf(e.payer) < 0) names.push(e.payer); });
+    (expenses || []).forEach(function (e) {
+      if (e.payer && names.indexOf(e.payer) < 0) names.push(e.payer);
+      (e.splitAmong || []).forEach(function (n) { if (n && names.indexOf(n) < 0) names.push(n); });
+    });
     var paid = {}, share = {}, directed = {};
     names.forEach(function (n) { paid[n] = 0; share[n] = 0; });
     var n = names.length;
@@ -50,8 +95,12 @@
       var p = toPaise(e.amount);
       if (!(p > 0)) return;
       paid[e.payer] += p;
-      var shares = splitPaise(p, n);
-      names.forEach(function (q, i) {
+      // Only people this specific expense was split between share it; everyone else is
+      // untouched by it. No valid subset given -> the old default, split across everyone.
+      var splitWith = Array.isArray(e.splitAmong) ? e.splitAmong.filter(function (x) { return names.indexOf(x) >= 0; }) : [];
+      if (!splitWith.length) splitWith = names;
+      var shares = splitPaise(p, splitWith.length);
+      splitWith.forEach(function (q, i) {
         share[q] += shares[i];
         if (q === e.payer || shares[i] === 0) return;
         var k = q + '\u0000' + e.payer;
@@ -376,6 +425,7 @@
       { id: 'r-emi', name: 'Flat EMI', words: ['emi', 'flat emi', 'home loan'], day: 5, amount: 0, scope: 'personal', acct: 'HDFC' },
       { id: 'r-niece', name: 'Niece allowance', words: ['priyanka mehta', 'priyanka', 'bhabi'], day: 1, amount: 5000, scope: 'family', acct: '' },
       { id: 'r-milk', name: 'Milk vendor', words: ['jagroop', 'shoshri chand'], day: 1, amount: 0, scope: 'family', acct: '' },
+      { id: 'r-kirana', name: 'Lavish Kirana Store', words: ['lavish kirana', 'lavish kirana store'], day: 0, amount: 0, scope: 'family', acct: '' },
       { id: 'r-lic', name: 'LIC premium', words: ['lic', 'lic of india', 'life insurance corporation'], day: 22, amount: 5000, scope: 'investment', acct: '', strict: true },
       { id: 'r-insurance', name: 'Insurance premium', words: ['insurance premium', 'life insurance', 'health insurance', 'hdfc life', 'icici pru', 'max life', 'star health', 'bajaj allianz', 'tata aia', 'sbi life'], day: 16, amount: 0, max: 2000, scope: 'personal', acct: '', strict: true }
     ];
@@ -592,13 +642,16 @@
 
   /* ---------- duplicates ----------
      The same payment can reach Kharcha Book twice: the bank SMS and the app notification, a second copy without the bank
-     reference, or two taps on Save. A "sure" duplicate is dropped automatically (the entry without a bank reference goes);
+     reference, or two taps on Save. A "sure" duplicate is dropped automatically (preferring the user-scoped entry);
      a "maybe" (same amount and text a minute apart, nothing from the phone to prove it) is only suggested. */
+  function isScopedDesc(desc) { return /^\s*[\u{1F3E0}\u{1F464}\u{1F4C8}\u{1F528}\u{1F501}✈]/u.test(desc || ''); }
+  function isPhoneTagged(e) { return !!(e && (e.method === 'upi' || e.refNo || e.raw)); }
+  function istDayKey(ts) { var d = new Date(ts + 19800000); return d.getUTCFullYear() + '-' + (d.getUTCMonth() + 1) + '-' + d.getUTCDate(); }
   function dupText(desc) {
     return String(desc || '').replace(/^\s*(?:[\u{1F3E0}\u{1F464}\u{1F4C8}\u{1F528}\u{1F501}✈️]\s*)+/u, '').replace(/^[^:]{0,40}:\s*(?=.)/, function (m) { return /trip|goa|[a-z]/i.test(m) && m.length < 30 ? '' : m; })
       .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
   }
-  function richness(e) { return (e.refNo ? 4 : 0) + (e.raw ? 2 : 0) + (/^\s*[\u{1F3E0}\u{1F464}\u{1F4C8}\u{1F528}\u{1F501}✈]/u.test(e.desc || '') ? 1 : 0); }
+  function richness(e) { return (isScopedDesc(e.desc) ? 8 : 0) + (e.refNo ? 4 : 0) + (e.raw ? 2 : 0) + (e.method === 'upi' ? 4 : 0); }
   function findDuplicates(entries, nowMs, windowDays) {
     var since = nowMs - (windowDays || 45) * 86400000;
     var list = (entries || []).filter(function (e) { return e && !e.synthetic && e.ts >= since; }).sort(function (a, b) { return a.ts - b.ts; });
@@ -607,17 +660,26 @@
       var a = list[i]; if (dropped[a.id]) continue;
       for (var j = i + 1; j < list.length; j++) {
         var b = list[j]; if (dropped[b.id] || dropped[a.id]) continue;
-        if (b.ts - a.ts > 180000) break;
+        var sameDay = istDayKey(a.ts) === istDayKey(b.ts);
+        if (b.ts - a.ts > 900000 && !sameDay) break;                        // 15-minute window, or same IST day for UPI vs manual
         if (toPaise(a.amount) !== toPaise(b.amount)) continue;
-        if (a.refNo && b.refNo && a.refNo !== b.refNo) continue;           // two different bank references = two real payments
-        var sameRaw = a.raw && b.raw && String(a.raw).replace(/\s+/g, ' ').trim() === String(b.raw).replace(/\s+/g, ' ').trim();
-        var ta = dupText(a.desc), tb = dupText(b.desc), sameText = ta && ta === tb;
-        var phone = !!(a.refNo || b.refNo || a.raw || b.raw);
-        var keep = richness(b) > richness(a) ? b : a, drop = keep === a ? b : a;
-        if (sameRaw || (sameText && phone && b.ts - a.ts <= 120000)) {
-          if (drop.refNo) maybe.push({ keep: keep, drop: drop });          // never delete a row that carries the bank reference
+        if (a.refNo && b.refNo && a.refNo !== b.refNo) continue;            // two different bank references = two real payments
+        var aPhone = isPhoneTagged(a), bPhone = isPhoneTagged(b);
+        var upiVsManual = (aPhone !== bPhone) && ((aPhone && a.method === 'upi') || (bPhone && b.method === 'upi') || (aPhone && a.refNo) || (bPhone && b.refNo));
+        if (b.ts - a.ts > 900000 && !(sameDay && upiVsManual)) continue;
+        var sameRef = !!(a.refNo && b.refNo && a.refNo === b.refNo);
+        var sameRaw = !!(a.raw && b.raw && String(a.raw).replace(/\s+/g, ' ').trim() === String(b.raw).replace(/\s+/g, ' ').trim());
+        var ta = dupText(a.desc), tb = dupText(b.desc);
+        var sameText = !!(ta && tb && (ta === tb || (ta.length >= 4 && tb.length >= 4 && (ta.indexOf(tb) >= 0 || tb.indexOf(ta) >= 0))));
+        var phone = aPhone || bPhone;
+        // When one row is UPI/bank-tagged and the other was entered manually, always keep the UPI/bank-tagged row and remove the manual one.
+        var keep = upiVsManual ? (aPhone ? a : b) : (richness(b) > richness(a) ? b : a);
+        var drop = keep === a ? b : a;
+        var scopedVsUnscopedPhone = phone && isScopedDesc(keep.desc) && !isScopedDesc(drop.desc) && (b.ts - a.ts <= 600000);
+        if (sameRef || sameRaw || (upiVsManual && sameDay) || (sameText && phone && b.ts - a.ts <= 900000) || (scopedVsUnscopedPhone && sameText)) {
+          if (drop.refNo && !isScopedDesc(keep.desc) && !sameRef && !upiVsManual) maybe.push({ keep: keep, drop: drop });
           else { dropped[drop.id] = 1; sure.push({ keep: keep, drop: drop }); }
-        } else if (sameText) {
+        } else if (sameText && b.ts - a.ts <= 180000) {
           maybe.push({ keep: keep, drop: drop });
         }
       }
@@ -690,6 +752,7 @@
     upcomingRules: upcomingRules, parseOwn: parseOwn, defaultOwn: defaultOwn, cardFor: cardFor, ownAccountFor: ownAccountFor, transferCandidates: transferCandidates, autoOwnTransfers: autoOwnTransfers, orphanTransfers: orphanTransfers, isOwnName: isOwnName, sourceAccountFromRaw: sourceAccountFromRaw,
     parseRules: parseRules, defaultRules: defaultRules, matchRule: matchRule, dueRules: dueRules, routeAccount: routeAccount,
     splitPaise: splitPaise, tripItemLabel: tripItemLabel, tripSettlement: tripSettlement,
+    tripItemCategory: tripItemCategory, tripCategoriesSummary: tripCategoriesSummary, TRIP_CATEGORY_DEFS: TRIP_CATEGORY_DEFS,
     cleanName: cleanName, nameKey: nameKey, parseLoans: parseLoans, repaid: repaid, outstanding: outstanding,
     addPayment: addPayment, editLoan: editLoan, editPayment: editPayment, summarize: summarize,
     walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, parseWalletDesc: parseWalletDesc,
