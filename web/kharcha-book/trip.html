@@ -51,6 +51,52 @@
   .hero-tag { font-size:0.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.07em; opacity:.92; }
   .hero-title { font:700 1.6rem/1.22 inherit; margin:4px 0 0; text-shadow:0 1px 6px rgba(0,0,0,.45); }
   .hero-sub { font-size:0.83rem; opacity:.88; margin:5px 0 0; }
+
+  /* Splitwise-style Settlement Cards */
+  .settle-hero { border-radius:12px; padding:14px; margin-bottom:12px; display:flex; flex-direction:column; gap:8px; }
+  .settle-owe { background:#FEF2F2; border:1px solid #FCA5A5; color:#991B1B; }
+  .settle-owed { background:#F0FDF4; border:1px solid #86EFAC; color:#166534; }
+  .settle-even { background:var(--surface); border:1px solid var(--line); color:var(--muted); }
+  @media (prefers-color-scheme: dark) {
+    .settle-owe { background:rgba(239,68,68,.12); border-color:rgba(239,68,68,.3); color:#FCA5A5; }
+    .settle-owed { background:rgba(34,197,94,.12); border-color:rgba(34,197,94,.3); color:#86EFAC; }
+    .settle-even { background:var(--surface); border-color:var(--line); color:var(--muted); }
+  }
+  .settle-headline { font-weight:700; font-size:1.15rem; margin:0; }
+  .settle-sub { font-size:0.85rem; margin:0; opacity:.9; }
+  .settle-actions { display:flex; gap:8px; margin-top:4px; flex-wrap:wrap; }
+  .btn-upi { display:inline-flex; align-items:center; justify-content:center; gap:6px; background:linear-gradient(135deg, #0284C7 0%, #0369A1 100%); color:#fff; font-weight:700; font-size:0.92rem; padding:10px 16px; border-radius:10px; border:0; cursor:pointer; text-decoration:none; box-shadow:0 2px 6px rgba(2,132,199,.25); }
+  .btn-upi:active { transform:scale(0.98); }
+  .btn-wa { display:inline-flex; align-items:center; justify-content:center; gap:6px; background:#25D366; color:#fff; font-weight:700; font-size:0.88rem; padding:8px 14px; border-radius:10px; border:0; cursor:pointer; text-decoration:none; }
+  .btn-wa:active { transform:scale(0.98); }
+  .btn-ghost-sm { background:var(--accent-soft); color:var(--accent); padding:6px 10px; font-size:0.78rem; border-radius:8px; border:0; cursor:pointer; font-weight:600; text-decoration:none; }
+
+  .transfer-item { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 0; border-bottom:1px solid var(--line); }
+  .transfer-item:last-child { border-bottom:0; padding-bottom:0; }
+  .transfer-who { font-weight:600; font-size:0.92rem; }
+  .transfer-arrow { color:var(--muted); font-size:0.85rem; padding:0 3px; }
+  .transfer-amt { font-weight:700; font-size:1rem; white-space:nowrap; }
+
+  .person-row { display:flex; justify-content:space-between; align-items:center; padding:9px 0; border-bottom:1px solid var(--line); }
+  .person-row:last-child { border-bottom:0; }
+  .person-info { display:flex; flex-direction:column; gap:2px; }
+  .person-name { font-weight:600; font-size:0.92rem; }
+  .person-meta { font-size:0.78rem; color:var(--muted); }
+  .person-status { font-weight:700; font-size:0.85rem; padding:3px 8px; border-radius:6px; white-space:nowrap; }
+  .status-pos { background:rgba(34,197,94,.12); color:#166534; }
+  .status-neg { background:rgba(239,68,68,.12); color:#991B1B; }
+  .status-zero { background:var(--line); color:var(--muted); }
+  @media (prefers-color-scheme: dark) {
+    .status-pos { color:#86EFAC; }
+    .status-neg { color:#FCA5A5; }
+  }
+
+  .chip-box { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+  .chip { padding:6px 12px; border-radius:20px; font-size:0.82rem; font-weight:600; border:1px solid var(--line); background:var(--bg); color:var(--ink); cursor:pointer; user-select:none; }
+  .chip.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .row-del { background:none; border:none; color:var(--muted); font-size:0.95rem; cursor:pointer; padding:4px 6px; border-radius:6px; margin-left:4px; }
+  .row-del:hover { color:var(--danger); background:rgba(220,38,38,.08); }
+  .tag-split { font-size:0.7rem; font-weight:600; color:var(--accent); background:var(--accent-soft); padding:2px 6px; border-radius:4px; margin-top:2px; display:inline-block; }
 </style>
 </head>
 <body>
@@ -60,6 +106,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="config.js" onerror="void 0"></script>
+<script src="ledger-logic.js"></script>
 <script src="trip.js"></script>
 </body>
 </html>

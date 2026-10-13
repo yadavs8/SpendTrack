@@ -64,6 +64,17 @@ t('everyone square gives no transfers', () => {
   assert.deepStrictEqual(r.pairs, []);
 });
 
+t('upiPayLink, settleMessage, and whatsappLink helpers format correctly', () => {
+  const link = L.upiPayLink('sanjeev@okhdfcbank', 'Sanjeev', 1500, 'Manali trip');
+  assert.strictEqual(link, 'upi://pay?pa=sanjeev%40okhdfcbank&pn=Sanjeev&am=1500.00&cu=INR&tn=Manali%20trip');
+  const empty = L.upiPayLink('', 'Sanjeev', 1500, 'Manali');
+  assert.strictEqual(empty, '');
+  const msg = L.settleMessage('Rohit', 2500, 'Manali stay', 'sanjeev@okhdfcbank');
+  assert.ok(msg.includes('Rohit') && msg.includes('₹2,500') && msg.includes('sanjeev@okhdfcbank'));
+  const wa = L.whatsappLink('Test message');
+  assert.strictEqual(wa, 'https://wa.me/?text=Test%20message');
+});
+
 // ---- ledger ----
 const loans = [
   { id: 'a', person: 'Rohit', kind: 'lent', amount: 5000, note: 'bike repair', ts: 1, payments: [{ id: 'p1', amount: 2000, ts: 2 }] },

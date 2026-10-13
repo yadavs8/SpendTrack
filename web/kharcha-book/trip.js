@@ -259,23 +259,76 @@
     input.focus();
   }
 
+  function promptForVpa(personName, defaultVal) {
+    var vpa = window.prompt('Enter UPI ID for ' + personName + ' (e.g. name@okhdfcbank or 98xxxxxx@upi):', defaultVal || '');
+    if (vpa && vpa.trim()) {
+      localStorage.setItem('kharcha_vpa_' + personName.toLowerCase(), vpa.trim());
+      return vpa.trim();
+    }
+    return null;
+  }
+  function getSavedVpa(personName) {
+    try { return localStorage.getItem('kharcha_vpa_' + personName.toLowerCase()) || ''; } catch (e) { return ''; }
+  }
+  function handleUpiPay(personName, amount, tripName) {
+    var vpa = getSavedVpa(personName) || promptForVpa(personName);
+    if (!vpa) return;
+    var KL = window.KharchaLedger;
+    var link = (KL && KL.upiPayLink) ?
+      KL.upiPayLink(vpa, personName, amount, (tripName || 'Trip') + ' settlement') :
+      'upi://pay?pa=' + encodeURIComponent(vpa) + '&pn=' + encodeURIComponent(personName) + '&am=' + Number(amount).toFixed(2) + '&cu=INR&tn=' + encodeURIComponent((tripName || 'Trip') + ' settlement');
+    window.location.href = link;
+  }
+
   function renderTrip(tripName) {
     var membership = savedMembership();
+    var myName = (membership && membership.display_name ? membership.display_name.trim() : '');
     app.innerHTML = '';
 
     app.appendChild(renderHero(tripName));
+
     var head = el('div');
-    head.appendChild(el('p', 'sub', 'You: ' + (membership ? membership.display_name : '')));
+    head.style.display = 'flex';
+    head.style.justifyContent = 'space-between';
+    head.style.alignItems = 'center';
+    head.style.margin = '0 0 16px';
+    var userSub = el('p', 'sub', 'You: ' + (myName || 'Guest'));
+    userSub.style.margin = '0';
+    var changeBtn = el('button', 'btn-ghost-sm', 'Change name');
+    changeBtn.addEventListener('click', function () {
+      if (confirm('Switch to a different name on this trip?')) {
+        localStorage.removeItem(storeKey);
+        renderJoinForm(tripName);
+      }
+    });
+    head.appendChild(userSub);
+    head.appendChild(changeBtn);
     app.appendChild(head);
 
+    // Summary Card (Total spend)
     var summaryCard = el('div', 'card');
     var totalEl = el('p', 'total', '₹0');
     var noteEl = el('p', 'total-note', 'Loading…');
     summaryCard.appendChild(totalEl); summaryCard.appendChild(noteEl);
     app.appendChild(summaryCard);
 
+    // Personal Splitwise Standing Card (You owe / You are owed)
+    var personalCard = el('div');
+    app.appendChild(personalCard);
+
+    // Who Owes Whom (Fewest payments transfer list)
+    var transfersCard = el('div', 'card');
+    var transfersHeading = el('h2', null, 'Who owes whom');
+    transfersHeading.style.margin = '0 0 10px';
+    transfersHeading.style.fontSize = '1rem';
+    transfersCard.appendChild(transfersHeading);
+    var transfersList = el('ul', 'list');
+    transfersCard.appendChild(transfersList);
+    app.appendChild(transfersCard);
+
+    // Balances & Shares per Person
     var byPersonCard = el('div', 'card');
-    var byPersonHeading = el('h2', null, 'Who\'s spent what');
+    var byPersonHeading = el('h2', null, 'Balances & shares');
     byPersonHeading.style.margin = '0 0 10px';
     byPersonHeading.style.fontSize = '1rem';
     byPersonCard.appendChild(byPersonHeading);
@@ -283,6 +336,7 @@
     byPersonCard.appendChild(byPersonList);
     app.appendChild(byPersonCard);
 
+    // All Itemized Expenses
     var listCard = el('div', 'card');
     var listHeading = el('h2', null, 'All expenses');
     listHeading.style.margin = '0 0 10px';
@@ -292,22 +346,37 @@
     listCard.appendChild(listEl);
     app.appendChild(listCard);
 
+    // Add Expense Card with Split Selector
     var addCard = el('div', 'card');
     var addHeading = el('h2', null, '+ Add your expense');
     addHeading.style.margin = '0 0 12px';
     addHeading.style.fontSize = '1rem';
     addCard.appendChild(addHeading);
+
     var amtField = el('div', 'field');
-    amtField.appendChild(el('label', null, 'Amount'));
+    amtField.appendChild(el('label', null, 'Amount (₹)'));
     var amtInput = el('input'); amtInput.inputMode = 'decimal'; amtInput.placeholder = '0';
     amtField.appendChild(amtInput);
+
     var descField = el('div', 'field');
     descField.appendChild(el('label', null, 'What was it?'));
-    var descInput = el('input'); descInput.maxLength = 80; descInput.placeholder = 'e.g. Lunch, Cab, Hotel share';
+    var descInput = el('input'); descInput.maxLength = 80; descInput.placeholder = 'e.g. Lunch, Taxi, Hotel share';
     descField.appendChild(descInput);
+
+    var splitField = el('div', 'field');
+    splitField.appendChild(el('label', null, 'Split between'));
+    var chipBox = el('div', 'chip-box');
+    var chipAll = el('span', 'chip active', 'Everyone (equal)');
+    chipBox.appendChild(chipAll);
+    splitField.appendChild(chipBox);
+
     var addErr = el('p', 'err'); addErr.hidden = true;
     var addBtn = el('button', 'primary', 'Add expense');
-    addCard.appendChild(amtField); addCard.appendChild(descField); addCard.appendChild(addErr); addCard.appendChild(addBtn);
+    addCard.appendChild(amtField);
+    addCard.appendChild(descField);
+    addCard.appendChild(splitField);
+    addCard.appendChild(addErr);
+    addCard.appendChild(addBtn);
     app.appendChild(addCard);
 
     var installCard = el('div', 'card');
@@ -318,6 +387,42 @@
     brand.innerHTML = 'Powered by Kharcha Book';
     app.appendChild(brand);
 
+    var knownParticipants = [];
+    var selectedSplitNames = null; // null = everyone
+
+    chipAll.addEventListener('click', function () {
+      selectedSplitNames = null;
+      var chips = chipBox.querySelectorAll('.chip');
+      chips.forEach(function (c) { c.classList.remove('active'); });
+      chipAll.classList.add('active');
+    });
+
+    function updateSplitChips(participants) {
+      knownParticipants = participants || [];
+      chipBox.innerHTML = '';
+      chipAll.className = 'chip' + (!selectedSplitNames ? ' active' : '');
+      chipBox.appendChild(chipAll);
+
+      knownParticipants.forEach(function (name) {
+        var chip = el('span', 'chip', name);
+        if (selectedSplitNames && selectedSplitNames.indexOf(name) >= 0) chip.classList.add('active');
+        chip.addEventListener('click', function () {
+          if (!selectedSplitNames) {
+            // First time switching from everyone -> select clicked person + self
+            selectedSplitNames = [name];
+            if (myName && selectedSplitNames.indexOf(myName) < 0) selectedSplitNames.push(myName);
+          } else {
+            var idx = selectedSplitNames.indexOf(name);
+            if (idx >= 0) selectedSplitNames.splice(idx, 1);
+            else selectedSplitNames.push(name);
+            if (!selectedSplitNames.length) selectedSplitNames = null; // fall back to everyone
+          }
+          updateSplitChips(knownParticipants);
+        });
+        chipBox.appendChild(chip);
+      });
+    }
+
     function refresh() {
       sb.rpc('trip_summary', { p_invite_token: token }).then(function (res) {
         if (res.error || !res.data || !res.data.length) throw res.error || new Error('no data');
@@ -326,21 +431,206 @@
         noteEl.textContent = (s.expense_count || 0) + (s.expense_count === 1 ? ' expense logged' : ' expenses logged');
         var items = s.expenses || [];
 
-        // Who's spent what: a running per-person total, lowest contributor to highest.
-        byPersonList.innerHTML = '';
-        if (!items.length) {
-          byPersonList.appendChild(el('li', 'empty', 'Nobody has added anything yet.'));
+        // Collect all distinct names
+        var namesSet = new Set();
+        if (myName) namesSet.add(myName);
+        items.forEach(function (e) {
+          if (e.added_by_name) namesSet.add(e.added_by_name.trim());
+          if (Array.isArray(e.split_among)) {
+            e.split_among.forEach(function (n) { if (n) namesSet.add(n.trim()); });
+          }
+        });
+        var participants = Array.from(namesSet);
+        updateSplitChips(participants);
+
+        // Map expenses for settlement calculation
+        var mapped = items.map(function (e) {
+          return {
+            id: e.id,
+            label: e.description,
+            amount: Number(e.amount),
+            payer: e.added_by_name,
+            splitAmong: Array.isArray(e.split_among) ? e.split_among : null
+          };
+        });
+
+        var settlement = null;
+        var KL = window.KharchaLedger;
+        if (KL && typeof KL.tripSettlement === 'function') {
+          settlement = KL.tripSettlement(mapped, participants);
+        }
+
+        // Render Personal Standing Card
+        personalCard.innerHTML = '';
+        if (settlement && myName) {
+          var myPerson = settlement.people.find(function (p) {
+            return p.name.toLowerCase() === myName.toLowerCase();
+          });
+          if (myPerson) {
+            var box = el('div', 'settle-hero');
+            if (myPerson.net < -0.01) {
+              box.classList.add('settle-owe');
+              var netOwe = Math.abs(myPerson.net);
+              box.appendChild(el('p', 'settle-headline', '🔴 You owe ' + money(netOwe) + ' in total'));
+              box.appendChild(el('p', 'settle-sub', 'Your fair share: ' + money(myPerson.share) + ' · You paid: ' + money(myPerson.paid)));
+
+              var myDebts = settlement.transfers.filter(function (t) {
+                return t.from.toLowerCase() === myName.toLowerCase();
+              });
+              if (myDebts.length) {
+                var debtsList = el('div');
+                debtsList.style.marginTop = '6px';
+                myDebts.forEach(function (t) {
+                  var dRow = el('div');
+                  dRow.style.display = 'flex';
+                  dRow.style.alignItems = 'center';
+                  dRow.style.justifyContent = 'space-between';
+                  dRow.style.gap = '8px';
+                  dRow.style.padding = '6px 0';
+                  dRow.style.borderTop = '1px solid rgba(0,0,0,0.06)';
+
+                  var dText = el('span', null, 'Pay ' + t.to + ': ' + money(t.amount));
+                  dText.style.fontWeight = '600';
+                  dText.style.fontSize = '0.92rem';
+                  dRow.appendChild(dText);
+
+                  var actBox = el('div', 'settle-actions');
+                  actBox.style.margin = '0';
+
+                  var payBtn = el('button', 'btn-upi', '⚡ Pay UPI');
+                  payBtn.title = 'Pay via UPI / GPay / PhonePe';
+                  payBtn.addEventListener('click', function () {
+                    handleUpiPay(t.to, t.amount, tripName);
+                  });
+                  actBox.appendChild(payBtn);
+
+                  var waBtn = el('button', 'btn-wa', '📲 WhatsApp');
+                  waBtn.title = 'Send payment message on WhatsApp';
+                  waBtn.addEventListener('click', function () {
+                    var vpa = getSavedVpa(t.to);
+                    var msg = 'Hey ' + t.to + ', I am settling my ' + (tripName || 'trip') + ' share of ' + money(t.amount) + '.';
+                    if (vpa) msg += '\nPay link: ' + (KL && KL.upiPayLink ? KL.upiPayLink(vpa, t.to, t.amount, tripName) : '');
+                    window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
+                  });
+                  actBox.appendChild(waBtn);
+
+                  dRow.appendChild(actBox);
+                  debtsList.appendChild(dRow);
+                });
+                box.appendChild(debtsList);
+              }
+            } else if (myPerson.net > 0.01) {
+              box.classList.add('settle-owed');
+              box.appendChild(el('p', 'settle-headline', '🟢 You get back ' + money(myPerson.net)));
+              box.appendChild(el('p', 'settle-sub', 'You paid: ' + money(myPerson.paid) + ' · Your share: ' + money(myPerson.share)));
+
+              var owedToMe = settlement.transfers.filter(function (t) {
+                return t.to.toLowerCase() === myName.toLowerCase();
+              });
+              if (owedToMe.length) {
+                var owesList = el('div');
+                owesList.style.marginTop = '6px';
+                owedToMe.forEach(function (t) {
+                  var oRow = el('div');
+                  oRow.style.display = 'flex';
+                  oRow.style.alignItems = 'center';
+                  oRow.style.justifyContent = 'space-between';
+                  oRow.style.gap = '8px';
+                  oRow.style.padding = '6px 0';
+                  oRow.style.borderTop = '1px solid rgba(0,0,0,0.06)';
+
+                  var oText = el('span', null, t.from + ' owes you: ' + money(t.amount));
+                  oText.style.fontWeight = '600';
+                  oText.style.fontSize = '0.92rem';
+                  oRow.appendChild(oText);
+
+                  var waRemind = el('button', 'btn-wa', '📲 Remind');
+                  waRemind.addEventListener('click', function () {
+                    var myVpa = getSavedVpa(myName);
+                    var msg = 'Hey ' + t.from + ', your share for ' + (tripName || 'our trip') + ' comes to ' + money(t.amount) + '.';
+                    if (myVpa) msg += '\nPay to UPI ID: ' + myVpa;
+                    window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
+                  });
+                  oRow.appendChild(waRemind);
+                  owesList.appendChild(oRow);
+                });
+                box.appendChild(owesList);
+              }
+            } else {
+              box.classList.add('settle-even');
+              box.appendChild(el('p', 'settle-headline', '🎉 You\'re all settled up!'));
+              box.appendChild(el('p', 'settle-sub', 'Paid: ' + money(myPerson.paid) + ' · Share: ' + money(myPerson.share)));
+            }
+            personalCard.appendChild(box);
+          }
+        }
+
+        // Render Who Owes Whom (Transfers)
+        transfersList.innerHTML = '';
+        if (!settlement || !settlement.transfers || !settlement.transfers.length) {
+          transfersList.appendChild(el('li', 'empty', 'Everyone is all squared up! 🎉'));
         } else {
-          var byPerson = {};
-          items.forEach(function (e) { byPerson[e.added_by_name] = (byPerson[e.added_by_name] || 0) + Number(e.amount); });
-          Object.keys(byPerson).sort(function (a, b) { return byPerson[b] - byPerson[a]; }).forEach(function (name) {
-            var row = el('li', 'row');
-            row.appendChild(el('span', 'row-desc', name));
-            row.appendChild(el('span', 'row-amt', money(byPerson[name])));
+          settlement.transfers.forEach(function (t) {
+            var row = el('li', 'transfer-item');
+            var who = el('div');
+            var fName = el('span', 'transfer-who', t.from);
+            var arrow = el('span', 'transfer-arrow', '➔');
+            var tName = el('span', 'transfer-who', t.to);
+            who.appendChild(fName); who.appendChild(arrow); who.appendChild(tName);
+            row.appendChild(who);
+
+            var rRight = el('div');
+            rRight.style.display = 'flex';
+            rRight.style.alignItems = 'center';
+            rRight.style.gap = '8px';
+
+            var amt = el('span', 'transfer-amt', money(t.amount));
+            rRight.appendChild(amt);
+
+            if (myName && t.from.toLowerCase() === myName.toLowerCase()) {
+              var paySm = el('button', 'btn-upi', '⚡ Pay');
+              paySm.style.padding = '5px 10px';
+              paySm.style.fontSize = '0.78rem';
+              paySm.addEventListener('click', function () {
+                handleUpiPay(t.to, t.amount, tripName);
+              });
+              rRight.appendChild(paySm);
+            }
+            row.appendChild(rRight);
+            transfersList.appendChild(row);
+          });
+        }
+
+        // Render Balances & Shares per Person
+        byPersonList.innerHTML = '';
+        if (!settlement || !settlement.people || !settlement.people.length) {
+          byPersonList.appendChild(el('li', 'empty', 'Nobody has logged anything yet.'));
+        } else {
+          settlement.people.forEach(function (p) {
+            var row = el('li', 'person-row');
+            var info = el('div', 'person-info');
+            var pName = el('span', 'person-name', p.name + (myName && p.name.toLowerCase() === myName.toLowerCase() ? ' (You)' : ''));
+            var pMeta = el('span', 'person-meta', 'Paid: ' + money(p.paid) + ' · Share: ' + money(p.share));
+            info.appendChild(pName); info.appendChild(pMeta);
+            row.appendChild(info);
+
+            var statusPill = el('span', 'person-status');
+            if (p.net > 0.01) {
+              statusPill.classList.add('status-pos');
+              statusPill.textContent = '+' + money(p.net);
+            } else if (p.net < -0.01) {
+              statusPill.classList.add('status-neg');
+              statusPill.textContent = '-' + money(Math.abs(p.net));
+            } else {
+              statusPill.classList.add('status-zero');
+              statusPill.textContent = 'Settled';
+            }
+            row.appendChild(statusPill);
             byPersonList.appendChild(row);
           });
         }
 
+        // Render All Expenses
         listEl.innerHTML = '';
         if (!items.length) {
           listEl.appendChild(el('li', 'empty', 'No expenses yet -- be the first to add one.'));
@@ -349,7 +639,14 @@
             var row = el('li', 'row');
             var l = el('div', 'row-l');
             l.appendChild(el('span', 'row-desc', e.description));
-            l.appendChild(el('span', 'row-meta', e.added_by_name + ' · ' + new Date(e.spent_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })));
+            var metaText = e.added_by_name + ' · ' + new Date(e.spent_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+            l.appendChild(el('span', 'row-meta', metaText));
+
+            if (Array.isArray(e.split_among) && e.split_among.length) {
+              var splitTag = el('span', 'tag-split', '👥 Split: ' + e.split_among.join(', '));
+              l.appendChild(splitTag);
+            }
+
             row.appendChild(l);
             row.appendChild(el('span', 'row-amt', money(e.amount)));
             listEl.appendChild(row);
@@ -367,12 +664,17 @@
       if (!amt || amt <= 0) { addErr.textContent = 'Enter an amount greater than zero.'; addErr.hidden = false; return; }
       if (!desc) { addErr.textContent = 'Add a short description.'; addErr.hidden = false; return; }
       addBtn.disabled = true;
+
+      var splitPayload = (Array.isArray(selectedSplitNames) && selectedSplitNames.length) ? selectedSplitNames : null;
+
       sb.rpc('trip_add_expense', {
         p_invite_token: token, p_guest_token: membership.guest_token,
-        p_amount: amt, p_description: desc
+        p_amount: amt, p_description: desc,
+        p_split_among: splitPayload
       }).then(function (res) {
         if (res.error) throw res.error;
         amtInput.value = ''; descInput.value = '';
+        selectedSplitNames = null;
         refresh();
       }).catch(function (e) {
         addErr.textContent = (e && e.message) || 'Could not save. Try again.';
@@ -382,8 +684,6 @@
     descInput.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') addBtn.click(); });
 
     refresh();
-    // Lightweight auto-refresh while the page is open and visible -- good enough until a later
-    // phase adds Supabase Realtime instead of polling.
     var timer = setInterval(function () { if (!document.hidden) refresh(); }, 20000);
     document.addEventListener('visibilitychange', function () { if (!document.hidden) refresh(); });
     window.addEventListener('beforeunload', function () { clearInterval(timer); });

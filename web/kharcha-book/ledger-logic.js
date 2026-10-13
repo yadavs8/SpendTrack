@@ -152,6 +152,23 @@
     return { people: people, transfers: transfers, pairs: pairs };
   }
 
+  function upiPayLink(vpa, name, amount, note) {
+    if (!vpa) return '';
+    return 'upi://pay?pa=' + encodeURIComponent(vpa.trim()) + '&pn=' + encodeURIComponent(name || 'Kharcha Book') +
+      '&am=' + Number(amount || 0).toFixed(2) + '&cu=INR&tn=' + encodeURIComponent(note || 'Settlement');
+  }
+
+  function settleMessage(who, amount, reason, myVpa) {
+    var amtStr = '₹' + Number(amount || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
+    var msg = 'Hey ' + (who || 'friend') + ', your share for ' + (reason || 'our expenses') + ' comes to ' + amtStr + '.';
+    if (myVpa) msg += '\nPay to UPI ID: ' + myVpa + '\n' + upiPayLink(myVpa, 'Settle up', amount, reason);
+    return msg;
+  }
+
+  function whatsappLink(text) {
+    return 'https://wa.me/?text=' + encodeURIComponent(text);
+  }
+
   /* ---------- lent / borrowed ledger ----------
      loan: { id, person, kind: 'lent' | 'borrowed', amount, note, ts, payments: [{ id, amount, ts, note }] }
      'lent'     = I gave money, they owe me.   'borrowed' = they gave me money, I owe them. */
@@ -752,6 +769,7 @@
     upcomingRules: upcomingRules, parseOwn: parseOwn, defaultOwn: defaultOwn, cardFor: cardFor, ownAccountFor: ownAccountFor, transferCandidates: transferCandidates, autoOwnTransfers: autoOwnTransfers, orphanTransfers: orphanTransfers, isOwnName: isOwnName, sourceAccountFromRaw: sourceAccountFromRaw,
     parseRules: parseRules, defaultRules: defaultRules, matchRule: matchRule, dueRules: dueRules, routeAccount: routeAccount,
     splitPaise: splitPaise, tripItemLabel: tripItemLabel, tripSettlement: tripSettlement,
+    upiPayLink: upiPayLink, settleMessage: settleMessage, whatsappLink: whatsappLink,
     tripItemCategory: tripItemCategory, tripCategoriesSummary: tripCategoriesSummary, TRIP_CATEGORY_DEFS: TRIP_CATEGORY_DEFS,
     cleanName: cleanName, nameKey: nameKey, parseLoans: parseLoans, repaid: repaid, outstanding: outstanding,
     addPayment: addPayment, editLoan: editLoan, editPayment: editPayment, summarize: summarize,
