@@ -182,7 +182,16 @@ class TransactionRepository(
                 isEdited = true,
                 updatedAt = now
             )
-            activeTrip.isNullOrBlank() && rule?.scope != null && rule.scopeConfirmations >= AUTO_FILE_AFTER_ANSWERS -> txn.copy(
+            // Trip mode is an explicit signal ("I am on this trip now"), unlike guessing from
+            // location -- so once it's on, a spend goes straight to that trip, no asking. Still
+            // just a quiet "auto-logged" notification (announce() -> showAutoLogged), never silent.
+            !activeTrip.isNullOrBlank() -> txn.copy(
+                description = ExpenseScope.describe(txn.merchantName, txn.description, txn.isEdited, ExpenseScope.TRIP, activeTrip),
+                needsReview = false,
+                isEdited = true,
+                updatedAt = now
+            )
+            rule?.scope != null && rule.scopeConfirmations >= AUTO_FILE_AFTER_ANSWERS -> txn.copy(
                 description = ExpenseScope.describe(txn.merchantName, txn.description, txn.isEdited, rule.scope),
                 categoryId = rule.categoryId.takeIf { it.isNotBlank() && it != "cat_other" } ?: txn.categoryId,
                 needsReview = false,
