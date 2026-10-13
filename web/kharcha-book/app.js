@@ -396,6 +396,16 @@
     return 'Me';
   }
 
+  /** The subset of trip-mates a specific entry was split between ("[Split: Bijoy, Rohan]"), or
+     null when it wasn't tagged -- meaning "split across everyone", the original default. */
+  function parseTripSplit(desc) {
+    if (!desc) return null;
+    var m = String(desc).match(/\[Split: ([^\]]+)\]/i);
+    if (!m || !m[1]) return null;
+    var names = m[1].split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    return names.length ? names : null;
+  }
+
   function extractTripNameFromDesc(desc) {
     if (!desc) return '';
     var m = String(desc).match(/^[✈\u{2708}\u{FE0F}\u{1F6EB}\u{1F6EC}]+\s*([^:\[]+):/u);
@@ -442,27 +452,48 @@
     });
 
     // If explicitFriends wasn't passed and only Me paid or binary Friend
-    var allParticipants = Array.from(friendSet);
-    if (allParticipants.length === 1 && allParticipants[0] === 'Me' && (!explicitFriends || !explicitFriends.length)) {
+    var seedParticipants = Array.from(friendSet);
+    if (seedParticipants.length === 1 && seedParticipants[0] === 'Me' && (!explicitFriends || !explicitFriends.length)) {
       // Default to 2 people (Me & Friend) for 50/50 balance preview
       if (list.some(function (e) { return parseTripPayer(e.desc) !== 'Me'; })) {
-        allParticipants.push('Friend');
+        seedParticipants.push('Friend');
       }
     }
+
+    var KL = window.KharchaLedger;
+    // Splitwise-style: each expense is only divided between whoever it was actually tagged for
+    // (a round of drinks just two of five people had), not blindly across every trip participant.
+    // Untagged entries (no "[Split: ...]", and nothing yet for guest-added ones that predate this)
+    // fall back to splitting across everyone, same as the app always did before this.
+    var settled = KL ? KL.tripSettlement(
+      list.map(function (e) {
+        return {
+          id: e.id,
+          label: KL.tripItemLabel(e.desc),
+          amount: e.amount,
+          payer: parseTripPayer(e.desc),
+          splitAmong: e.splitAmong || parseTripSplit(e.desc)
+        };
+      }),
+      seedParticipants
+    ) : null;
+
+    var allParticipants = settled ? settled.people.map(function (p) { return p.name; }) : seedParticipants;
+    var meFirst = function (a, b) { return a === 'Me' ? -1 : b === 'Me' ? 1 : 0; };
+    allParticipants.sort(meFirst);
+
     var numPeople = Math.max(1, allParticipants.length);
+    // A single rough "if split evenly" figure for display (the per-head badge) -- the real,
+    // possibly-uneven share each person actually owes lives in balances[].share below.
     var perPersonShare = totalSpent > 0 ? Math.round((totalSpent * 100) / numPeople) / 100 : 0;
 
-    // Balances breakdown
-    var balances = allParticipants.map(function (person) {
-      var paid = payerTotals[person] || 0;
-      var net = (paid * 100 - perPersonShare * 100) / 100;
-      return {
-        name: person,
-        paid: paid,
-        share: perPersonShare,
-        net: net // > 0: gets back from group, < 0: owes to group
-      };
-    });
+    var balances = settled
+      ? settled.people.map(function (p) { return { name: p.name, paid: p.paid, share: p.share, net: p.net }; }).sort(meFirst)
+      : allParticipants.map(function (person) {
+          var paid = payerTotals[person] || 0;
+          var net = (paid * 100 - perPersonShare * 100) / 100;
+          return { name: person, paid: paid, share: perPersonShare, net: net };
+        });
 
     // Backward-compatible properties for 2-party view
     var paidByMe = payerTotals['Me'] || 0;
@@ -471,7 +502,6 @@
     var paidByFriend = friendEntries.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
     var netDiff = (paidByMe * 100 - paidByFriend * 100) / 200;
 
-    var KL = window.KharchaLedger;
     var categories = (KL && KL.tripCategoriesSummary) ? KL.tripCategoriesSummary(list) : {
       stay: { key: 'stay', name: 'Stay Expenses', emoji: '🏨', total: 0, count: 0, items: [] },
       fuel: { key: 'fuel', name: 'Fuel Expenses', emoji: '⛽', total: 0, count: 0, items: [] },
@@ -4266,13 +4296,14 @@
     } catch (e) { return null; }
   }
 
-  function mirrorOwnerTripExpense(tripName, amount, description, spentAtIso, localEntryId) {
+  function mirrorOwnerTripExpense(tripName, amount, description, spentAtIso, localEntryId, splitAmong) {
     if (!sb) return;
     ensureTripRow(tripName).then(function (trip) {
       if (!trip) return;
       return sb.rpc('trip_add_owner_expense', {
         p_trip_id: trip.id, p_added_by_name: myDisplayName(),
-        p_amount: amount, p_description: description, p_spent_at: spentAtIso || null
+        p_amount: amount, p_description: description, p_spent_at: spentAtIso || null,
+        p_split_among: (Array.isArray(splitAmong) && splitAmong.length) ? splitAmong : null
       });
     }).then(function (res) {
       if (res && !res.error && res.data && localEntryId) rememberTripMirror(localEntryId, res.data.id);
@@ -4300,7 +4331,7 @@
     var localEntries = getTripSummary(state.entries, tripName, []).entries;
     var map = loadTripMirrorMap();
     localEntries.filter(function (e) { return !map[e.id]; }).forEach(function (e) {
-      mirrorOwnerTripExpense(tripName, e.amount, cleanScopePrefix(e.desc), new Date(e.ts).toISOString(), e.id);
+      mirrorOwnerTripExpense(tripName, e.amount, cleanScopePrefix(e.desc), new Date(e.ts).toISOString(), e.id, parseTripSplit(e.desc));
     });
   }
 
@@ -4344,6 +4375,7 @@
             amount: Number(e.amount),
             desc: '✈️ ' + tripName + ': ' + e.description + ' [Paid by ' + e.added_by_name + ']',
             ts: Date.parse(e.spent_at),
+            splitAmong: Array.isArray(e.split_among) ? e.split_among : null,
             isGuestEntry: true // not a daily_expenses row -- editable here (via delete), not the usual edit form
           };
         });

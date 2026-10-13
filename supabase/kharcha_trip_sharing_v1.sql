@@ -40,8 +40,12 @@ create table if not exists public.trip_expenses (
   amount        numeric(12,2) not null check (amount > 0),
   description   text not null check (char_length(description) between 1 and 80),
   spent_at      timestamptz not null default now(),
-  created_at    timestamptz not null default now()
+  created_at    timestamptz not null default now(),
+  split_among   jsonb -- names this one expense is divided between; null = everyone on the trip
 );
+
+-- Already-run v1 installs: adds the column that v1 didn't have yet. Safe to run again.
+alter table public.trip_expenses add column if not exists split_among jsonb;
 
 create index if not exists trip_expenses_trip_idx on public.trip_expenses (trip_id, spent_at desc);
 create index if not exists trip_members_trip_idx on public.trip_members (trip_id);
@@ -138,8 +142,13 @@ $$;
 -- auto-file-to-active-trip). A normal RLS-checked insert, nothing elevated. p_added_by_name
 -- comes from the app's own "Your details" setting -- not from auth.users, which the
 -- authenticated role can't read directly in Supabase by default.
+-- A new trailing parameter (p_split_among) changes this function's signature, so "create or
+-- replace" alone would leave the old 5-arg version sitting next to a new 6-arg one instead of
+-- truly replacing it -- drop the old shape explicitly first.
+drop function if exists public.trip_add_owner_expense(uuid, text, numeric, text, timestamptz);
 create or replace function public.trip_add_owner_expense(
-  p_trip_id uuid, p_added_by_name text, p_amount numeric, p_description text, p_spent_at timestamptz default now()
+  p_trip_id uuid, p_added_by_name text, p_amount numeric, p_description text, p_spent_at timestamptz default now(),
+  p_split_among jsonb default null -- names this expense is divided between; null = everyone on the trip
 )
 returns public.trip_expenses
 language plpgsql
@@ -149,8 +158,8 @@ as $$
 declare
   v_expense public.trip_expenses;
 begin
-  insert into public.trip_expenses (trip_id, member_id, added_by_name, amount, description, spent_at)
-    values (p_trip_id, null, coalesce(trim(p_added_by_name), 'Me'), p_amount, p_description, coalesce(p_spent_at, now()))
+  insert into public.trip_expenses (trip_id, member_id, added_by_name, amount, description, spent_at, split_among)
+    values (p_trip_id, null, coalesce(trim(p_added_by_name), 'Me'), p_amount, p_description, coalesce(p_spent_at, now()), p_split_among)
     returning * into v_expense;
   return v_expense;
 end;
@@ -219,7 +228,7 @@ begin
              'amount', e.amount, 'description', e.description,
              'added_by_name', e.added_by_name, 'spent_at', e.spent_at,
              'member_id', e.member_id, -- null = the owner's own mirrored entry, not a guest's
-             'id', e.id
+             'id', e.id, 'split_among', e.split_among
            ) order by e.spent_at desc), '[]'::jsonb)
     from public.trip_expenses e where e.trip_id = v_trip.id;
 end;
@@ -227,8 +236,10 @@ $$;
 
 -- A guest logging their own spend. Both tokens must agree on the same trip before anything is
 -- written -- a stale or mismatched guest_token fails closed, not open.
+drop function if exists public.trip_add_expense(text, text, numeric, text, timestamptz);
 create or replace function public.trip_add_expense(
-  p_invite_token text, p_guest_token text, p_amount numeric, p_description text, p_spent_at timestamptz default now()
+  p_invite_token text, p_guest_token text, p_amount numeric, p_description text, p_spent_at timestamptz default now(),
+  p_split_among jsonb default null -- names this expense is divided between; null = everyone on the trip
 )
 returns public.trip_expenses
 language plpgsql
@@ -255,8 +266,8 @@ begin
     raise exception 'Add a description.';
   end if;
 
-  insert into public.trip_expenses (trip_id, member_id, added_by_name, amount, description, spent_at)
-    values (v_trip.id, v_member.id, v_member.display_name, p_amount, trim(p_description), coalesce(p_spent_at, now()))
+  insert into public.trip_expenses (trip_id, member_id, added_by_name, amount, description, spent_at, split_among)
+    values (v_trip.id, v_member.id, v_member.display_name, p_amount, trim(p_description), coalesce(p_spent_at, now()), p_split_among)
     returning * into v_expense;
   return v_expense;
 end;
@@ -269,8 +280,8 @@ $$;
 -- what actually decides access, not the role.
 grant execute on function public.trip_join(text, text, text) to anon, authenticated;
 grant execute on function public.trip_summary(text) to anon, authenticated;
-grant execute on function public.trip_add_expense(text, text, numeric, text, timestamptz) to anon, authenticated;
+grant execute on function public.trip_add_expense(text, text, numeric, text, timestamptz, jsonb) to anon, authenticated;
 
 grant execute on function public.trip_get_or_create(text) to authenticated;
 grant execute on function public.trip_set_invite(uuid, boolean, boolean) to authenticated;
-grant execute on function public.trip_add_owner_expense(uuid, text, numeric, text, timestamptz) to authenticated;
+grant execute on function public.trip_add_owner_expense(uuid, text, numeric, text, timestamptz, jsonb) to authenticated;

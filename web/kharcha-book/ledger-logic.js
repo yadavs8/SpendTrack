@@ -70,7 +70,10 @@
     return cats;
   }
 
-  /* expenses: [{ id, label, amount (rupees), payer }]; participants: [names]. Everyone splits every expense equally.
+  /* expenses: [{ id, label, amount (rupees), payer, splitAmong? }]; participants: [names].
+     splitAmong is the subset of names this one expense is divided between (a round of drinks
+     only 3 of the 5 trip-mates had) -- omit it, or leave it empty, and that expense falls back to
+     splitting across everyone, same as before.
      Returns:
        people:    [{ name, paid, share, net }]   net > 0 gets money back, net < 0 owes
        transfers: fewest payments that settle everyone [{ from, to, amount }]
@@ -79,7 +82,10 @@
   function tripSettlement(expenses, participants) {
     var names = [];
     (participants || []).forEach(function (n) { if (n && names.indexOf(n) < 0) names.push(n); });
-    (expenses || []).forEach(function (e) { if (e.payer && names.indexOf(e.payer) < 0) names.push(e.payer); });
+    (expenses || []).forEach(function (e) {
+      if (e.payer && names.indexOf(e.payer) < 0) names.push(e.payer);
+      (e.splitAmong || []).forEach(function (n) { if (n && names.indexOf(n) < 0) names.push(n); });
+    });
     var paid = {}, share = {}, directed = {};
     names.forEach(function (n) { paid[n] = 0; share[n] = 0; });
     var n = names.length;
@@ -89,8 +95,12 @@
       var p = toPaise(e.amount);
       if (!(p > 0)) return;
       paid[e.payer] += p;
-      var shares = splitPaise(p, n);
-      names.forEach(function (q, i) {
+      // Only people this specific expense was split between share it; everyone else is
+      // untouched by it. No valid subset given -> the old default, split across everyone.
+      var splitWith = Array.isArray(e.splitAmong) ? e.splitAmong.filter(function (x) { return names.indexOf(x) >= 0; }) : [];
+      if (!splitWith.length) splitWith = names;
+      var shares = splitPaise(p, splitWith.length);
+      splitWith.forEach(function (q, i) {
         share[q] += shares[i];
         if (q === e.payer || shares[i] === 0) return;
         var k = q + '\u0000' + e.payer;

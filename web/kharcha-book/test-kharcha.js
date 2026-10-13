@@ -437,6 +437,18 @@ assert(manaliSummary.totalSpent === 9000, 'Manali total spent = 6000 + 3000 = 90
 assert(manaliSummary.participants.length === 3, 'Manali has 3 participants (Me, Rohit, Amit)');
 assert(manaliSummary.perPersonShare === 3000, 'Each person share = 9000 / 3 = 3000');
 
+// A "[Split: ...]" tag on an entry's description must make it through getTripSummary end-to-end
+// and actually change that person's real owed share in balances, not just the rough per-head badge.
+const splitTaggedEntries = [
+  { id: 's1', amount: 300, desc: '✈️ Goa Trip: Hotel [Paid by Me]', ts: Date.now() },
+  { id: 's2', amount: 200, desc: '✈️ Goa Trip: Liquor [Paid by Bijoy] [Split: Bijoy, Rohan]', ts: Date.now() }
+];
+const goaSplitSummary = getTripSummary(splitTaggedEntries, 'Goa Trip', ['Me', 'Bijoy', 'Rohan']);
+const meBal = goaSplitSummary.balances.find(b => b.name === 'Me');
+const bijoyBal = goaSplitSummary.balances.find(b => b.name === 'Bijoy');
+assert(meBal.share === 100, 'getTripSummary: a [Split: ...] tag keeps Me out of the Liquor, only sharing the Hotel');
+assert(bijoyBal.share === 100 + 100, 'getTripSummary: Bijoy shares the Hotel plus half the tagged Liquor');
+
 const balMe = manaliSummary.balances.find(b => b.name === 'Me');
 const balRohit = manaliSummary.balances.find(b => b.name === 'Rohit');
 const balAmit = manaliSummary.balances.find(b => b.name === 'Amit');
@@ -615,6 +627,40 @@ assert(whatsappLink('a b').startsWith('https://wa.me/?text=a%20b'), 'whatsappLin
   assert(K.isBankOut({ id: 'e', amount: 4274, desc: 'Credit card bill', ts: 1 }) === true, 'bank: paying the card bill does');
   assert(K.isBankOut({ id: 'f', amount: 906, desc: '👛 Amazon Pay · Blinkit', ts: 1 }) === false, 'bank: a wallet spend does not');
   assert(K.isBankIn({ id: 'g', amount: 38000, desc: '💼 Salary 2', ts: 1 }) === true, 'bank: salary comes in');
+}
+
+{
+  // tripSettlement: a per-expense splitAmong subset must only affect those named -- everyone
+  // else is untouched by that one expense, even though they're still a trip participant overall.
+  const KL = windowMock.KharchaLedger;
+  const participants = ['Me', 'Bijoy', 'Rohan'];
+
+  // No splitAmong given at all -> old default, split across every participant.
+  const r1 = KL.tripSettlement([{ id: '1', label: 'Hotel', amount: 300, payer: 'Me' }], participants);
+  const bijoy1 = r1.people.find(p => p.name === 'Bijoy');
+  assert(bijoy1.share === 100, 'tripSettlement: no splitAmong falls back to splitting across everyone');
+
+  // Liquor bought for just Bijoy and Rohan -- "Me" must not owe anything toward it.
+  const r2 = KL.tripSettlement([
+    { id: '1', label: 'Hotel', amount: 300, payer: 'Me' },
+    { id: '2', label: 'Liquor', amount: 200, payer: 'Bijoy', splitAmong: ['Bijoy', 'Rohan'] }
+  ], participants);
+  const me2 = r2.people.find(p => p.name === 'Me');
+  const bijoy2 = r2.people.find(p => p.name === 'Bijoy');
+  const rohan2 = r2.people.find(p => p.name === 'Rohan');
+  assert(me2.share === 100, 'tripSettlement: Me only shares the Hotel (split 3 ways), not the Liquor');
+  assert(bijoy2.share === 100 + 100, 'tripSettlement: Bijoy shares Hotel (1/3) plus half the Liquor he split with Rohan');
+  assert(rohan2.share === 100 + 100, 'tripSettlement: Rohan shares Hotel (1/3) plus half the Liquor');
+  assert(me2.paid === 300 && me2.net === 200, 'tripSettlement: Me paid 300, owes share of 100, so is owed 200 net');
+
+  // A name in splitAmong that wasn't in the explicit participants list is still picked up as a
+  // real participant -- same as a payer not in that list already was. A friend typed into
+  // "split between" on the guest page, not pre-added via "+ Add Friend", must still count.
+  const r3 = KL.tripSettlement([{ id: '1', label: 'Snacks', amount: 90, payer: 'Me', splitAmong: ['Me', 'Priya'] }], participants);
+  const me3 = r3.people.find(p => p.name === 'Me');
+  const priya3 = r3.people.find(p => p.name === 'Priya');
+  assert(me3.share === 45, 'tripSettlement: a name only ever seen in splitAmong still splits the expense properly');
+  assert(!!priya3 && priya3.share === 45 && priya3.net === -45, 'tripSettlement: that name is picked up as a real participant, same as an unlisted payer already was');
 }
 
 console.log(`\nResults: ${passed} passed, ${failed} failed.`);
