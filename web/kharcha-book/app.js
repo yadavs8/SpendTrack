@@ -2963,7 +2963,13 @@
     try {
       var res = KL.findDuplicates(state.entries, Date.now(), 45), gone = [];
       for (var i = 0; i < res.sure.length; i++) {
-        var d = res.sure[i].drop;
+        var d = res.sure[i].drop, k = res.sure[i].keep;
+        if (d && k && !scopeWord(k.desc) && scopeWord(d.desc)) {
+          var adopted = shiftScopeDesc(k.desc, getEntryScope(d), extractTripName(d.desc));
+          if (adopted !== k.desc) {
+            try { await store.update(k.id, { amount: k.amount, desc: adopted, spent_at: new Date(k.ts).toISOString(), method: k.method || null }); } catch (e) {}
+          }
+        }
         try { await store.remove(d.id); gone.push(d); } catch (err) { break; }
       }
       var dismissed = loadJsonObj('kharcha_dup_dismissed');
