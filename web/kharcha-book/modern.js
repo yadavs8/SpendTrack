@@ -67,16 +67,107 @@
   ];
   var TITLES = {};
   MORE_GROUPS.forEach(function (g) { g[1].forEach(function (t) { TITLES[t[0]] = t[1] + ' ' + t[2]; }); });
-  var bnav, sheet, backbar;
+  var bnav, sheet, card, backbar;
+  var isDragging = false, startY = 0, startX = 0, currentY = 0, startTime = 0;
+  var isFromHandle = false, didDrag = false, isClosing = false;
 
   function goStream(stream) {
     var old = document.querySelector('.streambtn[data-stream="' + stream + '"]');
     if (old) old.click();
-    closeSheet();
+    closeSheet(true);
     window.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' });
   }
-  function openSheet() { if (sheet) sheet.hidden = false; }
-  function closeSheet() { if (sheet) sheet.hidden = true; }
+
+  function openSheet() {
+    if (!sheet) return;
+    if (isClosing) return;
+    sheet.hidden = false;
+    if (card) {
+      card.scrollTop = 0;
+      if (!reduceMotion) {
+        card.style.transition = 'none';
+        card.style.transform = 'translateY(100%)';
+        sheet.style.transition = 'none';
+        sheet.style.backgroundColor = 'rgba(2, 6, 23, 0)';
+        void card.offsetHeight;
+        card.style.transition = 'transform 0.28s cubic-bezier(0.16, 1, 0.3, 1)';
+        card.style.transform = 'translateY(0)';
+        sheet.style.transition = 'background-color 0.28s ease';
+        sheet.style.backgroundColor = '';
+        setTimeout(function () {
+          if (!isDragging && !isClosing && card) {
+            card.style.transition = '';
+            card.style.transform = '';
+            sheet.style.transition = '';
+          }
+        }, 300);
+      }
+    }
+  }
+
+  function snapBack() {
+    if (!card) return;
+    card.style.transition = 'transform 0.24s cubic-bezier(0.16, 1, 0.3, 1)';
+    card.style.transform = 'translateY(0)';
+    sheet.style.transition = 'background-color 0.24s ease';
+    sheet.style.backgroundColor = '';
+    setTimeout(function () {
+      if (!isDragging && !isClosing && card) {
+        card.style.transition = '';
+        card.style.transform = '';
+        sheet.style.transition = '';
+      }
+    }, 250);
+  }
+
+  function closeWithSlide(onDone) {
+    if (!sheet || sheet.hidden) return;
+    if (isClosing) return;
+    isClosing = true;
+    if (reduceMotion || !card) {
+      sheet.hidden = true;
+      if (card) {
+        card.style.transition = '';
+        card.style.transform = '';
+      }
+      sheet.style.backgroundColor = '';
+      sheet.style.transition = '';
+      isClosing = false;
+      if (typeof onDone === 'function') onDone();
+      return;
+    }
+    card.style.transition = 'transform 0.22s cubic-bezier(0.2, 0.9, 0.3, 1)';
+    card.style.transform = 'translateY(100%)';
+    sheet.style.transition = 'background-color 0.22s ease';
+    sheet.style.backgroundColor = 'rgba(2, 6, 23, 0)';
+    setTimeout(function () {
+      sheet.hidden = true;
+      if (card) {
+        card.style.transition = '';
+        card.style.transform = '';
+      }
+      sheet.style.backgroundColor = '';
+      sheet.style.transition = '';
+      isClosing = false;
+      if (typeof onDone === 'function') onDone();
+    }, 230);
+  }
+
+  function closeSheet(immediate) {
+    if (immediate) {
+      if (!sheet) return;
+      sheet.hidden = true;
+      if (card) {
+        card.style.transition = '';
+        card.style.transform = '';
+      }
+      sheet.style.backgroundColor = '';
+      sheet.style.transition = '';
+      isClosing = false;
+    } else {
+      closeWithSlide();
+    }
+  }
 
   function buildNav() {
     bnav = el('nav', 'bnav'); bnav.setAttribute('aria-label', 'Main'); bnav.hidden = true;
@@ -99,8 +190,129 @@
     bnav.appendChild(bar); document.body.appendChild(bnav);
 
     sheet = el('div', 'msheet'); sheet.hidden = true;
-    var card = el('div', 'msheet-card'); card.setAttribute('role', 'dialog'); card.setAttribute('aria-label', 'More');
-    card.appendChild(el('div', 'msheet-grip'));
+    card = el('div', 'msheet-card'); card.setAttribute('role', 'dialog'); card.setAttribute('aria-label', 'More');
+    var handle = el('div', 'msheet-handle');
+    handle.appendChild(el('div', 'msheet-grip'));
+    card.appendChild(handle);
+
+    function onTouchStart(e) {
+      if (e.touches.length !== 1 || isClosing) return;
+      var touch = e.touches[0];
+      startY = touch.clientY;
+      startX = touch.clientX;
+      currentY = startY;
+      startTime = Date.now();
+      isFromHandle = handle.contains(e.target);
+      isDragging = false;
+      didDrag = false;
+    }
+
+    function onTouchMove(e) {
+      if (isClosing || !e.touches || e.touches.length !== 1) return;
+      var touch = e.touches[0];
+      var dy = touch.clientY - startY;
+      var dx = touch.clientX - startX;
+
+      if (!isDragging) {
+        if (isFromHandle) {
+          if (dy > 0) isDragging = true;
+        } else {
+          if (card.scrollTop <= 0 && dy > 6 && dy > Math.abs(dx)) {
+            isDragging = true;
+          }
+        }
+      }
+
+      if (isDragging) {
+        if (e.cancelable) e.preventDefault();
+        didDrag = true;
+        currentY = touch.clientY;
+        var pullDist = Math.max(0, touch.clientY - startY);
+        card.classList.add('is-dragging');
+        card.style.transition = 'none';
+        card.style.transform = 'translateY(' + pullDist + 'px)';
+
+        var cardHeight = card.offsetHeight || 400;
+        var progress = Math.min(1, pullDist / cardHeight);
+        var alpha = 0.55 * (1 - progress * 0.85);
+        sheet.style.backgroundColor = 'rgba(2, 6, 23, ' + Math.max(0, alpha).toFixed(3) + ')';
+      }
+    }
+
+    function onTouchEnd(e) {
+      if (!isDragging) return;
+      isDragging = false;
+      card.classList.remove('is-dragging');
+
+      var endY = (e.changedTouches && e.changedTouches[0]) ? e.changedTouches[0].clientY : currentY;
+      var totalDy = endY - startY;
+      var dt = Date.now() - startTime;
+      var velocity = totalDy / (dt || 1);
+
+      if (totalDy > 75 || (totalDy > 25 && velocity > 0.35)) {
+        closeWithSlide();
+      } else {
+        snapBack();
+      }
+    }
+
+    card.addEventListener('touchstart', onTouchStart, { passive: true });
+    card.addEventListener('touchmove', onTouchMove, { passive: false });
+    card.addEventListener('touchend', onTouchEnd, { passive: true });
+    card.addEventListener('touchcancel', onTouchEnd, { passive: true });
+
+    handle.addEventListener('mousedown', function (e) {
+      if (e.button !== 0 || isClosing) return;
+      var mStartY = e.clientY;
+      var mStartTime = Date.now();
+      var mDidDrag = false;
+      card.classList.add('is-dragging');
+
+      function onMouseMove(me) {
+        var dy = me.clientY - mStartY;
+        if (dy > 3) {
+          mDidDrag = true;
+          didDrag = true;
+          var pullDist = Math.max(0, dy);
+          card.style.transition = 'none';
+          card.style.transform = 'translateY(' + pullDist + 'px)';
+          var cardHeight = card.offsetHeight || 400;
+          var progress = Math.min(1, pullDist / cardHeight);
+          var alpha = 0.55 * (1 - progress * 0.85);
+          sheet.style.backgroundColor = 'rgba(2, 6, 23, ' + Math.max(0, alpha).toFixed(3) + ')';
+        }
+      }
+
+      function onMouseUp(me) {
+        card.classList.remove('is-dragging');
+        window.removeEventListener('mousemove', onMouseMove);
+        window.removeEventListener('mouseup', onMouseUp);
+
+        var totalDy = me.clientY - mStartY;
+        var dt = Date.now() - mStartTime;
+        var velocity = totalDy / (dt || 1);
+
+        if (mDidDrag) {
+          if (totalDy > 75 || (totalDy > 25 && velocity > 0.35)) {
+            closeWithSlide();
+          } else {
+            snapBack();
+          }
+        }
+      }
+
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
+    });
+
+    card.addEventListener('click', function (ev) {
+      if (didDrag) {
+        ev.stopPropagation();
+        ev.preventDefault();
+        didDrag = false;
+      }
+    }, true);
+
     MORE_GROUPS.forEach(function (g) {
       card.appendChild(el('div', 'msheet-h', g[0]));
       var grid = el('div', 'msheet-grid');
@@ -111,8 +323,8 @@
         var tx = el('span', 'mt'); tx.appendChild(el('b', null, t[2])); if (t[3]) tx.appendChild(el('small', null, t[3]));
         b.appendChild(tx);
         b.addEventListener('click', function () {
-          if (t[0] === '__settings') { closeSheet(); window.KharchaNative.openSettings(); return; }
-          if (t[0] === '__signout') { closeSheet(); var so = $('signout'); if (so) so.click(); return; }
+          if (t[0] === '__settings') { closeSheet(true); window.KharchaNative.openSettings(); return; }
+          if (t[0] === '__signout') { closeSheet(true); var so = $('signout'); if (so) so.click(); return; }
           goStream(t[0]);
         });
         grid.appendChild(b);
@@ -135,14 +347,14 @@
     });
     card.appendChild(fxr);
     paintThemeButton();
-    var tl = el('button', 'linkbtn', '✨ Show the quick tour'); tl.type = 'button'; tl.addEventListener('click', function () { closeSheet(); showTour(true); }); card.appendChild(tl);
+    var tl = el('button', 'linkbtn', '✨ Show the quick tour'); tl.type = 'button'; tl.addEventListener('click', function () { closeSheet(true); showTour(true); }); card.appendChild(tl);
     sheet.appendChild(card);
     backbar = el('div', 'backbar'); backbar.hidden = true;
     var bb = el('button', 'backbtn', '‹ Home'); bb.type = 'button'; bb.addEventListener('click', function () { goStream('spends'); });
     backbar.appendChild(bb); backbar.appendChild(el('span', 'backttl', ''));
     var mainEl = $('main'); if (mainEl && mainEl.parentNode) mainEl.parentNode.insertBefore(backbar, mainEl);
-    sheet.addEventListener('click', function (ev) { if (ev.target === sheet) closeSheet(); });
-    document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') closeSheet(); });
+    sheet.addEventListener('click', function (ev) { if (ev.target === sheet && !isDragging && !didDrag) closeWithSlide(); });
+    document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') closeWithSlide(); });
     document.body.appendChild(sheet);
   }
 
