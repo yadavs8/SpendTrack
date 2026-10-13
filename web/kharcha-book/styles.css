@@ -439,6 +439,40 @@ button { cursor: pointer; border: 0; }
   gap: 10px;
   box-shadow: var(--shadow-sm);
 }
+/* Category breakdown: collapsed to a one-line summary by default, same accordion mechanics as
+   the day-by-day groups (.entries-wrapper / .chevron). */
+.cat-summary-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.cat-summary-text { font-size: 0.86rem; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px; }
+.cat-summary-text b { font: 700 1rem/1.2 var(--f-display); }
+.cat-summary-top { color: var(--muted); }
+.cat-summary-head .chevron { flex: none; }
+.cat-summary-head.expanded .chevron { color: var(--accent); transform: rotate(180deg); }
+.cat-wrapper {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.28s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.24s ease;
+  opacity: 0;
+  overflow: hidden;
+}
+.cat-wrapper > * { min-height: 0; overflow: hidden; }
+.cat-wrapper.expanded {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  margin-top: 10px;
+}
 .cat-row { display: flex; flex-direction: column; gap: 3px; }
 button.cat-row { width: 100%; text-align: left; background: none; border: 0; padding: 0; color: inherit; font: inherit; cursor: pointer; }
 .cat-row-head { display: flex; justify-content: space-between; font-size: 0.82rem; font-weight: 500; }

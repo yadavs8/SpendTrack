@@ -5156,6 +5156,10 @@
   var CAT_COLORS = ['#0EA5E9', '#8B5CF6', '#F59E0B', '#10B981', '#EC4899', '#F97316'];
   var CAT_OTHER = '#94A3B8';
   var catSel = null;
+  // Collapsed by default: the chart + full list ate a lot of space for info a one-line summary
+  // already covers most of the time. Stays expanded across re-renders in the same session once
+  // the user opens it (picking a different month, say), but starts collapsed on a fresh load.
+  var catSecExpanded = false;
   function renderCategoryBreakdown(list, cmp, prevKey) {
     var sec = $('category-sec');
     var container = $('cat-breakdown');
@@ -5179,6 +5183,26 @@
 
     function draw(animate) {
       container.textContent = '';
+
+      // Always-visible one-line summary: total + the biggest category. Tap to see the full
+      // donut and per-category breakdown.
+      var head = el('button', 'cat-summary-head' + (catSecExpanded ? ' expanded' : ''));
+      head.type = 'button';
+      head.setAttribute('aria-expanded', catSecExpanded ? 'true' : 'false');
+      head.setAttribute('aria-label', (catSecExpanded ? 'Collapse' : 'Expand') + ' category breakdown');
+      var top1 = segs[0];
+      var headText = el('span', 'cat-summary-text');
+      headText.appendChild(el('b', null, money(grandP / 100)));
+      if (top1) {
+        headText.appendChild(el('span', 'cat-summary-top',
+          ' · Most on ' + top1.name + ' (' + Math.round(paise(top1.total) / grandP * 100) + '%)'));
+      }
+      head.appendChild(headText);
+      head.appendChild(el('span', 'chevron', '▼'));
+      head.addEventListener('click', function () { catSecExpanded = !catSecExpanded; draw(false); });
+      container.appendChild(head);
+
+      var wrapper = el('div', 'cat-wrapper' + (catSecExpanded ? ' expanded' : ''));
       var wrap = el('div', 'dn');
       var chart = el('div', 'dn-chart');
       var svg = document.createElementNS(svgNS, 'svg');
@@ -5254,7 +5278,7 @@
         row.addEventListener('keydown', function (ev) { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); toggle(); } });
         ul.appendChild(row);
       });
-      wrap.appendChild(ul); container.appendChild(wrap);
+      wrap.appendChild(ul); wrapper.appendChild(wrap); container.appendChild(wrapper);
     }
     draw(!reducedMotionPref());
   }
