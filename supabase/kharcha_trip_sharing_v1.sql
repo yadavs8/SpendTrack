@@ -79,6 +79,13 @@ create policy "owner adds own trip expenses" on public.trip_expenses
   for insert to authenticated with check (
     exists (select 1 from public.trips t where t.id = trip_id and t.owner_user_id = auth.uid())
   );
+-- The owner can remove any entry on their own trip, whether they or a friend added it --
+-- ownership of the trip is what grants this, not who happened to log the row.
+drop policy if exists "owner deletes any trip expense on own trip" on public.trip_expenses;
+create policy "owner deletes any trip expense on own trip" on public.trip_expenses
+  for delete to authenticated using (
+    exists (select 1 from public.trips t where t.id = trip_id and t.owner_user_id = auth.uid())
+  );
 
 -- ========== Owner-side (runs as the signed-in user; relies on the RLS above) ==========
 
@@ -211,7 +218,8 @@ begin
            coalesce(jsonb_agg(jsonb_build_object(
              'amount', e.amount, 'description', e.description,
              'added_by_name', e.added_by_name, 'spent_at', e.spent_at,
-             'member_id', e.member_id -- null = the owner's own mirrored entry, not a guest's
+             'member_id', e.member_id, -- null = the owner's own mirrored entry, not a guest's
+             'id', e.id
            ) order by e.spent_at desc), '[]'::jsonb)
     from public.trip_expenses e where e.trip_id = v_trip.id;
 end;

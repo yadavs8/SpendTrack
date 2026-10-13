@@ -4266,6 +4266,19 @@
     return (tripName && tripGuestEntriesCache[tripName]) || [];
   }
 
+  /** Removes any trip_expenses row -- yours or a friend's -- straight from the trip entries list.
+     Guarded by the "owner deletes any trip expense on own trip" RLS policy: only works on trips
+     you own, regardless of who originally added the row. */
+  function deleteSharedTripExpense(tripExpenseId, tripName) {
+    if (!sb || !tripExpenseId) return;
+    sb.from('trip_expenses').delete().eq('id', tripExpenseId).then(function (res) {
+      if (res.error) { toast('Could not delete: ' + res.error.message); return; }
+      delete tripGuestEntriesCache[tripName]; // force a fresh fetch next render, not the stale cache
+      render();
+      toast('Deleted');
+    }).catch(function () { toast('Could not delete. Check your connection.'); });
+  }
+
   function fetchGuestTripEntries(tripName) {
     if (!tripName || !sb || tripGuestEntriesCache[tripName] !== undefined) return;
     ensureTripRow(tripName).then(function (trip) {
@@ -4275,11 +4288,12 @@
         var guestRows = (res.data[0].expenses || []).filter(function (e) { return e.member_id; });
         var synth = guestRows.map(function (e) {
           return {
-            id: 'guest:' + tripName + ':' + e.spent_at + ':' + e.amount + ':' + e.added_by_name,
+            id: 'guest:' + tripName + ':' + e.id,
+            tripExpenseId: e.id, // the real trip_expenses row id -- needed to delete it
             amount: Number(e.amount),
             desc: '✈️ ' + tripName + ': ' + e.description + ' [Paid by ' + e.added_by_name + ']',
             ts: Date.parse(e.spent_at),
-            isGuestEntry: true // not a real daily_expenses row -- never editable/deletable like one
+            isGuestEntry: true // not a daily_expenses row -- editable here (via delete), not the usual edit form
           };
         });
         tripGuestEntriesCache[tripName] = synth;
@@ -5719,8 +5733,21 @@
     b.appendChild(el('span', 'a', money(e.amount)));
 
     b.addEventListener('click', function () {
-      // Not a real daily_expenses row -- editing/deleting it here has nothing to act on.
-      if (e.isGuestEntry) { toast("Added by a friend via the trip link -- can't be edited here."); return; }
+      // Not a real daily_expenses row, so the usual edit form has nothing to save against --
+      // offer delete (the thing you'd actually want to do to a friend's entry) instead.
+      if (e.isGuestEntry) {
+        showConfirmModal({
+          title: 'Delete this trip expense?',
+          message: e.desc.replace(/^✈️ [^:]+:\s*/, '') + ' -- ' + money(e.amount) + '. This removes it for everyone on the trip.',
+          confirmText: 'Delete',
+          isDanger: true,
+          onConfirm: function () {
+            var tripName = extractTripNameFromDesc(e.desc);
+            deleteSharedTripExpense(e.tripExpenseId, tripName);
+          }
+        });
+        return;
+      }
       state.editing = e.id;
       state.draft = { amount: String(e.amount), desc: e.desc, spent_at: toLocalISOString(e.ts), method: e.method || '' };
       render();

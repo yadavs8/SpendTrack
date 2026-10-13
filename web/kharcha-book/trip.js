@@ -99,7 +99,20 @@
     summaryCard.appendChild(totalEl); summaryCard.appendChild(noteEl);
     app.appendChild(summaryCard);
 
+    var byPersonCard = el('div', 'card');
+    var byPersonHeading = el('h2', null, 'Who\'s spent what');
+    byPersonHeading.style.margin = '0 0 10px';
+    byPersonHeading.style.fontSize = '1rem';
+    byPersonCard.appendChild(byPersonHeading);
+    var byPersonList = el('ul', 'list');
+    byPersonCard.appendChild(byPersonList);
+    app.appendChild(byPersonCard);
+
     var listCard = el('div', 'card');
+    var listHeading = el('h2', null, 'All expenses');
+    listHeading.style.margin = '0 0 10px';
+    listHeading.style.fontSize = '1rem';
+    listCard.appendChild(listHeading);
     var listEl = el('ul', 'list');
     listCard.appendChild(listEl);
     app.appendChild(listCard);
@@ -132,8 +145,24 @@
         var s = res.data[0];
         totalEl.textContent = money(s.total);
         noteEl.textContent = (s.expense_count || 0) + (s.expense_count === 1 ? ' expense logged' : ' expenses logged');
-        listEl.innerHTML = '';
         var items = s.expenses || [];
+
+        // Who's spent what: a running per-person total, lowest contributor to highest.
+        byPersonList.innerHTML = '';
+        if (!items.length) {
+          byPersonList.appendChild(el('li', 'empty', 'Nobody has added anything yet.'));
+        } else {
+          var byPerson = {};
+          items.forEach(function (e) { byPerson[e.added_by_name] = (byPerson[e.added_by_name] || 0) + Number(e.amount); });
+          Object.keys(byPerson).sort(function (a, b) { return byPerson[b] - byPerson[a]; }).forEach(function (name) {
+            var row = el('li', 'row');
+            row.appendChild(el('span', 'row-desc', name));
+            row.appendChild(el('span', 'row-amt', money(byPerson[name])));
+            byPersonList.appendChild(row);
+          });
+        }
+
+        listEl.innerHTML = '';
         if (!items.length) {
           listEl.appendChild(el('li', 'empty', 'No expenses yet -- be the first to add one.'));
         } else {
