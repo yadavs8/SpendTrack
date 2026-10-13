@@ -107,7 +107,7 @@ create or replace function public.trip_set_invite(p_trip_id uuid, p_enabled bool
 returns public.trips
 language plpgsql
 security invoker
-set search_path = public
+set search_path = public, extensions -- gen_random_bytes lives in "extensions" on Supabase, not public
 as $$
 declare
   v_trip public.trips;
@@ -160,7 +160,7 @@ create or replace function public.trip_join(p_invite_token text, p_display_name 
 returns table (trip_id uuid, trip_name text, member_id uuid, guest_token text, display_name text)
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, extensions -- gen_random_bytes lives in "extensions" on Supabase, not public
 as $$
 declare
   v_trip public.trips;
