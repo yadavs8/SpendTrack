@@ -4220,7 +4220,9 @@
     if (tripInviteCache[tripName]) return tripInviteCache[tripName];
     if (!sb) return null;
     var res = await sb.rpc('trip_get_or_create', { p_name: tripName });
-    if (res.error || !res.data) return null;
+    console.log('Kharcha: trip_get_or_create ->', res);
+    if (res.error) throw res.error;
+    if (!res.data) return null;
     tripInviteCache[tripName] = res.data;
     return res.data;
   }
