@@ -38,8 +38,10 @@ object KharchaRules {
             desc?.trim()?.startsWith("🔁") != true
 
     fun isSalary(desc: String?, kind: String? = null): Boolean {
-        if (!isIncome(desc, kind)) return false
-        val d = desc!!.lowercase()
+        // isIncome(desc, kind) can be true for a null desc when kind == "income" (it checks kind
+        // first); desc must still be checked here before unwrapping it, same as the web's isSalary.
+        if (desc == null || !isIncome(desc, kind)) return false
+        val d = desc.lowercase()
         return (d.contains("💼") || d.contains("salary")) && !isMotherSettlement(desc) && !d.contains("maid")
     }
 
