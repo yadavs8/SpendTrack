@@ -14,14 +14,21 @@ import kotlinx.coroutines.flow.first
  */
 object ExpenseFiler {
 
-    suspend fun file(context: Context, transactionId: String, scope: String, tripName: String? = null, note: String? = null) {
+    suspend fun file(
+        context: Context,
+        transactionId: String,
+        scope: String,
+        tripName: String? = null,
+        projectName: String? = null,
+        note: String? = null
+    ) {
         // Stop the prompt notification and its scheduled reminders immediately
         NudgeScheduler.cancel(context, transactionId)
         ExpensePromptNotifier.dismiss(context, transactionId)
 
         val repo = ServiceLocator.transactionRepository
         if (!note.isNullOrBlank()) repo.resolveNeedsReview(transactionId = transactionId, note = note.trim())
-        val duplicateIds = repo.resolveScope(transactionId = transactionId, scope = scope, tripName = tripName)
+        val duplicateIds = repo.resolveScope(transactionId = transactionId, scope = scope, tripName = tripName, projectName = projectName)
 
         duplicateIds.forEach { id ->
             NudgeScheduler.cancel(context, id)
@@ -34,9 +41,17 @@ object ExpenseFiler {
             if (d.startsWith("✈")) d.removePrefix("✈️").removePrefix("✈").substringBefore(':').trim().takeIf { it.isNotBlank() && !it.equals("Trip", ignoreCase = true) }
             else null
         }
+        val effectiveProjectName = projectName?.trim()?.takeIf { it.isNotBlank() } ?: run {
+            val d = updatedTxn?.description?.trim().orEmpty()
+            if (d.startsWith("🔨")) d.removePrefix("🔨").substringBefore(':').trim().takeIf { it.isNotBlank() && !it.equals("Project", ignoreCase = true) }
+            else null
+        }
 
         if (scope.equals(ExpenseScope.TRIP, ignoreCase = true) && !effectiveTripName.isNullOrBlank()) {
             ServiceLocator.cloudSyncRepository.pushSharedSettings(ServiceLocator.settingsManager.addTrip(effectiveTripName))
+        }
+        if (scope.equals(ExpenseScope.PROJECT, ignoreCase = true) && !effectiveProjectName.isNullOrBlank()) {
+            ServiceLocator.cloudSyncRepository.pushSharedSettings(ServiceLocator.settingsManager.addProject(effectiveProjectName))
         }
 
         if (updatedTxn != null) {

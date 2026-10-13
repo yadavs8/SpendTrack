@@ -129,6 +129,9 @@ interface TransactionDao {
     @Query("SELECT description FROM transactions WHERE description LIKE '✈️ %:%' AND isDemo = 0 AND isExcluded = 0 ORDER BY dateTime DESC LIMIT 200")
     suspend fun getLocalTripDescriptions(): List<String>
 
+    @Query("SELECT description FROM transactions WHERE description LIKE '🔨 %:%' AND isDemo = 0 AND isExcluded = 0 ORDER BY dateTime DESC LIMIT 200")
+    suspend fun getLocalProjectDescriptions(): List<String>
+
     @Query("""
         SELECT * FROM transactions
         WHERE isDemo = 0 AND isExcluded = 0 AND transactionType = 'EXPENSE'

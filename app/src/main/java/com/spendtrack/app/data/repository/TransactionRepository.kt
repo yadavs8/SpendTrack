@@ -146,6 +146,13 @@ class TransactionRepository(
         val raw = txn.rawNotificationText ?: txn.description
         val owners = ExpenseScope.parseOwners(runCatching { settingsManager?.ownerIdentityFlow?.first() }.getOrNull())
         val activeTrip = runCatching { settingsManager?.activeTripNameFlow?.first() }.getOrNull()
+        val isTripPaused = runCatching { settingsManager?.isTripPausedFlow?.first() }.getOrNull() ?: false
+        val activeProject = runCatching { settingsManager?.activeProjectNameFlow?.first() }.getOrNull()
+        val isProjectPaused = runCatching { settingsManager?.isProjectPausedFlow?.first() }.getOrNull() ?: false
+
+        val effectiveTrip = if (!isTripPaused && !activeTrip.isNullOrBlank()) activeTrip else null
+        val effectiveProject = if (!isProjectPaused && !activeProject.isNullOrBlank()) activeProject else null
+
         val merchantKey = txn.merchantName ?: txn.merchantVpa
         val rule = if (!merchantKey.isNullOrBlank()) merchantRuleRepository.findMatchingRule(merchantKey) else null
 
@@ -182,11 +189,22 @@ class TransactionRepository(
                 isEdited = true,
                 updatedAt = now
             )
-            // Trip mode is an explicit signal ("I am on this trip now"), unlike guessing from
-            // location -- so once it's on, a spend goes straight to that trip, no asking. Still
-            // just a quiet "auto-logged" notification (announce() -> showAutoLogged), never silent.
-            !activeTrip.isNullOrBlank() -> txn.copy(
-                description = ExpenseScope.describe(txn.merchantName, txn.description, txn.isEdited, ExpenseScope.TRIP, activeTrip),
+            // If BOTH Trip and Project/Function are simultaneously active and not paused,
+            // neither should blindly hijack the payment. Leave needsReview = true so the user is prompted to choose!
+            effectiveTrip != null && effectiveProject != null -> txn.copy(
+                needsReview = true,
+                updatedAt = now
+            )
+            // Trip mode active & not paused: auto-log to trip
+            effectiveTrip != null -> txn.copy(
+                description = ExpenseScope.describe(txn.merchantName, txn.description, txn.isEdited, ExpenseScope.TRIP, effectiveTrip),
+                needsReview = false,
+                isEdited = true,
+                updatedAt = now
+            )
+            // Project/Function mode active & not paused: auto-log to project
+            effectiveProject != null -> txn.copy(
+                description = ExpenseScope.describe(txn.merchantName, txn.description, txn.isEdited, ExpenseScope.PROJECT, projectName = effectiveProject),
                 needsReview = false,
                 isEdited = true,
                 updatedAt = now
@@ -470,12 +488,29 @@ class TransactionRepository(
         return (fromSettings + fromLocal).distinct()
     }
 
-    /** Resolves the "Personal, Family, Investment, or Trip?" prompt for an auto-detected expense and remembers the merchant scope. */
+    /** All known project/function names from shared settings + any projects used in local transactions. */
+    suspend fun getAllKnownProjects(): List<String> {
+        val fromSettings = runCatching { settingsManager?.projectNamesFlow?.first() }.getOrNull().orEmpty()
+        val fromLocal = runCatching {
+            transactionDao.getLocalProjectDescriptions().mapNotNull { desc ->
+                val trimmed = desc.trim()
+                if (!trimmed.startsWith("🔨")) return@mapNotNull null
+                val afterIcon = trimmed.removePrefix("🔨").trim()
+                val colonIdx = afterIcon.indexOf(':')
+                if (colonIdx <= 0) return@mapNotNull null
+                afterIcon.substring(0, colonIdx).trim().takeIf { it.isNotBlank() && !it.equals("Project", ignoreCase = true) }
+            }
+        }.getOrNull().orEmpty()
+        return (fromSettings + fromLocal).distinct()
+    }
+
+    /** Resolves the "Personal, Family, Investment, Project, or Trip?" prompt for an auto-detected expense and remembers the merchant scope. */
     /** Returns the ids of duplicate copies that were resolved along with it (their prompts must be cleared too). */
     suspend fun resolveScope(
         transactionId: String,
         scope: String,
-        tripName: String? = null
+        tripName: String? = null,
+        projectName: String? = null
     ): List<String> {
         val transaction = transactionDao.getTransactionById(transactionId) ?: return emptyList()
 
@@ -490,13 +525,30 @@ class TransactionRepository(
             tripName
         }
 
+        // If filing to a project and no explicit projectName was supplied, automatically pick the only project if exactly 1 exists.
+        val resolvedProjectName = if (scope.equals(ExpenseScope.PROJECT, ignoreCase = true)) {
+            projectName?.trim()?.takeIf { it.isNotBlank() } ?: run {
+                val knownProjects = getAllKnownProjects()
+                if (knownProjects.size == 1) knownProjects.single()
+                else runCatching { settingsManager?.activeProjectNameFlow?.first() }.getOrNull()
+            }
+        } else {
+            projectName
+        }
+
         if (scope.equals(ExpenseScope.TRIP, ignoreCase = true) &&
             !resolvedTripName.isNullOrBlank() &&
             !resolvedTripName.equals("Trip", ignoreCase = true)) {
             runCatching { settingsManager?.addTrip(resolvedTripName) }
         }
 
-        // Auto-learn / remember user's scope decision for this merchant so they are never asked again! (unless it's a temporary trip)
+        if (scope.equals(ExpenseScope.PROJECT, ignoreCase = true) &&
+            !resolvedProjectName.isNullOrBlank() &&
+            !resolvedProjectName.equals("Project", ignoreCase = true)) {
+            runCatching { settingsManager?.addProject(resolvedProjectName) }
+        }
+
+        // Auto-learn / remember user's scope decision for this merchant so they are never asked again! (unless it's a temporary trip or project)
         val merchantKey = transaction.merchantName ?: transaction.merchantVpa
         // Trips and projects are temporary, so they never train the per-merchant memory.
         if (!merchantKey.isNullOrBlank() &&
@@ -521,7 +573,8 @@ class TransactionRepository(
                 description = mergedPrimary.description,
                 isEdited = mergedPrimary.isEdited,
                 scope = scope,
-                tripName = resolvedTripName
+                tripName = resolvedTripName,
+                projectName = resolvedProjectName
             ),
             needsReview = false,
             isEdited = true,

@@ -183,6 +183,7 @@
     if (!e || !e.desc) return 'personal';
     if (isTripEntry(e)) return 'trip';
     if (isInvestment(e)) return 'investment';
+    if (isProjectEntry(e.desc)) return 'project';
     if (isFamilyEntry(e.desc)) return 'family';
     return 'personal';
   }
@@ -192,12 +193,14 @@
     var s = desc.trim();
     // Strip leading trip prefix (✈️ TripName: or ✈️ )
     s = s.replace(/^[✈\u{2708}\u{FE0F}\u{1F6EB}\u{1F6EC}]+\s*(?:[^:]+:\s*)?/u, '').trim();
-    // Strip other leading scope tags (🏠, 👤, 📈, 🔨)
-    s = s.replace(/^[\u{1F3E0}\u{1F464}\u{1F4C8}\u{1F528}\u{1F4B0}\u{1F501}]\s*/u, '').trim();
+    // Strip leading project prefix (🔨 ProjectName: or 🔨 )
+    s = s.replace(/^[🔨\u{1F528}]+\s*(?:[^:]+:\s*)?/u, '').trim();
+    // Strip other leading scope tags (🏠, 👤, 📈, 💰, 🔁)
+    s = s.replace(/^[\u{1F3E0}\u{1F464}\u{1F4C8}\u{1F4B0}\u{1F501}]\s*/u, '').trim();
     return s;
   }
 
-  function shiftScopeDesc(desc, targetScope, tripName) {
+  function shiftScopeDesc(desc, targetScope, tripName, projectName) {
     var clean = cleanScopePrefix(desc);
     if (!clean) clean = 'Expense';
     if (targetScope === 'family') return '🏠 ' + clean;
@@ -205,6 +208,7 @@
     if (targetScope === 'personal') return '👤 ' + clean;
     if (targetScope === 'income') return '💰 ' + clean;
     if (targetScope === 'transfer') return '🔁 ' + clean;
+    if (targetScope === 'project') return '🔨 ' + (projectName || getActiveProjectName() || 'Project') + ': ' + clean;
     if (targetScope === 'trip') return '✈️ ' + (tripName || getActiveTripName() || 'Trip') + ': ' + clean;
     return clean;
   }
@@ -1371,6 +1375,7 @@
      Same keys and string values as localStorage, so feature code just swaps localStorage for kv.
      localStorage stays as the offline cache, and is all there is until the v4 SQL has been run. */
   var SHARED_KEYS = ['kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
+    'kharcha_is_trip_paused', 'kharcha_all_projects_list', 'kharcha_is_project_paused',
     'kharcha_active_trip_name', 'kharcha_all_trips_list', 'kharcha_category_budgets', 'kharcha_merchant_memory',
     'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers', 'kharcha_loans', 'kharcha_wallets', 'kharcha_bank', 'kharcha_cycle', 'kharcha_rules', 'kharcha_acctmap', 'kharcha_primary_acct', 'kharcha_rule_skips', 'kharcha_transfers', 'kharcha_own', 'kharcha_xfer_dismissed', 'kharcha_goal', 'kharcha_receipts', 'kharcha_rules_seeded', 'kharcha_card', 'kharcha_dup_dismissed'];
   var SHARED_PREFIXES = ['kharcha_trip_friends_', 'kharcha_trip_budget_'];
@@ -1562,7 +1567,10 @@
     pill.addEventListener('click', function () {
       var input = pill.querySelector('input');
       if (input) setSelectedScope(input.value);
-      if (input && input.name === 'scope') updateTripPickRow();
+      if (input && input.name === 'scope') {
+        updateTripPickRow();
+        updateProjectPickRow();
+      }
     });
   });
 
@@ -1606,6 +1614,36 @@
           tripPickSelect.value = name;
         }
       });
+    });
+  }
+
+  function updateProjectPickRow() {
+    var row = $('project-pick-row');
+    var select = $('project-pick');
+    if (!row || !select) return;
+    row.hidden = getSelectedScope() !== 'project';
+    if (row.hidden) return;
+    var current = select.value;
+    select.innerHTML = '';
+    var placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = '+ New project…';
+    select.appendChild(placeholder);
+    var active = getActiveProjectName();
+    getAllProjects().forEach(function (p) {
+      var opt = document.createElement('option');
+      opt.value = p;
+      opt.textContent = '🔨 ' + p + (p === active ? ' (active)' : '');
+      select.appendChild(opt);
+    });
+    if (current && getAllProjects().includes(current)) select.value = current;
+    else if (active && getAllProjects().includes(active)) select.value = active;
+  }
+  var projectPickSelect = $('project-pick');
+  if (projectPickSelect) {
+    projectPickSelect.addEventListener('change', function () {
+      if (projectPickSelect.value !== '') return;
+      promptNewProject();
     });
   }
 
@@ -3913,19 +3951,101 @@
 
   /* ---------- Projects & Renovation View Rendering ---------- */
   var PROJ_NAME_KEY = 'kharcha_active_project_name';
+  var PROJECT_PAUSED_KEY = 'kharcha_is_project_paused';
+  var ALL_PROJECTS_KEY = 'kharcha_all_projects_list';
+
+  function isProjectPaused() {
+    try { return kv.get(PROJECT_PAUSED_KEY) === 'true'; } catch (e) { return false; }
+  }
+  function setProjectPaused(paused) {
+    try { kv.set(PROJECT_PAUSED_KEY, paused ? 'true' : 'false'); } catch (e) {}
+  }
+
+  function getAllProjects() {
+    var projSet = new Set();
+    // 1. Scan from existing entries
+    (state.entries || []).forEach(function (e) {
+      if (e && e.desc) {
+        var m = e.desc.match(/^[🔨\u{1F528}]+\s*([^:\[]+):/u);
+        if (m && m[1] && m[1].trim() && m[1].trim().toLowerCase() !== 'project') {
+          projSet.add(m[1].trim());
+        }
+      }
+    });
+    // 2. Add from local storage / shared list
+    try {
+      var saved = JSON.parse(kv.get(ALL_PROJECTS_KEY)) || [];
+      saved.forEach(function (p) {
+        if (p && p.trim() && p.trim().toLowerCase() !== 'project') projSet.add(p.trim());
+      });
+    } catch (e) {}
+    // 3. Active project if set
+    var active = getActiveProjectName();
+    if (active && active.toLowerCase() !== 'project') projSet.add(active);
+    if (!projSet.size) {
+      projSet.add('Family Function');
+      projSet.add('House Renovation');
+    }
+    return Array.from(projSet);
+  }
+
+  function saveProjectToList(name) {
+    if (!name || !name.trim() || name.trim().toLowerCase() === 'project') return;
+    var clean = name.trim();
+    var projects = getAllProjects();
+    if (!projects.includes(clean)) projects.push(clean);
+    try {
+      kv.set(ALL_PROJECTS_KEY, JSON.stringify(projects));
+    } catch (e) {}
+  }
+
   function getActiveProjectName() {
-    try { return kv.get(PROJ_NAME_KEY) || 'House Renovation'; } catch (e) { return 'House Renovation'; }
+    try { return kv.get(PROJ_NAME_KEY) || 'Family Function'; } catch (e) { return 'Family Function'; }
   }
   function setActiveProjectName(name) {
-    try { kv.set(PROJ_NAME_KEY, name || 'House Renovation'); } catch (e) {}
+    try {
+      var clean = (name && name.trim()) || 'Family Function';
+      kv.set(PROJ_NAME_KEY, clean);
+      saveProjectToList(clean);
+    } catch (e) {}
   }
 
   function renderProjectView(proj) {
     var curName = getActiveProjectName();
+    var isPaused = isProjectPaused();
     var displayEl = $('project-display-name');
     var changeBtn = $('project-change-btn');
+    var badgeEl = $('project-active-badge');
+    var pauseBtn = $('project-pause-btn');
+    var subEl = $('project-status-sub');
+    var projSelect = $('project-select');
+
     if (displayEl) displayEl.textContent = '🔨 ' + curName;
-    if (changeBtn) changeBtn.textContent = '✏️ ' + curName;
+    if (changeBtn) changeBtn.textContent = '✏️ Rename';
+    if (badgeEl) {
+      badgeEl.textContent = isPaused ? ('⏸️ Paused: ' + curName) : ('🔨 Active: ' + curName);
+      badgeEl.className = 'proj-badge' + (isPaused ? ' paused' : '');
+    }
+    if (pauseBtn) {
+      pauseBtn.textContent = isPaused ? '▶️ Resume' : '⏸️ Pause';
+    }
+    if (subEl) {
+      subEl.textContent = isPaused
+        ? 'Project logging is paused. Payments will NOT auto-log to this project until resumed.'
+        : 'Track labour wages, materials & contractor payments';
+    }
+
+    if (projSelect) {
+      var allProjs = getAllProjects();
+      projSelect.innerHTML = '';
+      allProjs.forEach(function (p) {
+        var opt = document.createElement('option');
+        opt.value = p;
+        opt.textContent = '🔨 ' + p + (p === curName ? ' (active)' : '');
+        if (p === curName) opt.selected = true;
+        projSelect.appendChild(opt);
+      });
+    }
 
     var totSpentEl = $('proj-total-spent');
     var meSpentEl = $('proj-me-spent');
@@ -4008,19 +4128,68 @@
     projChangeBtn.addEventListener('click', function () {
       var cur = getActiveProjectName();
       showInputModal({
-        title: '🔨 Project name',
-        fields: [{ value: cur, placeholder: 'e.g. House Renovation, Shop Setup' }],
+        title: '🔨 Rename Project',
+        fields: [{ value: cur, placeholder: 'e.g. Family Function, House Renovation' }],
+        confirmText: 'Rename',
         onConfirm: function (v) {
-          var next = v[0];
+          var next = (v[0] || '').trim();
           if (next && next !== cur) {
+            saveProjectToList(next);
             setActiveProjectName(next);
             render();
-            toast('Project set to ' + next);
+            toast('Project renamed to ' + next);
           }
         }
       });
     });
   }
+
+  function promptNewProject() {
+    showInputModal({
+      title: '🔨 New Project / Function',
+      message: 'Create a new project to track expenses together.',
+      fields: [{ placeholder: 'e.g. Family Function, House Renovation, Office' }],
+      confirmText: 'Create',
+      onConfirm: function (v) {
+        var name = (v[0] || '').trim();
+        if (name) {
+          saveProjectToList(name);
+          setActiveProjectName(name);
+          setProjectPaused(false);
+          render();
+          toast('Project created & activated: ' + name);
+        }
+      }
+    });
+  }
+
+  var projSelectEl = $('project-select');
+  if (projSelectEl) {
+    projSelectEl.addEventListener('change', function () {
+      var val = projSelectEl.value;
+      if (val && val !== getActiveProjectName()) {
+        setActiveProjectName(val);
+        setProjectPaused(false);
+        render();
+        toast('Active project switched to: ' + val);
+      }
+    });
+  }
+
+  var projPauseBtn = $('project-pause-btn');
+  if (projPauseBtn) {
+    projPauseBtn.addEventListener('click', function () {
+      var next = !isProjectPaused();
+      setProjectPaused(next);
+      render();
+      toast(next ? '⏸️ Project logging paused' : '▶️ Project logging resumed');
+    });
+  }
+
+  var projNewBtn = $('project-new-btn');
+  if (projNewBtn) projNewBtn.addEventListener('click', promptNewProject);
+  var projQuickNewBtn = $('project-quick-new-btn');
+  if (projQuickNewBtn) projQuickNewBtn.addEventListener('click', promptNewProject);
 
   /* Add Project Form Submission */
   var addProjForm = $('add-project');
@@ -4257,6 +4426,15 @@
     }
   }
 
+  var TRIP_PAUSED_KEY = 'kharcha_is_trip_paused';
+
+  function isTripPaused() {
+    try { return kv.get(TRIP_PAUSED_KEY) === 'true'; } catch (e) { return false; }
+  }
+  function setTripPaused(paused) {
+    try { kv.set(TRIP_PAUSED_KEY, paused ? 'true' : 'false'); } catch (e) {}
+  }
+
   function getActiveTripName() {
     try { return kv.get(ACTIVE_TRIP_KEY) || ''; } catch (e) { return ''; }
   }
@@ -4264,6 +4442,7 @@
     try {
       if (name && name.trim()) {
         kv.set(ACTIVE_TRIP_KEY, name.trim());
+        setTripPaused(false);
         saveTripToList(name.trim());
         setSelectedViewTripName(name.trim());
       } else {
@@ -4693,9 +4872,13 @@
     var banner = $('active-trip-banner');
     var atbName = $('atb-trip-name');
     var atbSpent = $('atb-trip-spent');
+    var atbBadge = $('atb-trip-badge');
+    var atbPauseBtn = $('atb-pause-btn');
     if (banner) {
       banner.hidden = !hasActiveTrip;
       if (atbName) atbName.textContent = activeTrip;
+      if (atbBadge) atbBadge.textContent = isTripPaused() ? '⏸️ Paused Trip' : '✈️ Active Trip';
+      if (atbPauseBtn) atbPauseBtn.textContent = isTripPaused() ? '▶️ Resume' : '⏸️ Pause';
       if (atbSpent) {
         var activeSummary = getTripSummary(monthEntries, activeTrip, getTripFriends(activeTrip));
         atbSpent.textContent = money(activeSummary.totalSpent);
@@ -4741,20 +4924,29 @@
     // Update Trips Section Status Badge and Action Buttons
     var statusBadge = $('trip-badge-status');
     var toggleBtn = $('trip-toggle-btn');
+    var pauseBtn = $('trip-pause-btn');
     var totSpentEl = $('trip-total-spent');
     var countEl = $('trip-items-count');
     var avgEl = $('trip-daily-avg');
 
     if (statusBadge) {
       if (viewTrip && viewTrip === activeTrip) {
-        statusBadge.textContent = '✈️ Active Trip';
-        statusBadge.className = 'trip-badge';
+        statusBadge.textContent = isTripPaused() ? '⏸️ Paused Trip' : '✈️ Active Trip';
+        statusBadge.className = 'trip-badge' + (isTripPaused() ? ' paused' : '');
       } else if (viewTrip) {
         statusBadge.textContent = '🏖️ Past / Archived Trip';
         statusBadge.className = 'trip-badge closed';
       } else {
         statusBadge.textContent = '🏖️ No Trips';
         statusBadge.className = 'trip-badge closed';
+      }
+    }
+    if (pauseBtn) {
+      if (viewTrip && viewTrip === activeTrip) {
+        pauseBtn.style.display = '';
+        pauseBtn.textContent = isTripPaused() ? '▶️ Resume' : '⏸️ Pause';
+      } else {
+        pauseBtn.style.display = 'none';
       }
     }
     if (toggleBtn) {
@@ -5504,6 +5696,26 @@
           toast('Closed ' + (cur || 'trip'));
         }
       });
+    });
+  }
+
+  var atbPauseBtn = $('atb-pause-btn');
+  if (atbPauseBtn) {
+    atbPauseBtn.addEventListener('click', function () {
+      var next = !isTripPaused();
+      setTripPaused(next);
+      render();
+      toast(next ? '⏸️ Trip logging paused' : '▶️ Trip logging resumed');
+    });
+  }
+
+  var tripPauseBtn = $('trip-pause-btn');
+  if (tripPauseBtn) {
+    tripPauseBtn.addEventListener('click', function () {
+      var next = !isTripPaused();
+      setTripPaused(next);
+      render();
+      toast(next ? '⏸️ Trip logging paused' : '▶️ Trip logging resumed');
     });
   }
 
@@ -6331,12 +6543,14 @@
 
     var scope = getSelectedScope();
     var cleanDesc = rawDesc.replace(/^[🏠👤]\s*/, '');
-    if (/lavish\s+kirana/i.test(cleanDesc) && scope === 'personal') scope = 'family';
-    var desc, tripName = null;
+    var desc, tripName = null, projectName = null;
     if (scope === 'trip') {
       tripName = ($('trip-pick') && $('trip-pick').value || '').trim();
       if (!tripName) { showErr('Choose a trip, or add a new one first.'); return; }
       desc = shiftScopeDesc(cleanDesc, 'trip', tripName);
+    } else if (scope === 'project') {
+      projectName = ($('project-pick') && $('project-pick').value || '').trim() || getActiveProjectName() || 'Project';
+      desc = shiftScopeDesc(cleanDesc, 'project', null, projectName);
     } else {
       desc = (scope === 'family') ? ('🏠 ' + cleanDesc) : cleanDesc;
     }

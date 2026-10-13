@@ -174,11 +174,12 @@
     <!-- Active Trip Banner -->
     <div class="active-trip-banner" id="active-trip-banner" hidden>
       <div class="atb-left">
-        <span class="atb-badge">✈️ Active Trip</span>
+        <span class="atb-badge" id="atb-trip-badge">✈️ Active Trip</span>
         <strong class="atb-name" id="atb-trip-name">Goa Trip</strong>
       </div>
       <div class="atb-right">
         <span class="atb-spent" id="atb-trip-spent">₹0</span>
+        <button type="button" class="atb-close-btn" id="atb-pause-btn" title="Pause trip auto-logging">⏸️ Pause</button>
         <button type="button" class="atb-close-btn" id="atb-close-btn" title="End / Close trip mode">Close Trip ✕</button>
       </div>
     </div>
@@ -189,12 +190,21 @@
         <label class="scope-pill active"><input type="radio" name="scope" value="personal" checked> 👤 Personal</label>
         <label class="scope-pill"><input type="radio" name="scope" value="family"> 🏠 Family / Bill</label>
         <label class="scope-pill"><input type="radio" name="scope" value="trip"> ✈️ Trip</label>
+        <label class="scope-pill"><input type="radio" name="scope" value="project"> 🔨 Project</label>
       </div>
       <div class="add-row" id="trip-pick-row" hidden>
         <div class="field">
           <label for="trip-pick">Which trip? (booking ahead is fine — this won't make it your active trip)</label>
           <select class="input" id="trip-pick">
             <option value="">+ New trip…</option>
+          </select>
+        </div>
+      </div>
+      <div class="add-row" id="project-pick-row" hidden>
+        <div class="field">
+          <label for="project-pick">Which project / function?</label>
+          <select class="input" id="project-pick">
+            <option value="">+ New project…</option>
           </select>
         </div>
       </div>
@@ -369,11 +379,28 @@
   <section class="project-sec" id="project-sec" hidden>
     <div class="project-hero-card">
       <div class="project-card-top">
-        <div class="proj-badge" id="project-active-badge">Active Project</div>
-        <button type="button" class="project-rename-btn" id="project-change-btn" title="Change Project Name">✏️ Renovation</button>
+        <div class="proj-badge" id="project-active-badge">🔨 Active Project</div>
+        <div class="trip-actions-row">
+          <button type="button" class="trip-manage-btn" id="project-pause-btn">⏸️ Pause</button>
+          <button type="button" class="trip-manage-btn" id="project-new-btn">+ New Project</button>
+          <button type="button" class="project-rename-btn" id="project-change-btn" title="Change Project Name">✏️ Rename</button>
+        </div>
       </div>
+
+      <!-- Project Selector Dropdown -->
+      <div class="trip-select-wrap" style="margin: 10px 0 6px;">
+        <label for="project-select" class="trip-select-label">Current Project / Function:</label>
+        <div class="trip-select-row">
+          <select id="project-select" class="trip-select" aria-label="Select Project to View or Manage">
+            <option value="House Renovation">House Renovation</option>
+            <option value="Family Function">Family Function</option>
+          </select>
+          <button type="button" class="trip-icon-btn" id="project-quick-new-btn" title="Create New Project">+</button>
+        </div>
+      </div>
+
       <h3 class="project-title" id="project-display-name">🔨 House Renovation</h3>
-      <p class="project-subtitle">Track labour wages, materials & contractor payments</p>
+      <p class="project-subtitle" id="project-status-sub">Track labour wages, materials & contractor payments</p>
       <div class="project-total-banner">
         <span class="proj-tot-lbl">Total Spent This Month</span>
         <span class="proj-tot-amt" id="proj-total-spent">₹0</span>
@@ -538,6 +565,7 @@
       <div class="trip-card-top">
         <span class="trip-badge" id="trip-badge-status">✈️ In Progress</span>
         <div class="trip-actions-row">
+          <button type="button" class="trip-manage-btn" id="trip-pause-btn">⏸️ Pause</button>
           <button type="button" class="trip-manage-btn" id="trip-new-btn">+ New Trip</button>
           <button type="button" class="trip-manage-btn" id="trip-toggle-btn">Close Trip</button>
         </div>

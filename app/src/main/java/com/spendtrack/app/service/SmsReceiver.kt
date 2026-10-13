@@ -40,6 +40,7 @@ class SmsReceiver : BroadcastReceiver() {
 
         val fullText = bodyBuilder.toString()
 
+        val pendingResult = goAsync()
         receiverScope.launch {
             try {
                 val isSmsEnabled = ServiceLocator.settingsManager.isSmsDetectionEnabled.first()
@@ -77,9 +78,23 @@ class SmsReceiver : BroadcastReceiver() {
                         val answered = txn.needsReview && !txn.isExcluded &&
                             PromptReconciler.resolveIfEnteredByHand(context.applicationContext, txn.id)
                         if (!answered) {
-                            val activeTrip = ServiceLocator.settingsManager.activeTripNameFlow.first()
-                            val knownTrips = ServiceLocator.transactionRepository.getAllKnownTrips()
-                            ExpensePromptNotifier.announce(context.applicationContext, txn, activeTrip, knownTrips)
+                            val settings = ServiceLocator.settingsManager
+                            val repo = ServiceLocator.transactionRepository
+                            val activeTrip = settings.activeTripNameFlow.first()
+                            val isTripPaused = settings.isTripPausedFlow.first()
+                            val activeProject = settings.activeProjectNameFlow.first()
+                            val isProjectPaused = settings.isProjectPausedFlow.first()
+                            val knownTrips = repo.getAllKnownTrips()
+                            val knownProjects = repo.getAllKnownProjects()
+                            ExpensePromptNotifier.announce(
+                                context.applicationContext, txn,
+                                activeTripName = activeTrip,
+                                isTripPaused = isTripPaused,
+                                activeProjectName = activeProject,
+                                isProjectPaused = isProjectPaused,
+                                trips = knownTrips,
+                                projects = knownProjects
+                            )
                         }
                     }
                     runCatching { com.spendtrack.app.widget.KharchaWidget.refresh(context.applicationContext) }
@@ -98,6 +113,8 @@ class SmsReceiver : BroadcastReceiver() {
                 }
             } catch (e: Exception) {
                 SafeLogger.e("Error processing incoming SMS", e)
+            } finally {
+                pendingResult.finish()
             }
         }
     }
