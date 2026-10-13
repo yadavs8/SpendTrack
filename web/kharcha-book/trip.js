@@ -8,7 +8,27 @@
   var CFG = window.KHARCHA_CONFIG || null;
   var params = new URLSearchParams(location.search);
   var token = (params.get('t') || '').trim();
+  var urlUpi = (params.get('u') || '').trim();
+  if (urlUpi) {
+    try {
+      localStorage.setItem('kharcha_vpa_sanjeev yadav', urlUpi);
+      localStorage.setItem('kharcha_vpa_sanjeev', urlUpi);
+      localStorage.setItem('kharcha_my_upi', urlUpi);
+    } catch (e) {}
+  }
   var app = document.getElementById('app');
+
+  // "Sanjeev", "Sanjeev Yadav", and "Me" are the same person (trip owner/organizer).
+  function canonicalTripName(name) {
+    if (!name) return '';
+    var s = String(name).trim();
+    var low = s.toLowerCase();
+    if (low === 'me' || low === 'me (you)' || low.startsWith('me (') ||
+        low === 'sanjeev' || low === 'sanjeev yadav' || low === 'sanjeev  yadav') {
+      return 'Sanjeev Yadav';
+    }
+    return s;
+  }
 
   function el(tag, cls, text) {
     var e = document.createElement(tag);
@@ -261,10 +281,11 @@
 
   function getSavedVpa(personName) {
     try {
-      var direct = localStorage.getItem('kharcha_vpa_' + (personName || '').toLowerCase());
+      var norm = canonicalTripName(personName).toLowerCase();
+      var direct = localStorage.getItem('kharcha_vpa_' + norm) || localStorage.getItem('kharcha_vpa_' + (personName || '').toLowerCase());
       if (direct) return direct;
       var myUpi = localStorage.getItem('kharcha_my_upi');
-      if (myUpi && personName && (personName.toLowerCase().includes('sanjeev') || personName.toLowerCase() === 'me')) {
+      if (myUpi && (norm.includes('sanjeev') || norm === 'me')) {
         return myUpi;
       }
       return '';
@@ -318,7 +339,11 @@
         return;
       }
       var cleanVpa = vpa.trim();
-      try { localStorage.setItem('kharcha_vpa_' + personName.toLowerCase(), cleanVpa); } catch (e) {}
+      var normName = canonicalTripName(personName).toLowerCase();
+      try {
+        localStorage.setItem('kharcha_vpa_' + normName, cleanVpa);
+        localStorage.setItem('kharcha_vpa_' + (personName || '').toLowerCase(), cleanVpa);
+      } catch (e) {}
 
       var KL = window.KharchaLedger;
       var note = (tripName || 'Trip') + ' settlement';
@@ -334,20 +359,24 @@
       }
 
       // 2. Open UPI link in browser
+      var opened = false;
       try {
-        window.location.href = link;
-      } catch (err) {
         var a = document.createElement('a');
         a.href = link;
+        a.rel = 'noopener';
         document.body.appendChild(a);
         a.click();
+        opened = true;
         setTimeout(function () {
           try { document.body.removeChild(a); } catch (e) {}
         }, 500);
+      } catch (err) {}
+      if (!opened) {
+        try { window.location.href = link; } catch (e) {}
       }
       setTimeout(function () {
         try { backdrop.remove(); } catch (e) {}
-      }, 1200);
+      }, 1500);
     }
 
     btnPay.addEventListener('click', function () {
@@ -629,49 +658,74 @@
 
         // Collect all distinct names
         var namesSet = new Set();
-        if (myName) namesSet.add(myName);
+        if (myName) {
+          var cMe = canonicalTripName(myName);
+          if (cMe) namesSet.add(cMe);
+        }
 
         try {
           var urlParamFriends = (new URLSearchParams(window.location.search).get('f') || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
-          urlParamFriends.forEach(function (f) { namesSet.add(f); });
+          urlParamFriends.forEach(function (f) {
+            var c = canonicalTripName(f);
+            if (c) namesSet.add(c);
+          });
           var savedFriends = JSON.parse(localStorage.getItem('kharcha_trip_friends_' + (tripName || '')) || '[]');
-          savedFriends.forEach(function (f) { if (f) namesSet.add(f.trim()); });
-          if (urlParamFriends.length) {
-            localStorage.setItem('kharcha_trip_friends_' + (tripName || ''), JSON.stringify(Array.from(namesSet)));
-          }
+          savedFriends.forEach(function (f) {
+            var c = canonicalTripName(f);
+            if (c) namesSet.add(c);
+          });
         } catch (e) {}
 
         items.forEach(function (e) {
-          if (e.added_by_name) namesSet.add(e.added_by_name.trim());
+          if (e.added_by_name) {
+            var c = canonicalTripName(e.added_by_name);
+            if (c) namesSet.add(c);
+          }
           if (Array.isArray(e.split_among)) {
-            e.split_among.forEach(function (n) { if (n) namesSet.add(n.trim()); });
+            e.split_among.forEach(function (n) {
+              var c = canonicalTripName(n);
+              if (c) namesSet.add(c);
+            });
           }
         });
         var participants = Array.from(namesSet);
+        try {
+          localStorage.setItem('kharcha_trip_friends_' + (tripName || ''), JSON.stringify(participants));
+        } catch (e) {}
         updateSplitChips(participants);
 
         // Map expenses for settlement calculation
         var mapped = items.map(function (e) {
+          var p = canonicalTripName(e.added_by_name);
+          var splitSubset = null;
+          if (Array.isArray(e.split_among)) {
+            splitSubset = [];
+            e.split_among.forEach(function (n) {
+              var c = canonicalTripName(n);
+              if (c && splitSubset.indexOf(c) < 0) splitSubset.push(c);
+            });
+          }
           return {
             id: e.id,
             label: e.description,
             amount: Number(e.amount),
-            payer: e.added_by_name,
-            splitAmong: Array.isArray(e.split_among) ? e.split_among : null
+            payer: p,
+            splitAmong: splitSubset
           };
         });
 
         var settlement = null;
         var KL = window.KharchaLedger;
         if (KL && typeof KL.tripSettlement === 'function') {
-          settlement = KL.tripSettlement(mapped, participants);
+          settlement = KL.tripSettlement(mapped, participants, 'Sanjeev Yadav');
         }
 
         // Render Personal Standing Card
         personalCard.innerHTML = '';
-        if (settlement && myName) {
+        var myCanonical = canonicalTripName(myName);
+        if (settlement && myCanonical) {
           var myPerson = settlement.people.find(function (p) {
-            return p.name.toLowerCase() === myName.toLowerCase();
+            return canonicalTripName(p.name).toLowerCase() === myCanonical.toLowerCase();
           });
           if (myPerson) {
             var box = el('div', 'settle-hero');
@@ -682,7 +736,7 @@
               box.appendChild(el('p', 'settle-sub', 'Your fair share: ' + money(myPerson.share) + ' · You paid: ' + money(myPerson.paid)));
 
               var myDebts = settlement.transfers.filter(function (t) {
-                return t.from.toLowerCase() === myName.toLowerCase();
+                return canonicalTripName(t.from).toLowerCase() === myCanonical.toLowerCase();
               });
               if (myDebts.length) {
                 var debtsList = el('div');
@@ -732,7 +786,7 @@
               box.appendChild(el('p', 'settle-sub', 'You paid: ' + money(myPerson.paid) + ' · Your share: ' + money(myPerson.share)));
 
               var owedToMe = settlement.transfers.filter(function (t) {
-                return t.to.toLowerCase() === myName.toLowerCase();
+                return canonicalTripName(t.to).toLowerCase() === myCanonical.toLowerCase();
               });
               if (owedToMe.length) {
                 var owesList = el('div');
@@ -753,7 +807,7 @@
 
                   var waRemind = el('button', 'btn-wa', '📲 Remind');
                   waRemind.addEventListener('click', function () {
-                    var myVpa = getSavedVpa(myName);
+                    var myVpa = getSavedVpa(myCanonical);
                     var msg = 'Hey ' + t.from + ', your share for ' + (tripName || 'our trip') + ' comes to ' + money(t.amount) + '.';
                     if (myVpa) msg += '\nPay to UPI ID: ' + myVpa;
                     window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
@@ -794,7 +848,7 @@
             var amt = el('span', 'transfer-amt', money(t.amount));
             rRight.appendChild(amt);
 
-            if (myName && t.from.toLowerCase() === myName.toLowerCase()) {
+            if (myCanonical && canonicalTripName(t.from).toLowerCase() === myCanonical.toLowerCase()) {
               var paySm = el('button', 'btn-upi', '⚡ Pay');
               paySm.style.padding = '5px 10px';
               paySm.style.fontSize = '0.78rem';
@@ -816,7 +870,8 @@
           settlement.people.forEach(function (p) {
             var row = el('li', 'person-row');
             var info = el('div', 'person-info');
-            var pName = el('span', 'person-name', p.name + (myName && p.name.toLowerCase() === myName.toLowerCase() ? ' (You)' : ''));
+            var isMe = (myCanonical && canonicalTripName(p.name).toLowerCase() === myCanonical.toLowerCase());
+            var pName = el('span', 'person-name', p.name + (isMe ? ' (You)' : ''));
             var pMeta = el('span', 'person-meta', 'Paid: ' + money(p.paid) + ' · Share: ' + money(p.share));
             info.appendChild(pName); info.appendChild(pMeta);
             row.appendChild(info);

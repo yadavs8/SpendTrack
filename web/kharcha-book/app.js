@@ -387,11 +387,22 @@
     return null;
   }
 
+  function isOwnerTripName(n) {
+    if (!n) return false;
+    var s = String(n).trim().toLowerCase();
+    return s === 'me' || s === 'me (you)' || s.indexOf('me (') === 0 ||
+           s === 'sanjeev' || s === 'sanjeev yadav' || s === 'sanjeev  yadav';
+  }
+
   function parseTripPayer(desc) {
     if (!desc) return 'Me';
     var d = desc.trim();
     var m = d.match(/\[Paid by ([^\]]+)\]/i);
-    if (m && m[1]) return m[1].trim();
+    if (m && m[1]) {
+      var p = m[1].trim();
+      if (isOwnerTripName(p)) return 'Me';
+      return p;
+    }
     if (d.includes('🤝') || /friend paid/i.test(d)) return 'Friend';
     return 'Me';
   }
@@ -402,7 +413,12 @@
     if (!desc) return null;
     var m = String(desc).match(/\[Split: ([^\]]+)\]/i);
     if (!m || !m[1]) return null;
-    var names = m[1].split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    var rawNames = m[1].split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+    var names = [];
+    rawNames.forEach(function (n) {
+      var norm = isOwnerTripName(n) ? 'Me' : n;
+      if (names.indexOf(norm) < 0) names.push(norm);
+    });
     return names.length ? names : null;
   }
 
@@ -438,7 +454,7 @@
     friendSet.add('Me');
     if (Array.isArray(explicitFriends)) {
       explicitFriends.forEach(function (f) {
-        if (f && f.trim()) friendSet.add(f.trim());
+        if (f && f.trim() && !isOwnerTripName(f)) friendSet.add(f.trim());
       });
     }
 
@@ -446,6 +462,7 @@
     var payerTotals = {};
     list.forEach(function (e) {
       var payer = parseTripPayer(e.desc);
+      if (isOwnerTripName(payer)) payer = 'Me';
       friendSet.add(payer);
       if (!payerTotals[payer]) payerTotals[payer] = 0;
       payerTotals[payer] = (payerTotals[payer] * 100 + paise(e.amount)) / 100;
@@ -475,7 +492,8 @@
           splitAmong: e.splitAmong || parseTripSplit(e.desc)
         };
       }),
-      seedParticipants
+      seedParticipants,
+      'Me'
     ) : null;
 
     var allParticipants = settled ? settled.people.map(function (p) { return p.name; }) : seedParticipants;
@@ -520,6 +538,7 @@
       participants: allParticipants,
       perPersonShare: perPersonShare,
       balances: balances,
+      transfers: settled ? settled.transfers : [],
       meEntries: meEntries,
       paidByMe: paidByMe,
       friendEntries: friendEntries,
@@ -1296,7 +1315,7 @@
     parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, parseSMSDate: parseSMSDate, findDuplicate: findDuplicate, categoryBreakdown: categoryBreakdown, monthCompare: monthCompare,
     isIncome: isIncome, isMotherSettlement: isMotherSettlement, isMotherPension: isMotherPension, isSalary: isSalary, isExpense: isExpense, isInvestment: isInvestment, getFamilySettlement: getFamilySettlement, getPersonalCashFlow: getPersonalCashFlow,
     isProjectEntry: isProjectEntry, isProjectMotherPaid: isProjectMotherPaid, getProjectSummary: getProjectSummary,
-    isTripEntry: isTripEntry, getTripSummary: getTripSummary, parseTripPayer: parseTripPayer, getTripTheme: getTripTheme,
+    isTripEntry: isTripEntry, getTripSummary: getTripSummary, parseTripPayer: parseTripPayer, parseTripSplit: parseTripSplit, getTripTheme: getTripTheme,
     getAllTrips: getAllTrips, getTripFriends: getTripFriends, addTripFriend: addTripFriend, removeTripFriend: removeTripFriend,
     getEntryScope: getEntryScope, shiftScopeDesc: shiftScopeDesc,
     rememberMerchantScope: rememberMerchantScope, predictMerchantScope: predictMerchantScope,
@@ -1391,17 +1410,22 @@
         var user = (await sb.auth.getUser()).data.user;
         if (!user) return;
         this.userId = user.id;
+        this.remote = true;
         var res = await sb.from('kharcha_settings').select('data').maybeSingle();
         if (res.error) { console.warn('Kharcha: shared settings unavailable (' + res.error.message + '); using this device only'); return; }
         var server = (res.data && res.data.data) || {};
         var local = this.localSharedValues();
         var changed = !res.data;
-        Object.keys(local).forEach(function (k) { if (!Object.prototype.hasOwnProperty.call(server, k)) { server[k] = local[k]; changed = true; } });
+        Object.keys(local).forEach(function (k) {
+          if (!Object.prototype.hasOwnProperty.call(server, k) || (!server[k] && local[k])) {
+            server[k] = local[k];
+            changed = true;
+          }
+        });
         this.data = server;
         Object.keys(server).forEach(function (k) {
           try { if (server[k] == null) localStorage.removeItem(k); else localStorage.setItem(k, String(server[k])); } catch (e) {}
         });
-        this.remote = true;
         if (changed) await this.push();
       } catch (e) { console.warn('Kharcha: shared settings load failed', e); }
     },
@@ -1411,7 +1435,13 @@
       this.timer = setTimeout(function () { self.timer = null; self.push(); }, 600);
     },
     push: async function () {
-      if (!this.remote || !this.userId) return;
+      if (!this.userId && sb && sb.auth) {
+        try {
+          var u = (await sb.auth.getUser()).data.user;
+          if (u) { this.userId = u.id; this.remote = true; }
+        } catch (e) {}
+      }
+      if (!this.userId) return;
       var res = await sb.from('kharcha_settings').upsert({ user_id: this.userId, data: this.data, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
       if (res.error) console.warn('Kharcha: shared settings save failed', res.error.message);
     }
@@ -4251,15 +4281,24 @@
 
   function myDisplayName() {
     var raw = ((kv.get('kharcha_owner_identity') || '').split(',')[0] || '').trim();
-    return raw || 'Me';
+    if (!raw || isOwnerTripName(raw)) return 'Sanjeev Yadav';
+    return raw;
   }
 
   function tripShareLink(token, tripName) {
     var base = location.origin + location.pathname.replace(/[^/]*$/, '') + 'trip.html?t=' + encodeURIComponent(token);
     var friends = tripName ? getTripFriends(tripName) : [];
     if (friends.length) {
-      var guestFriends = friends.map(function (f) { return f === 'Me' ? myDisplayName() : f; });
+      var guestFriends = friends.map(function (f) { return isOwnerTripName(f) ? myDisplayName() : f; });
       base += '&f=' + encodeURIComponent(guestFriends.join(','));
+    }
+    var myUpi = (kv.get('kharcha_my_upi') || '').trim();
+    if (!myUpi) {
+      var ident = (kv.get('kharcha_owner_identity') || '').split(',');
+      if (ident[1]) myUpi = ident[1].trim();
+    }
+    if (myUpi) {
+      base += '&u=' + encodeURIComponent(myUpi);
     }
     return base;
   }
@@ -4454,7 +4493,9 @@
       if (Array.isArray(saved) && saved.length) {
         var set = new Set();
         set.add('Me');
-        saved.forEach(function (f) { if (f && f.trim()) set.add(f.trim()); });
+        saved.forEach(function (f) {
+          if (f && f.trim() && !isOwnerTripName(f)) set.add(f.trim());
+        });
         return Array.from(set);
       }
     } catch (e) {}
@@ -4463,12 +4504,17 @@
   function setTripFriends(tripName, friendsList) {
     if (!tripName) return;
     try {
-      var clean = Array.from(new Set(friendsList)).filter(function (f) { return f && f.trim(); });
-      kv.set(TRIP_FRIENDS_PREFIX + tripName.trim(), JSON.stringify(clean));
+      var set = new Set();
+      set.add('Me');
+      (friendsList || []).forEach(function (f) {
+        if (f && f.trim() && !isOwnerTripName(f)) set.add(f.trim());
+      });
+      kv.set(TRIP_FRIENDS_PREFIX + tripName.trim(), JSON.stringify(Array.from(set)));
     } catch (e) {}
   }
   function addTripFriend(tripName, friendName) {
     if (!tripName || !friendName || !friendName.trim()) return;
+    if (isOwnerTripName(friendName)) return;
     var list = getTripFriends(tripName);
     var norm = friendName.trim();
     if (!list.includes(norm)) {
@@ -4477,7 +4523,7 @@
     }
   }
   function removeTripFriend(tripName, friendName) {
-    if (!tripName || !friendName || friendName === 'Me') return;
+    if (!tripName || !friendName || isOwnerTripName(friendName)) return;
     var list = getTripFriends(tripName).filter(function (f) { return f !== friendName; });
     setTripFriends(tripName, list);
   }

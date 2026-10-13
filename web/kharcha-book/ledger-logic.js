@@ -79,12 +79,43 @@
        transfers: fewest payments that settle everyone [{ from, to, amount }]
        pairs:     for each pair, what one owes the other after offsetting, with the reasons
                   [{ from, to, amount, items: [{ label, amount, kind: 'owes' | 'offset' }] }] */
-  function tripSettlement(expenses, participants) {
+  // Canonicalizes a person's name in trips:
+  // "Sanjeev", "Sanjeev Yadav", and "Me" are the same person (the trip organizer / owner).
+  function canonicalTripParticipant(rawName, ownerChoice) {
+    if (!rawName) return '';
+    var s = String(rawName).trim();
+    var low = s.toLowerCase();
+    if (low === 'me' || low === 'me (you)' || low.startsWith('me (') ||
+        low === 'sanjeev' || low === 'sanjeev yadav' || low === 'sanjeev  yadav') {
+      return ownerChoice || (low === 'me' ? 'Me' : 'Sanjeev Yadav');
+    }
+    return s;
+  }
+
+  function tripSettlement(expenses, participants, ownerCanonical) {
+    var ownerChoice = ownerCanonical;
+    if (!ownerChoice) {
+      if ((participants || []).indexOf('Me') >= 0) ownerChoice = 'Me';
+      else if ((participants || []).some(function (p) { return /sanjeev/i.test(p); })) ownerChoice = 'Sanjeev Yadav';
+      else ownerChoice = 'Me';
+    }
+
+    function canon(n) {
+      return canonicalTripParticipant(n, ownerChoice);
+    }
+
     var names = [];
-    (participants || []).forEach(function (n) { if (n && names.indexOf(n) < 0) names.push(n); });
+    (participants || []).forEach(function (n) {
+      var c = canon(n);
+      if (c && names.indexOf(c) < 0) names.push(c);
+    });
     (expenses || []).forEach(function (e) {
-      if (e.payer && names.indexOf(e.payer) < 0) names.push(e.payer);
-      (e.splitAmong || []).forEach(function (n) { if (n && names.indexOf(n) < 0) names.push(n); });
+      var p = canon(e.payer);
+      if (p && names.indexOf(p) < 0) names.push(p);
+      (e.splitAmong || []).forEach(function (n) {
+        var c = canon(n);
+        if (c && names.indexOf(c) < 0) names.push(c);
+      });
     });
     var paid = {}, share = {}, directed = {};
     names.forEach(function (n) { paid[n] = 0; share[n] = 0; });
@@ -94,17 +125,22 @@
       if (!n) return;
       var p = toPaise(e.amount);
       if (!(p > 0)) return;
-      paid[e.payer] += p;
+      var payer = canon(e.payer) || names[0];
+      paid[payer] += p;
       // Only people this specific expense was split between share it; everyone else is
       // untouched by it. No valid subset given -> the old default, split across everyone.
-      var splitWith = Array.isArray(e.splitAmong) ? e.splitAmong.filter(function (x) { return names.indexOf(x) >= 0; }) : [];
+      var rawSplit = Array.isArray(e.splitAmong) ? e.splitAmong.map(canon).filter(Boolean) : [];
+      var splitWith = [];
+      rawSplit.forEach(function (x) {
+        if (names.indexOf(x) >= 0 && splitWith.indexOf(x) < 0) splitWith.push(x);
+      });
       if (!splitWith.length) splitWith = names;
       var shares = splitPaise(p, splitWith.length);
       splitWith.forEach(function (q, i) {
         share[q] += shares[i];
-        if (q === e.payer || shares[i] === 0) return;
-        var k = q + '\u0000' + e.payer;
-        if (!directed[k]) directed[k] = { from: q, to: e.payer, total: 0, items: [] };
+        if (q === payer || shares[i] === 0) return;
+        var k = q + '\u0000' + payer;
+        if (!directed[k]) directed[k] = { from: q, to: payer, total: 0, items: [] };
         directed[k].total += shares[i];
         directed[k].items.push({ label: e.label || 'Expense', paise: shares[i] });
       });
@@ -768,7 +804,7 @@
     findDuplicates: findDuplicates, autoTransferPairs: autoTransferPairs, parseCardLimit: parseCardLimit, cardState: cardState, seedRules: seedRules,
     upcomingRules: upcomingRules, parseOwn: parseOwn, defaultOwn: defaultOwn, cardFor: cardFor, ownAccountFor: ownAccountFor, transferCandidates: transferCandidates, autoOwnTransfers: autoOwnTransfers, orphanTransfers: orphanTransfers, isOwnName: isOwnName, sourceAccountFromRaw: sourceAccountFromRaw,
     parseRules: parseRules, defaultRules: defaultRules, matchRule: matchRule, dueRules: dueRules, routeAccount: routeAccount,
-    splitPaise: splitPaise, tripItemLabel: tripItemLabel, tripSettlement: tripSettlement,
+    splitPaise: splitPaise, tripItemLabel: tripItemLabel, tripSettlement: tripSettlement, canonicalTripParticipant: canonicalTripParticipant,
     upiPayLink: upiPayLink, settleMessage: settleMessage, whatsappLink: whatsappLink,
     tripItemCategory: tripItemCategory, tripCategoriesSummary: tripCategoriesSummary, TRIP_CATEGORY_DEFS: TRIP_CATEGORY_DEFS,
     cleanName: cleanName, nameKey: nameKey, parseLoans: parseLoans, repaid: repaid, outstanding: outstanding,

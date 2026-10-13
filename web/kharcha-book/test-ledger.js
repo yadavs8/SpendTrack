@@ -448,5 +448,37 @@ t('trip categories: identifies stay, fuel, food, and beverages headers correctly
   assert.strictEqual(cats.other.total, 500);
 });
 
+t('canonicalTripParticipant unifies Me, Sanjeev, and Sanjeev Yadav', () => {
+  assert.strictEqual(L.canonicalTripParticipant('Me', 'Me'), 'Me');
+  assert.strictEqual(L.canonicalTripParticipant('Me (You)', 'Me'), 'Me');
+  assert.strictEqual(L.canonicalTripParticipant('Sanjeev', 'Me'), 'Me');
+  assert.strictEqual(L.canonicalTripParticipant('Sanjeev Yadav', 'Me'), 'Me');
+  assert.strictEqual(L.canonicalTripParticipant('Me', 'Sanjeev Yadav'), 'Sanjeev Yadav');
+  assert.strictEqual(L.canonicalTripParticipant('Sanjeev', 'Sanjeev Yadav'), 'Sanjeev Yadav');
+  assert.strictEqual(L.canonicalTripParticipant('Sanjeev Yadav', 'Sanjeev Yadav'), 'Sanjeev Yadav');
+  assert.strictEqual(L.canonicalTripParticipant('Vinay', 'Sanjeev Yadav'), 'Vinay');
+  assert.strictEqual(L.canonicalTripParticipant('Bijoy', 'Sanjeev Yadav'), 'Bijoy');
+});
+
+t('tripSettlement collapses Sanjeev/Sanjeev Yadav/Me and splits 53376.84 among 5 people', () => {
+  const participants = ['Sanjeev Yadav', 'Vinay', 'Bijoy', 'Rahul', 'Sumanth'];
+  const expenses = [
+    { label: 'Airbnb Booking', amount: 53376.84, payer: 'Sanjeev' }
+  ];
+  const r = L.tripSettlement(expenses, participants, 'Sanjeev Yadav');
+  assert.strictEqual(r.people.length, 5);
+  const by = Object.fromEntries(r.people.map(p => [p.name, p]));
+  assert.strictEqual(by['Sanjeev Yadav'].paid, 53376.84);
+  assert.strictEqual(Math.round(r.people.reduce((s, p) => s + p.share, 0) * 100), 5337684);
+  assert.strictEqual(by['Sanjeev Yadav'].net, 42701.47);
+  assert.strictEqual(r.transfers.length, 4);
+  const totalTransfer = r.transfers.reduce((s, t) => s + t.amount, 0);
+  assert.strictEqual(Math.round(totalTransfer * 100), 4270147);
+  r.transfers.forEach(t => {
+    assert.strictEqual(t.to, 'Sanjeev Yadav');
+    assert.ok(t.amount === 10675.37 || t.amount === 10675.36);
+  });
+});
+
 console.log(n + ' tests passed');
 

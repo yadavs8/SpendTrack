@@ -60,7 +60,7 @@ vm.runInNewContext(ledgerCode, windowMock);
 const code = fs.readFileSync(path.join(__dirname, 'app.js'), 'utf8');
 vm.runInNewContext(code, windowMock);
 
-const { parseAmount, normDesc, money, groupByDay, byDescription, monthTotals, toLocalISOString, isFamilyEntry, parseBankSMS, parseSMSDate, findDuplicate, categoryBreakdown, monthCompare, isIncome, isMotherSettlement, isMotherPension, isSalary, isExpense, isInvestment, getFamilySettlement, getPersonalCashFlow, isProjectEntry, isProjectMotherPaid, getProjectSummary, isTripEntry, getTripSummary, parseTripPayer, getTripTheme, getEntryScope, shiftScopeDesc, rememberMerchantScope, predictMerchantScope, recentSpendsForTrip, recurringBills, monthForecast, upiPayLink, settleMessage, whatsappLink } = windowMock.__kharcha;
+const { parseAmount, normDesc, money, groupByDay, byDescription, monthTotals, toLocalISOString, isFamilyEntry, parseBankSMS, parseSMSDate, findDuplicate, categoryBreakdown, monthCompare, isIncome, isMotherSettlement, isMotherPension, isSalary, isExpense, isInvestment, getFamilySettlement, getPersonalCashFlow, isProjectEntry, isProjectMotherPaid, getProjectSummary, isTripEntry, getTripSummary, parseTripPayer, parseTripSplit, getTripTheme, getEntryScope, shiftScopeDesc, rememberMerchantScope, predictMerchantScope, recentSpendsForTrip, recurringBills, monthForecast, upiPayLink, settleMessage, whatsappLink } = windowMock.__kharcha;
 
 let passed = 0;
 let failed = 0;
@@ -426,6 +426,9 @@ assert(parseTripPayer('✈️ Manali Trip: Cottage Resort [Paid by Rohit]') === 
 assert(parseTripPayer('✈️ Manali Trip: Fuel & Toll [Paid by Amit]') === 'Amit', 'parseTripPayer extracts named payer Amit');
 assert(parseTripPayer('✈️ Manali Trip: Dinner [Paid by Priya]') === 'Priya', 'parseTripPayer extracts named payer Priya');
 assert(parseTripPayer('✈️ Manali Trip: Taxi ride') === 'Me', 'parseTripPayer defaults to Me');
+assert(parseTripPayer('✈️ Trip: Villa [Paid by Sanjeev]') === 'Me', 'parseTripPayer maps Sanjeev to Me');
+assert(parseTripPayer('✈️ Trip: Villa [Paid by Sanjeev Yadav]') === 'Me', 'parseTripPayer maps Sanjeev Yadav to Me');
+assert(JSON.stringify(parseTripSplit('✈️ Trip: Food [Split: Sanjeev, Bijoy]')) === JSON.stringify(['Me', 'Bijoy']), 'parseTripSplit maps Sanjeev to Me');
 
 const multiFriendsEntries = [
   { id: 'm1', amount: 6000, desc: '✈️ Manali Trip: Cottage [Paid by Me]', ts: Date.now() },
@@ -459,6 +462,16 @@ assert(balRohit.paid === 3000, 'Rohit paid 3000');
 assert(balRohit.net === 0, 'Rohit is settled (paid 3000 - share 3000)');
 assert(balAmit.paid === 0, 'Amit paid 0');
 assert(balAmit.net === -3000, 'Amit owes 3000 (paid 0 - share 3000)');
+
+const fivePersonEntries = [
+  { id: 'f1', amount: 53376.84, desc: '✈️ Goa Trip: Airbnb Villa [Paid by Sanjeev Yadav]', ts: Date.now() }
+];
+const fivePersonSummary = getTripSummary(fivePersonEntries, 'Goa Trip', ['Me', 'Vinay', 'Bijoy', 'Rahul', 'Sumanth']);
+assert(fivePersonSummary.participants.length === 5, '5-person trip has exactly 5 participants');
+assert(fivePersonSummary.balances.find(b => b.name === 'Me').paid === 53376.84, 'Me paid 53376.84 in 5-person trip');
+assert(fivePersonSummary.balances.find(b => b.name === 'Me').net === 42701.47, 'Me gets back 42701.47 in 5-person trip');
+assert(fivePersonSummary.transfers.length === 4, '5-person trip has exactly 4 transfers');
+fivePersonSummary.transfers.forEach(t => assert(t.to === 'Me', 'All transfers go to Me'));
 
 // 20b. Dynamic Trip Destination Themes and Artwork
 const manaliTheme = getTripTheme('Manali Trip');
