@@ -259,25 +259,162 @@
     input.focus();
   }
 
-  function promptForVpa(personName, defaultVal) {
-    var vpa = window.prompt('Enter UPI ID for ' + personName + ' (e.g. name@okhdfcbank or 98xxxxxx@upi):', defaultVal || '');
-    if (vpa && vpa.trim()) {
-      localStorage.setItem('kharcha_vpa_' + personName.toLowerCase(), vpa.trim());
-      return vpa.trim();
-    }
-    return null;
-  }
   function getSavedVpa(personName) {
-    try { return localStorage.getItem('kharcha_vpa_' + personName.toLowerCase()) || ''; } catch (e) { return ''; }
+    try {
+      var direct = localStorage.getItem('kharcha_vpa_' + (personName || '').toLowerCase());
+      if (direct) return direct;
+      var myUpi = localStorage.getItem('kharcha_my_upi');
+      if (myUpi && personName && (personName.toLowerCase().includes('sanjeev') || personName.toLowerCase() === 'me')) {
+        return myUpi;
+      }
+      return '';
+    } catch (e) { return ''; }
   }
+
+  function showUpiModal(personName, amount, tripName) {
+    var existingModal = document.getElementById('upi-modal-root');
+    if (existingModal) existingModal.remove();
+
+    var savedVpa = getSavedVpa(personName);
+
+    var backdrop = el('div', 'modal-backdrop');
+    backdrop.id = 'upi-modal-root';
+
+    var box = el('div', 'modal-box');
+
+    var title = el('h2', 'modal-title', '⚡ Pay via UPI');
+    var sub = el('p', 'modal-sub', 'Paying ' + money(amount) + ' to ' + personName);
+
+    var field = el('div', 'field');
+    var label = el('label', null, personName + "'s UPI ID / VPA");
+    var input = el('input');
+    input.placeholder = 'e.g. name@okhdfcbank or 98xxxxxx@upi';
+    input.value = savedVpa || '';
+    input.autocomplete = 'off';
+    field.appendChild(label);
+    field.appendChild(input);
+
+    var statusMsg = el('p', 'err');
+    statusMsg.style.margin = '0';
+    statusMsg.hidden = true;
+
+    var btnPay = el('button', 'btn-upi', '🚀 Open UPI App (GPay / PhonePe / Paytm)');
+    btnPay.style.width = '100%';
+    btnPay.style.padding = '12px 16px';
+    btnPay.style.fontSize = '0.96rem';
+
+    var btnCopy = el('button', 'btn-secondary', '📋 Copy UPI Link');
+    var btnCancel = el('button', 'btn-secondary', 'Cancel');
+
+    var btnRow = el('div', 'modal-btn-row');
+    btnRow.appendChild(btnCopy);
+    btnRow.appendChild(btnCancel);
+
+    function triggerPay(vpa) {
+      if (!vpa || !vpa.trim()) {
+        statusMsg.textContent = 'Please enter a valid UPI ID (e.g. name@okhdfcbank).';
+        statusMsg.hidden = false;
+        input.focus();
+        return;
+      }
+      var cleanVpa = vpa.trim();
+      try { localStorage.setItem('kharcha_vpa_' + personName.toLowerCase(), cleanVpa); } catch (e) {}
+
+      var KL = window.KharchaLedger;
+      var note = (tripName || 'Trip') + ' settlement';
+      var link = (KL && KL.upiPayLink) ?
+        KL.upiPayLink(cleanVpa, personName, amount, note) :
+        'upi://pay?pa=' + encodeURIComponent(cleanVpa) + '&pn=' + encodeURIComponent(personName) + '&am=' + Number(amount).toFixed(2) + '&cu=INR&tn=' + encodeURIComponent(note);
+
+      // 1. If inside native Kharcha Book Android App with native bridge
+      if (window.KharchaNative && typeof window.KharchaNative.payUpi === 'function') {
+        window.KharchaNative.payUpi(cleanVpa, personName, String(amount), note);
+        backdrop.remove();
+        return;
+      }
+
+      // 2. Open UPI link in browser
+      try {
+        window.location.href = link;
+      } catch (err) {
+        var a = document.createElement('a');
+        a.href = link;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(function () {
+          try { document.body.removeChild(a); } catch (e) {}
+        }, 500);
+      }
+      setTimeout(function () {
+        try { backdrop.remove(); } catch (e) {}
+      }, 1200);
+    }
+
+    btnPay.addEventListener('click', function () {
+      triggerPay(input.value);
+    });
+
+    btnCopy.addEventListener('click', function () {
+      var cleanVpa = (input.value || '').trim();
+      if (!cleanVpa) {
+        statusMsg.textContent = 'Enter UPI ID first to generate the link.';
+        statusMsg.className = 'err';
+        statusMsg.hidden = false;
+        input.focus();
+        return;
+      }
+      var KL = window.KharchaLedger;
+      var note = (tripName || 'Trip') + ' settlement';
+      var link = (KL && KL.upiPayLink) ?
+        KL.upiPayLink(cleanVpa, personName, amount, note) :
+        'upi://pay?pa=' + encodeURIComponent(cleanVpa) + '&pn=' + encodeURIComponent(personName) + '&am=' + Number(amount).toFixed(2) + '&cu=INR&tn=' + encodeURIComponent(note);
+
+      function markCopied() {
+        btnCopy.textContent = '✅ Copied!';
+        statusMsg.textContent = 'UPI payment link copied to clipboard!';
+        statusMsg.style.color = '#10B981';
+        statusMsg.hidden = false;
+        setTimeout(function () {
+          btnCopy.textContent = '📋 Copy UPI Link';
+          statusMsg.hidden = true;
+          statusMsg.style.color = '';
+        }, 3000);
+      }
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(link).then(markCopied).catch(function () {
+          input.value = link;
+          input.select();
+          markCopied();
+        });
+      } else {
+        input.value = link;
+        input.select();
+        markCopied();
+      }
+    });
+
+    btnCancel.addEventListener('click', function () {
+      backdrop.remove();
+    });
+
+    backdrop.addEventListener('click', function (ev) {
+      if (ev.target === backdrop) backdrop.remove();
+    });
+
+    box.appendChild(title);
+    box.appendChild(sub);
+    box.appendChild(field);
+    box.appendChild(statusMsg);
+    box.appendChild(btnPay);
+    box.appendChild(btnRow);
+    backdrop.appendChild(box);
+    document.body.appendChild(backdrop);
+    input.focus();
+  }
+
   function handleUpiPay(personName, amount, tripName) {
-    var vpa = getSavedVpa(personName) || promptForVpa(personName);
-    if (!vpa) return;
-    var KL = window.KharchaLedger;
-    var link = (KL && KL.upiPayLink) ?
-      KL.upiPayLink(vpa, personName, amount, (tripName || 'Trip') + ' settlement') :
-      'upi://pay?pa=' + encodeURIComponent(vpa) + '&pn=' + encodeURIComponent(personName) + '&am=' + Number(amount).toFixed(2) + '&cu=INR&tn=' + encodeURIComponent((tripName || 'Trip') + ' settlement');
-    window.location.href = link;
+    showUpiModal(personName, amount, tripName);
   }
 
   function renderTrip(tripName) {

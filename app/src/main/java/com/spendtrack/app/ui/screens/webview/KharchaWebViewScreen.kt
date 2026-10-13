@@ -11,6 +11,8 @@ import android.os.Message
 import android.webkit.ConsoleMessage
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
+import android.webkit.JsPromptResult
+import android.webkit.JsResult
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.widget.Toast
@@ -125,6 +127,39 @@ fun KharchaWebViewScreen(
                         return true
                     }
 
+                    override fun onJsAlert(view: WebView, url: String?, message: String?, result: JsResult): Boolean {
+                        android.app.AlertDialog.Builder(view.context)
+                            .setMessage(message ?: "")
+                            .setPositiveButton(android.R.string.ok) { _, _ -> result.confirm() }
+                            .setOnCancelListener { result.cancel() }
+                            .show()
+                        return true
+                    }
+
+                    override fun onJsConfirm(view: WebView, url: String?, message: String?, result: JsResult): Boolean {
+                        android.app.AlertDialog.Builder(view.context)
+                            .setMessage(message ?: "")
+                            .setPositiveButton(android.R.string.ok) { _, _ -> result.confirm() }
+                            .setNegativeButton(android.R.string.cancel) { _, _ -> result.cancel() }
+                            .setOnCancelListener { result.cancel() }
+                            .show()
+                        return true
+                    }
+
+                    override fun onJsPrompt(view: WebView, url: String?, message: String?, defaultValue: String?, result: JsPromptResult): Boolean {
+                        val input = android.widget.EditText(view.context).apply {
+                            setText(defaultValue ?: "")
+                        }
+                        android.app.AlertDialog.Builder(view.context)
+                            .setMessage(message ?: "")
+                            .setView(input)
+                            .setPositiveButton(android.R.string.ok) { _, _ -> result.confirm(input.text.toString()) }
+                            .setNegativeButton(android.R.string.cancel) { _, _ -> result.cancel() }
+                            .setOnCancelListener { result.cancel() }
+                            .show()
+                        return true
+                    }
+
                     // A target="_blank" link or window.open(): catch the URL in a throwaway WebView
                     // and hand it to the right app instead of opening a window we can't show.
                     override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message): Boolean {
@@ -150,6 +185,21 @@ fun KharchaWebViewScreen(
                     @JavascriptInterface
                     fun openSettings() {
                         main.post { if (fromKharcha()) openSettings() }
+                    }
+
+                    /** Launch UPI payment chooser directly to pay a trip member or friend. */
+                    @JavascriptInterface
+                    fun payUpi(vpa: String?, name: String?, amount: String?, note: String?) {
+                        if (vpa.isNullOrBlank()) return
+                        main.post {
+                            if (!fromKharcha()) return@post
+                            val encodedPa = Uri.encode(vpa.trim(), "@")
+                            val encodedPn = Uri.encode(name?.trim() ?: "Kharcha")
+                            val encodedAm = Uri.encode(amount?.trim() ?: "0")
+                            val encodedTn = Uri.encode(note?.trim() ?: "Settlement")
+                            val uriString = "upi://pay?pa=$encodedPa&pn=$encodedPn&am=$encodedAm&cu=INR&tn=$encodedTn"
+                            openExternally(view.context, uriString)
+                        }
                     }
 
                     /** Export CSV: WebViews can't do browser downloads, so share the file instead (Drive, WhatsApp, Files...). */
