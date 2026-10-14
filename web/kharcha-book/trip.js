@@ -202,25 +202,37 @@
     var btn = document.getElementById('install-btn');
     if (btn) btn.hidden = false;
   });
+  var APK_URL = 'https://github.com/yadavs8/SpendTrack/releases/download/apk-latest/Kharcha-Book.apk';
+  // "Get the app" card: always visible (join screen and trip page), for Android and iPhone.
   function renderInstallRow(container) {
-    // Running standalone already (installed and opened from the home screen) -- nothing to offer.
+    // Already running as an installed app -- nothing to offer.
     if (window.matchMedia('(display-mode: standalone)').matches || navigator.standalone) return;
-    var row = el('div', 'install-row');
-    var p = el('p', null, 'Add this to your home screen so you don\'t need to find this link again.');
-    var btn = el('button', 'ghost', '📲 Install');
-    btn.id = 'install-btn';
-    btn.hidden = !deferredInstallPrompt; // shown once the browser offers it (Chrome/Edge); hidden otherwise
-    btn.addEventListener('click', function () {
-      if (!deferredInstallPrompt) return;
-      deferredInstallPrompt.prompt();
-      deferredInstallPrompt.userChoice.finally(function () { deferredInstallPrompt = null; btn.hidden = true; });
-    });
-    row.appendChild(p); row.appendChild(btn);
-    container.appendChild(row);
-    // Safari/iOS never fires beforeinstallprompt -- tell them the manual way instead of showing nothing.
-    if (/iphone|ipad|ipod/i.test(navigator.userAgent) && !navigator.standalone) {
-      p.textContent = 'Add this to your home screen: tap Share, then "Add to Home Screen".';
-      btn.hidden = true;
+    var ua = navigator.userAgent || '';
+    var isIos = /iphone|ipad|ipod/i.test(ua);
+    var isAndroid = /android/i.test(ua);
+    container.appendChild(el('p', 'sub', '📲 Get the Kharcha Book app'));
+    if (isIos || !isAndroid) {
+      var ip = el('p', 'sub', 'iPhone / iPad: open this page in Safari, tap Share, then "Add to Home Screen".');
+      ip.style.fontSize = '0.82rem';
+      container.appendChild(ip);
+    }
+    if (isAndroid || !isIos) {
+      var row = el('div', 'install-row');
+      var p = el('p', null, 'Android: install in one tap, or download the app.');
+      var btn = el('button', 'ghost', '📲 Install');
+      btn.id = 'install-btn';
+      btn.hidden = !deferredInstallPrompt; // shown once Chrome offers it
+      btn.addEventListener('click', function () {
+        if (!deferredInstallPrompt) return;
+        deferredInstallPrompt.prompt();
+        deferredInstallPrompt.userChoice.finally(function () { deferredInstallPrompt = null; btn.hidden = true; });
+      });
+      row.appendChild(p); row.appendChild(btn);
+      container.appendChild(row);
+      var dl = el('a', 'ghost', '⬇️ Download Android app (APK)');
+      dl.href = APK_URL; dl.rel = 'noopener';
+      dl.style.cssText = 'display:block;text-align:center;margin-top:8px;padding:10px;border:1px solid var(--line);border-radius:10px;text-decoration:none;color:inherit;font-weight:600';
+      container.appendChild(dl);
     }
   }
   if (!CFG || !window.supabase) { showError('Could not load Kharcha Book. Check your connection and reload.'); return; }
@@ -308,6 +320,9 @@
     input.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') btn.click(); });
     card.appendChild(err); card.appendChild(btn);
     app.appendChild(card);
+    var joinInstall = el('div', 'card');
+    renderInstallRow(joinInstall);
+    if (joinInstall.children.length) app.appendChild(joinInstall);
     input.focus();
   }
 
