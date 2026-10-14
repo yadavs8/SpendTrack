@@ -272,13 +272,23 @@
       });
   }
   // Everyone's saved UPI ids, so "Pay via UPI" is prefilled for each person.
+  var memberUpis = {};
   function syncMemberUpis() {
-    sb.rpc('trip_member_upis', { p_invite_token: token }).then(function (res) {
+    return sb.rpc('trip_member_upis', { p_invite_token: token }).then(function (res) {
       if (res.error || !res.data) return;
       try {
         res.data.forEach(function (r) {
-          if (r.upi) localStorage.setItem('kharcha_vpa_' + canonicalTripName(r.member_name).toLowerCase(), r.upi);
+          if (!r.upi) return;
+          var key = canonicalTripName(r.member_name).toLowerCase();
+          memberUpis[key] = r.upi;
+          localStorage.setItem('kharcha_vpa_' + key, r.upi);
         });
+        // Remember this guest's own UPI on this device too, so they never re-enter it.
+        var m = savedMembership();
+        if (m && m.display_name) {
+          var mine = memberUpis[canonicalTripName(m.display_name).toLowerCase()];
+          if (mine && m.upi !== mine) { m.upi = mine; saveMembership(m); }
+        }
       } catch (e) {}
     }, function () {});
   }
@@ -316,6 +326,15 @@
         err.hidden = false;
         btn.disabled = false;
       });
+    });
+    // A returning friend on a new phone/browser: typing their name brings back the UPI ID they saved before.
+    syncMemberUpis().then(function () {
+      var fill = function () {
+        if (uinput.value.trim()) return;
+        var u = memberUpis[canonicalTripName(input.value.trim()).toLowerCase()];
+        if (u) uinput.value = u;
+      };
+      input.addEventListener('input', fill); fill();
     });
     input.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') btn.click(); });
     card.appendChild(err); card.appendChild(btn);
@@ -691,6 +710,7 @@
       setMyUpi(v).then(function () { upiBtn.textContent = v ? 'My UPI ✓' : 'Add my UPI'; })
         .catch(function () { alert('Could not save. Try again.'); });
     });
+    syncMemberUpis().then(function () { if ((savedMembership() || {}).upi) upiBtn.textContent = 'My UPI ✓'; });
     var btns = el('div'); btns.style.display = 'flex'; btns.style.gap = '6px';
     btns.appendChild(upiBtn); btns.appendChild(changeBtn);
     head.appendChild(userSub);
