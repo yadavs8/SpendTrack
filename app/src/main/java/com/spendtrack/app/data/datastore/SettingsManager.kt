@@ -132,7 +132,26 @@ class SettingsManager(private val context: Context) {
 
     /** The user's own full name(s) and UPI ID(s), used to recognise self-transfers. */
     val ownerIdentityFlow: Flow<String> = context.dataStore.data.map { prefs ->
-        parseJson(prefs[KEY_SHARED_SETTINGS_JSON]).optStringOrNull(SHARED_OWNER_IDENTITY) ?: ""
+        val shared = parseJson(prefs[KEY_SHARED_SETTINGS_JSON])
+        // Typed here, else taken from "My accounts and cards" in Kharcha Book (names and UPI ids), so nothing is typed twice.
+        shared.optStringOrNull(SHARED_OWNER_IDENTITY) ?: identityFromOwn(shared.optStringOrNull("kharcha_own"))
+    }
+
+    private fun identityFromOwn(json: String?): String {
+        if (json.isNullOrBlank()) return ""
+        return try {
+            val o = JSONObject(json)
+            val out = ArrayList<String>()
+            o.optJSONArray("names")?.let { a -> for (i in 0 until a.length()) a.optString(i).trim().takeIf { it.isNotBlank() }?.let { out += it } }
+            o.optJSONArray("banks")?.let { banks ->
+                for (i in 0 until banks.length()) banks.optJSONObject(i)?.optJSONArray("upi")?.let { u ->
+                    for (j in 0 until u.length()) u.optString(j).trim().takeIf { it.isNotBlank() }?.let { out += it }
+                }
+            }
+            out.distinct().joinToString(", ")
+        } catch (_: Exception) {
+            ""
+        }
     }
 
     val familyPayersFlow: Flow<String> = context.dataStore.data.map { prefs ->
