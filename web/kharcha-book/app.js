@@ -445,6 +445,15 @@
     return m && m[1] ? m[1].trim() : '';
   }
 
+  function isTripSettlementEntry(e) {
+    if (!e) return false;
+    var KL = window.KharchaLedger;
+    if (KL && typeof KL.isTripSettlement === 'function') return KL.isTripSettlement(e);
+    if (e.isSettlement === true) return true;
+    var s = (typeof e === 'string' ? e : (e.label || '') + ' ' + (e.desc || '') + ' ' + (e.description || '')).toLowerCase();
+    return s.includes('[settlement]') || s.includes('🤝 settlement') || s.includes('settlement payment') || s.includes('settle up');
+  }
+
   function getTripSummary(monthEntries, tripName, explicitFriends) {
     var filterName = (tripName || '').trim().toLowerCase();
     var allNamedTrips = getAllTrips().filter(function (t) { return t.toLowerCase() !== 'trip'; });
@@ -461,8 +470,9 @@
       var d = (e.desc || '').toLowerCase();
       return d.includes(filterName);
     });
-    var totalSpent = list.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
-    var daySet = new Set(list.map(function (e) { return dayKey(e.ts); }));
+    var nonSettlementList = list.filter(function (e) { return !isTripSettlementEntry(e); });
+    var totalSpent = nonSettlementList.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
+    var daySet = new Set(nonSettlementList.map(function (e) { return dayKey(e.ts); }));
     var numDays = daySet.size || 1;
     var dailyAvg = totalSpent > 0 ? Math.round(totalSpent / numDays) : 0;
 
@@ -475,12 +485,19 @@
       });
     }
 
+    var KL = window.KharchaLedger;
+
     // Tally payments per person
     var payerTotals = {};
     list.forEach(function (e) {
       var payer = parseTripPayer(e.desc);
       if (isOwnerTripName(payer)) payer = 'Me';
       friendSet.add(payer);
+      if (isTripSettlementEntry(e)) {
+        var payee = (KL && KL.parseTripSettlementPayee) ? KL.parseTripSettlementPayee(e.desc, 'Me') : null;
+        if (payee) friendSet.add(isOwnerTripName(payee) ? 'Me' : payee);
+        return;
+      }
       if (!payerTotals[payer]) payerTotals[payer] = 0;
       payerTotals[payer] = (payerTotals[payer] * 100 + paise(e.amount)) / 100;
     });
@@ -494,19 +511,22 @@
       }
     }
 
-    var KL = window.KharchaLedger;
     // Splitwise-style: each expense is only divided between whoever it was actually tagged for
     // (a round of drinks just two of five people had), not blindly across every trip participant.
     // Untagged entries (no "[Split: ...]", and nothing yet for guest-added ones that predate this)
     // fall back to splitting across everyone, same as the app always did before this.
     var settled = KL ? KL.tripSettlement(
       list.map(function (e) {
+        var isSettle = isTripSettlementEntry(e);
+        var payee = (isSettle && KL && KL.parseTripSettlementPayee) ? KL.parseTripSettlementPayee(e.desc, 'Me') : null;
         return {
           id: e.id,
           label: KL.tripItemLabel(e.desc),
           amount: e.amount,
           payer: parseTripPayer(e.desc),
-          splitAmong: e.splitAmong || parseTripSplit(e.desc)
+          payee: payee,
+          splitAmong: e.splitAmong || parseTripSplit(e.desc) || (isSettle && payee ? [payee] : null),
+          isSettlement: isSettle
         };
       }),
       seedParticipants,
@@ -537,7 +557,7 @@
     var paidByFriend = friendEntries.reduce(function (sum, e) { return sum + paise(e.amount); }, 0) / 100;
     var netDiff = (paidByMe * 100 - paidByFriend * 100) / 200;
 
-    var categories = (KL && KL.tripCategoriesSummary) ? KL.tripCategoriesSummary(list) : {
+    var categories = (KL && KL.tripCategoriesSummary) ? KL.tripCategoriesSummary(nonSettlementList) : {
       stay: { key: 'stay', name: 'Stay Expenses', emoji: '🏨', total: 0, count: 0, items: [] },
       fuel: { key: 'fuel', name: 'Fuel Expenses', emoji: '⛽', total: 0, count: 0, items: [] },
       food: { key: 'food', name: 'Food Expenses', emoji: '🍔', total: 0, count: 0, items: [] },
@@ -1332,7 +1352,7 @@
     parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, parseSMSDate: parseSMSDate, findDuplicate: findDuplicate, categoryBreakdown: categoryBreakdown, monthCompare: monthCompare,
     isIncome: isIncome, isMotherSettlement: isMotherSettlement, isMotherPension: isMotherPension, isSalary: isSalary, isExpense: isExpense, isInvestment: isInvestment, getFamilySettlement: getFamilySettlement, getPersonalCashFlow: getPersonalCashFlow,
     isProjectEntry: isProjectEntry, isProjectMotherPaid: isProjectMotherPaid, getProjectSummary: getProjectSummary, projectNameOf: projectNameOf, cleanScopePrefix: cleanScopePrefix,
-    isTripEntry: isTripEntry, getTripSummary: getTripSummary, parseTripPayer: parseTripPayer, parseTripSplit: parseTripSplit, getTripTheme: getTripTheme,
+    isTripEntry: isTripEntry, isTripSettlementEntry: isTripSettlementEntry, recordTripSettlement: recordTripSettlement, getTripSummary: getTripSummary, parseTripPayer: parseTripPayer, parseTripSplit: parseTripSplit, getTripTheme: getTripTheme,
     getAllTrips: getAllTrips, getTripFriends: getTripFriends, addTripFriend: addTripFriend, removeTripFriend: removeTripFriend,
     getEntryScope: getEntryScope, shiftScopeDesc: shiftScopeDesc,
     rememberMerchantScope: rememberMerchantScope, predictMerchantScope: predictMerchantScope,
@@ -2312,6 +2332,86 @@
   var tripSettleMode = 'fewest';
   function personLabel(n) { return n === 'Me' ? 'You' : n; }
   function possessive(n) { return n === 'Me' ? 'your' : n + '’s'; }
+
+  function recordTripSettlement(tripName, from, to, amount, note) {
+    var normFrom = isOwnerTripName(from) ? 'Me' : from;
+    var normTo = isOwnerTripName(to) ? 'Me' : to;
+    var payerTag = (normFrom === 'Me') ? '' : ' [Paid by ' + normFrom + ']';
+    var noteSuffix = note ? ' (' + note + ')' : '';
+    var desc = '✈️ ' + tripName + ': 🤝 Settlement: ' + normFrom + ' paid ' + normTo + noteSuffix + payerTag + ' [Split: ' + normTo + '] [Settlement]';
+    var entry = {
+      id: newId(),
+      ts: Date.now(),
+      amount: Number(amount),
+      desc: desc,
+      category: 'Other'
+    };
+    state.entries.push(entry);
+    saveEntries();
+    mirrorOwnerTripExpense(tripName, entry.amount, cleanScopePrefix(entry.desc), new Date(entry.ts).toISOString(), entry.id, [normTo]);
+    render();
+    toast('Settlement of ' + money(amount) + ' recorded! Balances updated.');
+  }
+
+  function showTripSettlementModal(tripName, from, to, defaultAmount) {
+    var existing = document.getElementById('trip-settle-modal');
+    if (existing) existing.remove();
+
+    var backdrop = el('div', 'modal-backdrop');
+    backdrop.id = 'trip-settle-modal';
+    var box = el('div', 'modal-box');
+
+    var title = el('h2', 'modal-title', '🤝 Record Settlement');
+    var sub = el('p', 'modal-sub', personLabel(from) + ' paid ' + personLabel(to) + ' for ' + tripName);
+
+    var amtField = el('div', 'field');
+    var amtLabel = el('label', null, 'Amount Paid (₹)');
+    var amtInput = el('input');
+    amtInput.type = 'number';
+    amtInput.inputMode = 'decimal';
+    amtInput.value = Number(defaultAmount || 0);
+    amtField.appendChild(amtLabel);
+    amtField.appendChild(amtInput);
+
+    var noteField = el('div', 'field');
+    var noteLabel = el('label', null, 'Note / Method (optional)');
+    var noteInput = el('input');
+    noteInput.placeholder = 'e.g. GPay / PhonePe / Cash';
+    noteField.appendChild(noteLabel);
+    noteField.appendChild(noteInput);
+
+    var btnRow = el('div', 'modal-btn-row');
+    var btnSave = el('button', 'btn-primary', '✅ Save & Update Balance');
+    btnSave.style.flex = '1';
+    var btnCancel = el('button', 'btn-secondary', 'Cancel');
+    btnRow.appendChild(btnSave);
+    btnRow.appendChild(btnCancel);
+
+    btnCancel.addEventListener('click', function () { backdrop.remove(); });
+    backdrop.addEventListener('click', function (ev) { if (ev.target === backdrop) backdrop.remove(); });
+
+    btnSave.addEventListener('click', function () {
+      var amt = parseFloat(amtInput.value);
+      if (!amt || amt <= 0) {
+        alert('Please enter a valid amount.');
+        amtInput.focus();
+        return;
+      }
+      recordTripSettlement(tripName, from, to, amt, noteInput.value.trim());
+      backdrop.remove();
+    });
+
+    box.appendChild(title);
+    box.appendChild(sub);
+    box.appendChild(amtField);
+    box.appendChild(noteField);
+    box.appendChild(btnRow);
+    backdrop.appendChild(box);
+    document.body.appendChild(backdrop);
+    amtInput.focus();
+    amtInput.select();
+  }
+
   function renderTripSettle(tripSummary, viewTrip) {
     var box = $('trip-settle');
     if (!box) return;
@@ -2319,8 +2419,18 @@
     var KL = window.KharchaLedger;
     if (!KL || !viewTrip || !tripSummary.entries.length) return;
     var res = KL.tripSettlement(tripSummary.entries.map(function (e) {
-      return { id: e.id, label: KL.tripItemLabel(e.desc), amount: e.amount, payer: parseTripPayer(e.desc) };
-    }), tripSummary.participants);
+      var isSettle = isTripSettlementEntry(e);
+      var payee = (KL && KL.parseTripSettlementPayee) ? KL.parseTripSettlementPayee(e.desc, 'Me') : null;
+      return {
+        id: e.id,
+        label: KL.tripItemLabel(e.desc),
+        amount: e.amount,
+        payer: parseTripPayer(e.desc),
+        payee: payee,
+        splitAmong: e.splitAmong || parseTripSplit(e.desc) || (payee ? [payee] : null),
+        isSettlement: isSettle
+      };
+    }), tripSummary.participants, 'Me');
 
     var head = el('div', 'ts-head');
     head.appendChild(el('span', 'ts-title', '🤝 Who pays whom'));
@@ -2342,12 +2452,50 @@
         var li = el('li', 'ts-row');
         li.appendChild(el('span', 'ts-who', personLabel(t.from) + ' → ' + personLabel(t.to)));
         li.appendChild(el('span', 'ts-amt', money(t.amount)));
+
+        var actBox = el('div', 'ts-actions');
+        actBox.style.display = 'flex';
+        actBox.style.alignItems = 'center';
+        actBox.style.gap = '6px';
+
+        if (t.from === 'Me') {
+          var payBtn = el('button', 'fbr-ask', '⚡ Pay UPI');
+          payBtn.type = 'button';
+          payBtn.style.padding = '4px 8px';
+          payBtn.style.fontSize = '0.78rem';
+          payBtn.addEventListener('click', function () {
+            var vpa = (kv.get('kharcha_vpa_' + (t.to || '').toLowerCase()) || '').trim();
+            if (window.KharchaNative && typeof window.KharchaNative.payUpi === 'function') {
+              window.KharchaNative.payUpi(vpa, t.to, String(t.amount), viewTrip + ' settlement');
+              showTripSettlementModal(viewTrip, t.from, t.to, t.amount);
+            } else if (vpa) {
+              window.open(upiPayLink(vpa, t.to, t.amount, viewTrip + ' settlement'), '_blank');
+              showTripSettlementModal(viewTrip, t.from, t.to, t.amount);
+            } else {
+              showTripSettlementModal(viewTrip, t.from, t.to, t.amount);
+            }
+          });
+          actBox.appendChild(payBtn);
+        }
+
         if (t.to === 'Me') {
           var ask = el('a', 'fbr-ask', '📲 Ask');
           ask.href = whatsappLink(settleMessage(t.from, t.amount, viewTrip + ' trip', myUpi));
           ask.target = '_blank'; ask.rel = 'noopener';
-          li.appendChild(ask);
+          actBox.appendChild(ask);
         }
+
+        var settleBtn = el('button', 'fbr-ask', '🤝 Settle');
+        settleBtn.type = 'button';
+        settleBtn.style.background = 'rgba(16, 185, 129, 0.12)';
+        settleBtn.style.color = '#059669';
+        settleBtn.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+        settleBtn.addEventListener('click', function () {
+          showTripSettlementModal(viewTrip, t.from, t.to, t.amount);
+        });
+        actBox.appendChild(settleBtn);
+
+        li.appendChild(actBox);
         list.appendChild(li);
       });
     } else {
@@ -2356,6 +2504,19 @@
         var top = el('div', 'ts-row');
         top.appendChild(el('span', 'ts-who', personLabel(p.from) + (p.from === 'Me' ? ' owe ' : ' owes ') + personLabel(p.to)));
         top.appendChild(el('span', 'ts-amt', money(p.amount)));
+
+        var pSettleBtn = el('button', 'fbr-ask', '🤝 Settle');
+        pSettleBtn.type = 'button';
+        pSettleBtn.style.padding = '4px 8px';
+        pSettleBtn.style.fontSize = '0.78rem';
+        pSettleBtn.style.background = 'rgba(16, 185, 129, 0.12)';
+        pSettleBtn.style.color = '#059669';
+        pSettleBtn.style.borderColor = 'rgba(16, 185, 129, 0.3)';
+        pSettleBtn.addEventListener('click', function () {
+          showTripSettlementModal(viewTrip, p.from, p.to, p.amount);
+        });
+        top.appendChild(pSettleBtn);
+
         li.appendChild(top);
         var items = el('ul', 'ts-items');
         p.items.forEach(function (it) {

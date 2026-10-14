@@ -92,6 +92,29 @@
     return s;
   }
 
+  function isTripSettlement(e) {
+    if (!e) return false;
+    if (e.isSettlement === true) return true;
+    var s = (typeof e === 'string' ? e : (e.label || '') + ' ' + (e.desc || '') + ' ' + (e.description || '')).toLowerCase();
+    return s.includes('[settlement]') || s.includes('🤝 settlement') || s.includes('settlement payment') || s.includes('settle up');
+  }
+
+  function parseTripSettlementPayee(e, ownerChoice) {
+    if (!e || !isTripSettlement(e)) return '';
+    if (e.payee) return canonicalTripParticipant(e.payee, ownerChoice);
+    if (Array.isArray(e.splitAmong) && e.splitAmong.length === 1) {
+      return canonicalTripParticipant(e.splitAmong[0], ownerChoice);
+    }
+    var s = (typeof e === 'string' ? e : (e.label || '') + ' ' + (e.desc || '') + ' ' + (e.description || ''));
+    s = s.replace(/\[paid\s+by\s+[^\]]+\]/gi, '');
+    var m = s.match(/(?:settlement\s+to|settled\s+with|paid\s+to|paid)\s+([^:\[]+?)(?:\s*\[|\s*$|\s*via)/i);
+    if (m && m[1]) {
+      var cand = m[1].replace(/^to\s+/i, '').trim();
+      return canonicalTripParticipant(cand, ownerChoice);
+    }
+    return '';
+  }
+
   function tripSettlement(expenses, participants, ownerCanonical) {
     var ownerChoice = ownerCanonical;
     if (!ownerChoice) {
@@ -116,16 +139,48 @@
         var c = canon(n);
         if (c && names.indexOf(c) < 0) names.push(c);
       });
+      if (isTripSettlement(e)) {
+        var py = canon(parseTripSettlementPayee(e, ownerChoice));
+        if (py && names.indexOf(py) < 0) names.push(py);
+      }
     });
     var paid = {}, share = {}, directed = {};
     names.forEach(function (n) { paid[n] = 0; share[n] = 0; });
     var n = names.length;
+    var settlements = [];
 
     (expenses || []).forEach(function (e) {
       if (!n) return;
       var p = toPaise(e.amount);
       if (!(p > 0)) return;
       var payer = canon(e.payer) || names[0];
+
+      if (isTripSettlement(e)) {
+        var from = payer;
+        var to = canon(parseTripSettlementPayee(e, ownerChoice));
+        if (!to && Array.isArray(e.splitAmong) && e.splitAmong.length) to = canon(e.splitAmong[0]);
+        if (!to) {
+          to = names.find(function (name) { return name !== from; }) || names[0];
+        }
+        if (from !== to && names.indexOf(from) >= 0 && names.indexOf(to) >= 0) {
+          paid[from] += p;
+          paid[to] -= p;
+          var kBack = to + '\u0000' + from;
+          if (!directed[kBack]) directed[kBack] = { from: to, to: from, total: 0, items: [] };
+          directed[kBack].total += p;
+          directed[kBack].items.push({ label: 'Payment: ' + (e.label || 'Settlement'), paise: p });
+          settlements.push({
+            id: e.id,
+            from: from,
+            to: to,
+            amount: p / 100,
+            label: e.label || 'Settlement',
+            ts: e.ts
+          });
+        }
+        return;
+      }
+
       paid[payer] += p;
       // Only people this specific expense was split between share it; everyone else is
       // untouched by it. No valid subset given -> the old default, split across everyone.
@@ -185,7 +240,7 @@
     });
     pairs.sort(function (a, b) { return b.amount - a.amount || cmpName(a.from, b.from); });
 
-    return { people: people, transfers: transfers, pairs: pairs };
+    return { people: people, transfers: transfers, pairs: pairs, settlements: settlements };
   }
 
   function upiPayLink(vpa, name, amount, note) {
@@ -805,6 +860,7 @@
     upcomingRules: upcomingRules, parseOwn: parseOwn, defaultOwn: defaultOwn, cardFor: cardFor, ownAccountFor: ownAccountFor, transferCandidates: transferCandidates, autoOwnTransfers: autoOwnTransfers, orphanTransfers: orphanTransfers, isOwnName: isOwnName, sourceAccountFromRaw: sourceAccountFromRaw,
     parseRules: parseRules, defaultRules: defaultRules, matchRule: matchRule, dueRules: dueRules, routeAccount: routeAccount,
     splitPaise: splitPaise, tripItemLabel: tripItemLabel, tripSettlement: tripSettlement, canonicalTripParticipant: canonicalTripParticipant,
+    isTripSettlement: isTripSettlement, parseTripSettlementPayee: parseTripSettlementPayee,
     upiPayLink: upiPayLink, settleMessage: settleMessage, whatsappLink: whatsappLink,
     tripItemCategory: tripItemCategory, tripCategoriesSummary: tripCategoriesSummary, TRIP_CATEGORY_DEFS: TRIP_CATEGORY_DEFS,
     cleanName: cleanName, nameKey: nameKey, parseLoans: parseLoans, repaid: repaid, outstanding: outstanding,

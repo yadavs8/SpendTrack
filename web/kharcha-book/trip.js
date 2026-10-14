@@ -292,7 +292,83 @@
     } catch (e) { return ''; }
   }
 
-  function showUpiModal(personName, amount, tripName) {
+  function isTripSettlementEntry(e) {
+    if (!e) return false;
+    var KL = window.KharchaLedger;
+    if (KL && typeof KL.isTripSettlement === 'function') return KL.isTripSettlement(e);
+    if (e.isSettlement === true) return true;
+    var s = (typeof e === 'string' ? e : (e.label || '') + ' ' + (e.desc || '') + ' ' + (e.description || '')).toLowerCase();
+    return s.includes('[settlement]') || s.includes('🤝 settlement') || s.includes('settlement payment') || s.includes('settle up');
+  }
+
+  function recordGuestSettlement(toPerson, paidAmount, tripName) {
+    var membership = savedMembership();
+    var myName = (membership && membership.display_name ? membership.display_name.trim() : 'Guest');
+    var desc = '🤝 Settlement: ' + myName + ' paid ' + toPerson + ' [Settlement]';
+    return sb.rpc('trip_add_expense', {
+      p_invite_token: token,
+      p_guest_token: (membership && membership.guest_token) || null,
+      p_amount: Number(paidAmount),
+      p_description: desc,
+      p_split_among: [toPerson]
+    }).then(function (res) {
+      if (res && res.error) throw res.error;
+      sessionStorage.removeItem('kharcha_pending_settlement');
+      return res;
+    });
+  }
+
+  function showPendingSettlementPrompt(pend, onSettledCallback) {
+    if (!pend || !pend.to || !pend.amount) return;
+    if (document.getElementById('pending-settle-modal') || document.getElementById('upi-modal-root')) return;
+
+    var backdrop = el('div', 'modal-backdrop');
+    backdrop.id = 'pending-settle-modal';
+    var box = el('div', 'modal-box');
+
+    var title = el('h2', 'modal-title', '💸 Complete Settlement?');
+    var sub = el('p', 'modal-sub', 'Did you pay ' + money(pend.amount) + ' to ' + pend.to + '?');
+    var note = el('p', null, 'Recording this will automatically deduct ' + money(pend.amount) + ' from what you owe, updating balances for everyone immediately.');
+    note.style.fontSize = '0.85rem';
+    note.style.color = 'var(--muted)';
+    note.style.margin = '0 0 16px';
+
+    var btnConfirm = el('button', 'btn-upi', '✅ Yes, Record Payment (' + money(pend.amount) + ')');
+    btnConfirm.style.width = '100%';
+    btnConfirm.style.background = '#10B981';
+    btnConfirm.style.color = '#fff';
+
+    var btnCancel = el('button', 'btn-secondary', 'No / Skip');
+    btnCancel.style.width = '100%';
+
+    btnConfirm.addEventListener('click', function () {
+      btnConfirm.disabled = true;
+      btnConfirm.textContent = 'Updating…';
+      recordGuestSettlement(pend.to, pend.amount, pend.tripName).then(function () {
+        sessionStorage.removeItem('kharcha_pending_settlement');
+        backdrop.remove();
+        if (typeof onSettledCallback === 'function') onSettledCallback();
+      }).catch(function () {
+        sessionStorage.removeItem('kharcha_pending_settlement');
+        backdrop.remove();
+      });
+    });
+
+    btnCancel.addEventListener('click', function () {
+      sessionStorage.removeItem('kharcha_pending_settlement');
+      backdrop.remove();
+    });
+
+    box.appendChild(title);
+    box.appendChild(sub);
+    box.appendChild(note);
+    box.appendChild(btnConfirm);
+    box.appendChild(btnCancel);
+    backdrop.appendChild(box);
+    document.body.appendChild(backdrop);
+  }
+
+  function showUpiModal(personName, amount, tripName, onSettledCallback) {
     var existingModal = document.getElementById('upi-modal-root');
     if (existingModal) existingModal.remove();
 
@@ -304,7 +380,16 @@
     var box = el('div', 'modal-box');
 
     var title = el('h2', 'modal-title', '⚡ Pay via UPI');
-    var sub = el('p', 'modal-sub', 'Paying ' + money(amount) + ' to ' + personName);
+    var sub = el('p', 'modal-sub', 'Paying ' + personName);
+
+    var amtField = el('div', 'field');
+    var amtLabel = el('label', null, 'Amount to pay (₹)');
+    var amtInput = el('input');
+    amtInput.type = 'number';
+    amtInput.inputMode = 'decimal';
+    amtInput.value = Number(amount || 0);
+    amtField.appendChild(amtLabel);
+    amtField.appendChild(amtInput);
 
     var field = el('div', 'field');
     var label = el('label', null, personName + "'s UPI ID / VPA");
@@ -324,6 +409,10 @@
     btnPay.style.padding = '12px 16px';
     btnPay.style.fontSize = '0.96rem';
 
+    var btnRecordDirect = el('button', 'btn-secondary', '🤝 Record payment without UPI');
+    btnRecordDirect.style.width = '100%';
+    btnRecordDirect.style.margin = '4px 0 0';
+
     var btnCopy = el('button', 'btn-secondary', '📋 Copy UPI Link');
     var btnCancel = el('button', 'btn-secondary', 'Cancel');
 
@@ -331,7 +420,61 @@
     btnRow.appendChild(btnCopy);
     btnRow.appendChild(btnCancel);
 
+    function showConfirmationStep(payAmount) {
+      box.innerHTML = '';
+      var cTitle = el('h2', 'modal-title', '💸 Confirm Payment');
+      var cSub = el('p', 'modal-sub', 'Did you complete the payment of ' + money(payAmount) + ' to ' + personName + '?');
+      var cNote = el('p', null, 'Recording this will automatically deduct ' + money(payAmount) + ' from what you owe, updating balances on all phones immediately.');
+      cNote.style.fontSize = '0.85rem';
+      cNote.style.color = 'var(--muted)';
+      cNote.style.margin = '0 0 16px';
+
+      var cErr = el('p', 'err'); cErr.hidden = true;
+
+      var btnConfirm = el('button', 'btn-upi', '✅ Yes, Record Payment (' + money(payAmount) + ')');
+      btnConfirm.style.width = '100%';
+      btnConfirm.style.padding = '12px 16px';
+      btnConfirm.style.background = '#10B981';
+      btnConfirm.style.color = '#fff';
+      btnConfirm.style.border = 'none';
+
+      var btnNotYet = el('button', 'btn-secondary', 'Not yet / Cancel');
+      btnNotYet.style.width = '100%';
+
+      btnConfirm.addEventListener('click', function () {
+        btnConfirm.disabled = true;
+        btnConfirm.textContent = 'Updating ledger…';
+        recordGuestSettlement(personName, payAmount, tripName).then(function () {
+          backdrop.remove();
+          if (typeof onSettledCallback === 'function') onSettledCallback();
+        }).catch(function (err) {
+          cErr.textContent = (err && err.message) || 'Could not save payment. Please try again.';
+          cErr.hidden = false;
+          btnConfirm.disabled = false;
+          btnConfirm.textContent = 'Retry Recording Payment';
+        });
+      });
+
+      btnNotYet.addEventListener('click', function () {
+        backdrop.remove();
+      });
+
+      box.appendChild(cTitle);
+      box.appendChild(cSub);
+      box.appendChild(cNote);
+      box.appendChild(cErr);
+      box.appendChild(btnConfirm);
+      box.appendChild(btnNotYet);
+    }
+
     function triggerPay(vpa) {
+      var payAmount = parseFloat(amtInput.value);
+      if (!payAmount || payAmount <= 0) {
+        statusMsg.textContent = 'Please enter a valid amount.';
+        statusMsg.hidden = false;
+        amtInput.focus();
+        return;
+      }
       if (!vpa || !vpa.trim()) {
         statusMsg.textContent = 'Please enter a valid UPI ID (e.g. name@okhdfcbank).';
         statusMsg.hidden = false;
@@ -345,16 +488,28 @@
         localStorage.setItem('kharcha_vpa_' + (personName || '').toLowerCase(), cleanVpa);
       } catch (e) {}
 
+      var membership = savedMembership();
+      var myName = (membership && membership.display_name ? membership.display_name.trim() : 'Guest');
+      try {
+        sessionStorage.setItem('kharcha_pending_settlement', JSON.stringify({
+          from: myName,
+          to: personName,
+          amount: payAmount,
+          tripName: tripName,
+          ts: Date.now()
+        }));
+      } catch (e) {}
+
       var KL = window.KharchaLedger;
       var note = (tripName || 'Trip') + ' settlement';
       var link = (KL && KL.upiPayLink) ?
-        KL.upiPayLink(cleanVpa, personName, amount, note) :
-        'upi://pay?pa=' + encodeURIComponent(cleanVpa) + '&pn=' + encodeURIComponent(personName) + '&am=' + Number(amount).toFixed(2) + '&cu=INR&tn=' + encodeURIComponent(note);
+        KL.upiPayLink(cleanVpa, personName, payAmount, note) :
+        'upi://pay?pa=' + encodeURIComponent(cleanVpa) + '&pn=' + encodeURIComponent(personName) + '&am=' + Number(payAmount).toFixed(2) + '&cu=INR&tn=' + encodeURIComponent(note);
 
       // 1. If inside native Kharcha Book Android App with native bridge
       if (window.KharchaNative && typeof window.KharchaNative.payUpi === 'function') {
-        window.KharchaNative.payUpi(cleanVpa, personName, String(amount), note);
-        backdrop.remove();
+        window.KharchaNative.payUpi(cleanVpa, personName, String(payAmount), note);
+        showConfirmationStep(payAmount);
         return;
       }
 
@@ -374,16 +529,26 @@
       if (!opened) {
         try { window.location.href = link; } catch (e) {}
       }
-      setTimeout(function () {
-        try { backdrop.remove(); } catch (e) {}
-      }, 1500);
+      showConfirmationStep(payAmount);
     }
 
     btnPay.addEventListener('click', function () {
       triggerPay(input.value);
     });
 
+    btnRecordDirect.addEventListener('click', function () {
+      var payAmount = parseFloat(amtInput.value);
+      if (!payAmount || payAmount <= 0) {
+        statusMsg.textContent = 'Please enter a valid amount.';
+        statusMsg.hidden = false;
+        amtInput.focus();
+        return;
+      }
+      showConfirmationStep(payAmount);
+    });
+
     btnCopy.addEventListener('click', function () {
+      var payAmount = parseFloat(amtInput.value) || amount;
       var cleanVpa = (input.value || '').trim();
       if (!cleanVpa) {
         statusMsg.textContent = 'Enter UPI ID first to generate the link.';
@@ -395,8 +560,8 @@
       var KL = window.KharchaLedger;
       var note = (tripName || 'Trip') + ' settlement';
       var link = (KL && KL.upiPayLink) ?
-        KL.upiPayLink(cleanVpa, personName, amount, note) :
-        'upi://pay?pa=' + encodeURIComponent(cleanVpa) + '&pn=' + encodeURIComponent(personName) + '&am=' + Number(amount).toFixed(2) + '&cu=INR&tn=' + encodeURIComponent(note);
+        KL.upiPayLink(cleanVpa, personName, payAmount, note) :
+        'upi://pay?pa=' + encodeURIComponent(cleanVpa) + '&pn=' + encodeURIComponent(personName) + '&am=' + Number(payAmount).toFixed(2) + '&cu=INR&tn=' + encodeURIComponent(note);
 
       function markCopied() {
         btnCopy.textContent = '✅ Copied!';
@@ -433,17 +598,19 @@
 
     box.appendChild(title);
     box.appendChild(sub);
+    box.appendChild(amtField);
     box.appendChild(field);
     box.appendChild(statusMsg);
     box.appendChild(btnPay);
+    box.appendChild(btnRecordDirect);
     box.appendChild(btnRow);
     backdrop.appendChild(box);
     document.body.appendChild(backdrop);
-    input.focus();
+    amtInput.focus();
   }
 
-  function handleUpiPay(personName, amount, tripName) {
-    showUpiModal(personName, amount, tripName);
+  function handleUpiPay(personName, amount, tripName, onSettledCallback) {
+    showUpiModal(personName, amount, tripName, onSettledCallback);
   }
 
   function renderTrip(tripName) {
@@ -652,9 +819,10 @@
         });
         items = deduped;
 
-        var actualTotal = items.reduce(function (sum, e) { return sum + Number(e.amount); }, 0);
+        var nonSettlementItems = items.filter(function (e) { return !isTripSettlementEntry(e); });
+        var actualTotal = nonSettlementItems.reduce(function (sum, e) { return sum + Number(e.amount); }, 0);
         totalEl.textContent = money(actualTotal);
-        noteEl.textContent = items.length + (items.length === 1 ? ' expense logged' : ' expenses logged');
+        noteEl.textContent = nonSettlementItems.length + (nonSettlementItems.length === 1 ? ' expense logged' : ' expenses logged');
 
         // Collect all distinct names
         var namesSet = new Set();
@@ -662,6 +830,8 @@
           var cMe = canonicalTripName(myName);
           if (cMe) namesSet.add(cMe);
         }
+
+        var KL = window.KharchaLedger;
 
         try {
           var urlParamFriends = (new URLSearchParams(window.location.search).get('f') || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
@@ -687,6 +857,13 @@
               if (c) namesSet.add(c);
             });
           }
+          if (isTripSettlementEntry(e)) {
+            var py = (KL && KL.parseTripSettlementPayee) ? KL.parseTripSettlementPayee(e.description, 'Sanjeev Yadav') : null;
+            if (py) {
+              var cpy = canonicalTripName(py);
+              if (cpy) namesSet.add(cpy);
+            }
+          }
         });
         var participants = Array.from(namesSet);
         try {
@@ -697,6 +874,8 @@
         // Map expenses for settlement calculation
         var mapped = items.map(function (e) {
           var p = canonicalTripName(e.added_by_name);
+          var isSettle = isTripSettlementEntry(e);
+          var payee = (KL && KL.parseTripSettlementPayee) ? KL.parseTripSettlementPayee(e.description, 'Sanjeev Yadav') : null;
           var splitSubset = null;
           if (Array.isArray(e.split_among)) {
             splitSubset = [];
@@ -705,17 +884,19 @@
               if (c && splitSubset.indexOf(c) < 0) splitSubset.push(c);
             });
           }
+          if (!splitSubset && payee) splitSubset = [payee];
           return {
             id: e.id,
             label: e.description,
             amount: Number(e.amount),
             payer: p,
-            splitAmong: splitSubset
+            payee: payee,
+            splitAmong: splitSubset,
+            isSettlement: isSettle
           };
         });
 
         var settlement = null;
-        var KL = window.KharchaLedger;
         if (KL && typeof KL.tripSettlement === 'function') {
           settlement = KL.tripSettlement(mapped, participants, 'Sanjeev Yadav');
         }
@@ -757,13 +938,25 @@
 
                   var actBox = el('div', 'settle-actions');
                   actBox.style.margin = '0';
+                  actBox.style.display = 'flex';
+                  actBox.style.gap = '6px';
 
                   var payBtn = el('button', 'btn-upi', '⚡ Pay UPI');
                   payBtn.title = 'Pay via UPI / GPay / PhonePe';
                   payBtn.addEventListener('click', function () {
-                    handleUpiPay(t.to, t.amount, tripName);
+                    handleUpiPay(t.to, t.amount, tripName, refresh);
                   });
                   actBox.appendChild(payBtn);
+
+                  var settleBtn = el('button', 'btn-wa', '🤝 Settle');
+                  settleBtn.title = 'Record settlement payment';
+                  settleBtn.style.background = 'rgba(16, 185, 129, 0.15)';
+                  settleBtn.style.color = '#059669';
+                  settleBtn.style.border = '1px solid rgba(16, 185, 129, 0.3)';
+                  settleBtn.addEventListener('click', function () {
+                    showUpiModal(t.to, t.amount, tripName, refresh);
+                  });
+                  actBox.appendChild(settleBtn);
 
                   var waBtn = el('button', 'btn-wa', '📲 WhatsApp');
                   waBtn.title = 'Send payment message on WhatsApp';
@@ -805,6 +998,21 @@
                   oText.style.fontSize = '0.92rem';
                   oRow.appendChild(oText);
 
+                  var actBox = el('div', 'settle-actions');
+                  actBox.style.margin = '0';
+                  actBox.style.display = 'flex';
+                  actBox.style.gap = '6px';
+
+                  var recBtn = el('button', 'btn-wa', '🤝 Settle');
+                  recBtn.title = 'Record payment received from ' + t.from;
+                  recBtn.style.background = 'rgba(16, 185, 129, 0.15)';
+                  recBtn.style.color = '#059669';
+                  recBtn.style.border = '1px solid rgba(16, 185, 129, 0.3)';
+                  recBtn.addEventListener('click', function () {
+                    showUpiModal(t.from, t.amount, tripName, refresh);
+                  });
+                  actBox.appendChild(recBtn);
+
                   var waRemind = el('button', 'btn-wa', '📲 Remind');
                   waRemind.addEventListener('click', function () {
                     var myVpa = getSavedVpa(myCanonical);
@@ -812,7 +1020,9 @@
                     if (myVpa) msg += '\nPay to UPI ID: ' + myVpa;
                     window.open('https://wa.me/?text=' + encodeURIComponent(msg), '_blank');
                   });
-                  oRow.appendChild(waRemind);
+                  actBox.appendChild(waRemind);
+
+                  oRow.appendChild(actBox);
                   owesList.appendChild(oRow);
                 });
                 box.appendChild(owesList);
@@ -853,9 +1063,20 @@
               paySm.style.padding = '5px 10px';
               paySm.style.fontSize = '0.78rem';
               paySm.addEventListener('click', function () {
-                handleUpiPay(t.to, t.amount, tripName);
+                handleUpiPay(t.to, t.amount, tripName, refresh);
               });
               rRight.appendChild(paySm);
+
+              var setSm = el('button', 'btn-wa', '🤝 Settle');
+              setSm.style.padding = '5px 10px';
+              setSm.style.fontSize = '0.78rem';
+              setSm.style.background = 'rgba(16, 185, 129, 0.15)';
+              setSm.style.color = '#059669';
+              setSm.style.border = '1px solid rgba(16, 185, 129, 0.3)';
+              setSm.addEventListener('click', function () {
+                showUpiModal(t.to, t.amount, tripName, refresh);
+              });
+              rRight.appendChild(setSm);
             }
             row.appendChild(rRight);
             transfersList.appendChild(row);
@@ -904,7 +1125,12 @@
             var metaText = e.added_by_name + ' · ' + new Date(e.spent_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
             l.appendChild(el('span', 'row-meta', metaText));
 
-            if (Array.isArray(e.split_among) && e.split_among.length) {
+            if (isTripSettlementEntry(e)) {
+              var sBadge = el('span', 'tag-split', '🤝 Settlement');
+              sBadge.style.background = 'rgba(16, 185, 129, 0.15)';
+              sBadge.style.color = '#059669';
+              l.appendChild(sBadge);
+            } else if (Array.isArray(e.split_among) && e.split_among.length) {
               var splitTag = el('span', 'tag-split', '👥 Split: ' + e.split_among.join(', '));
               l.appendChild(splitTag);
             }
@@ -948,7 +1174,17 @@
 
     refresh();
     var timer = setInterval(function () { if (!document.hidden) refresh(); }, 20000);
-    document.addEventListener('visibilitychange', function () { if (!document.hidden) refresh(); });
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) {
+        refresh();
+        try {
+          var pend = JSON.parse(sessionStorage.getItem('kharcha_pending_settlement') || 'null');
+          if (pend && Date.now() - pend.ts < 600000) {
+            showPendingSettlementPrompt(pend, refresh);
+          }
+        } catch (e) {}
+      }
+    });
     window.addEventListener('beforeunload', function () { clearInterval(timer); });
   }
 

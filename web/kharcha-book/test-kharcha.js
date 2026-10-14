@@ -696,5 +696,40 @@ assert(whatsappLink('a b').startsWith('https://wa.me/?text=a%20b'), 'whatsappLin
   assert(K.getProjectSummary(pe, 'house renovation', 'House Renovation').entries.length === 2, 'project names match case-insensitively');
 }
 
+// Trip Settlement & UPI Payment Flow Tests
+{
+  const K = windowMock.__kharcha;
+  assert(K.isTripSettlementEntry('✈️ Goa: 🤝 Settlement: Rahul paid Sanjeev [Settlement]') === true, 'isTripSettlementEntry matches settlement tag');
+  assert(K.isTripSettlementEntry('🤝 Settlement to Amit [Settlement]') === true, 'isTripSettlementEntry matches settlement to');
+  assert(K.isTripSettlementEntry('✈️ Goa: Hotel Booking') === false, 'isTripSettlementEntry rejects regular hotel expense');
+
+  const tripEntries = [
+    { id: 't1', amount: 60000, desc: '✈️ Goa: Villa [Paid by Me]', ts: Date.now() },
+    { id: 't2', amount: 25000, desc: '✈️ Goa: 🤝 Settlement: Rahul paid Me [Paid by Rahul] [Split: Me] [Settlement]', ts: Date.now() }
+  ];
+  const summary = K.getTripSummary(tripEntries, 'Goa', ['Me', 'Rahul']);
+
+  // Total spent must EXCLUDE the settlement payment: villa is 60,000, not 85,000!
+  assert(summary.totalSpent === 60000, 'getTripSummary excludes settlement from total spent (60000)');
+
+  // Rahul owed 30,000, paid 25,000 -> net is -5000 (owes 5000)
+  const rahulBal = summary.balances.find(b => b.name === 'Rahul');
+  const meBal = summary.balances.find(b => b.name === 'Me');
+  assert(rahulBal.paid === 25000, 'Rahul paid 25000');
+  assert(rahulBal.share === 30000, 'Rahul share is 30000');
+  assert(rahulBal.net === -5000, 'Rahul owes 5000 remaining balance automatically');
+
+  assert(meBal.net === 5000, 'Me gets back 5000 remaining balance automatically');
+  assert(summary.transfers.length === 1, 'Only 1 transfer remaining');
+  assert(summary.transfers[0].from === 'Rahul' && summary.transfers[0].to === 'Me' && summary.transfers[0].amount === 5000, 'Rahul owes Me 5000 in transfers');
+
+  // When Rahul pays the remaining 5,000:
+  tripEntries.push({ id: 't3', amount: 5000, desc: '✈️ Goa: 🤝 Settlement: Rahul paid Me [Paid by Rahul] [Split: Me] [Settlement]', ts: Date.now() });
+  const finalSummary = K.getTripSummary(tripEntries, 'Goa', ['Me', 'Rahul']);
+  assert(finalSummary.totalSpent === 60000, 'Total spent still 60000');
+  assert(finalSummary.transfers.length === 0, 'No transfers left - everyone is completely settled!');
+  assert(finalSummary.balances.find(b => b.name === 'Rahul').net === 0, 'Rahul is 0 (settled)');
+}
+
 console.log(`\nResults: ${passed} passed, ${failed} failed.`);
 if (failed > 0) process.exit(1);

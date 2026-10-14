@@ -480,5 +480,52 @@ t('tripSettlement collapses Sanjeev/Sanjeev Yadav/Me and splits 53376.84 among 5
   });
 });
 
+t('tripSettlement: partial settlement payment of 25,000 against 30,000 debt leaves 5,000 balance', () => {
+  const participants = ['Sanjeev', 'Rahul'];
+  const expenses = [
+    { label: 'Hotel Booking', amount: 60000, payer: 'Sanjeev', splitAmong: ['Sanjeev', 'Rahul'] },
+    { label: '🤝 Settlement to Sanjeev [Settlement]', amount: 25000, payer: 'Rahul', payee: 'Sanjeev', isSettlement: true }
+  ];
+  const r = L.tripSettlement(expenses, participants, 'Sanjeev');
+  const by = Object.fromEntries(r.people.map(p => [p.name, p]));
+
+  // Rahul originally owed 30,000. He paid 25,000. He now owes exactly 5,000.
+  assert.strictEqual(by['Rahul'].paid, 25000);
+  assert.strictEqual(by['Rahul'].share, 30000);
+  assert.strictEqual(by['Rahul'].net, -5000);
+
+  // Sanjeev originally got back 30,000. Having received 25,000, he now gets back 5,000.
+  assert.strictEqual(by['Sanjeev'].paid, 35000);
+  assert.strictEqual(by['Sanjeev'].share, 30000);
+  assert.strictEqual(by['Sanjeev'].net, 5000);
+
+  // Exactly 1 transfer of 5000 from Rahul to Sanjeev
+  assert.strictEqual(r.transfers.length, 1);
+  assert.strictEqual(r.transfers[0].from, 'Rahul');
+  assert.strictEqual(r.transfers[0].to, 'Sanjeev');
+  assert.strictEqual(r.transfers[0].amount, 5000);
+
+  // Paying the remaining 5,000 settles everyone square
+  expenses.push({ label: '🤝 Final settlement [Settlement]', amount: 5000, payer: 'Rahul', payee: 'Sanjeev', isSettlement: true });
+  const settled = L.tripSettlement(expenses, participants, 'Sanjeev');
+  const bySettled = Object.fromEntries(settled.people.map(p => [p.name, p]));
+  assert.strictEqual(bySettled['Rahul'].net, 0);
+  assert.strictEqual(bySettled['Sanjeev'].net, 0);
+  assert.strictEqual(settled.transfers.length, 0);
+});
+
+t('tripSettlement: full settlement payment of 30,000 at once settles everyone square', () => {
+  const participants = ['Sanjeev', 'Rahul'];
+  const expenses = [
+    { label: 'Villa Stay', amount: 60000, payer: 'Sanjeev', splitAmong: ['Sanjeev', 'Rahul'] },
+    { label: '🤝 Settlement: Rahul paid Sanjeev [Settlement]', amount: 30000, payer: 'Rahul', splitAmong: ['Sanjeev'] }
+  ];
+  const r = L.tripSettlement(expenses, participants, 'Sanjeev');
+  const by = Object.fromEntries(r.people.map(p => [p.name, p]));
+  assert.strictEqual(by['Rahul'].net, 0);
+  assert.strictEqual(by['Sanjeev'].net, 0);
+  assert.strictEqual(r.transfers.length, 0);
+});
+
 console.log(n + ' tests passed');
 
