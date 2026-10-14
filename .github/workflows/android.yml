@@ -6,6 +6,8 @@ name: Android APK
 # is public), so a new APK installs over the old one and keeps its data.
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * 1'   # weekly: keeps the signing key in the Actions cache from expiring (it is dropped after 7 days unused)
   push:
     branches: [main, 'ccr-*']
     paths: ['app/**', 'gradle/**', 'build.gradle.kts', 'settings.gradle.kts', 'gradle.properties', '.github/workflows/android.yml']
@@ -42,7 +44,7 @@ jobs:
       - name: Unit tests
         run: bash ./gradlew :app:testSideloadDebugUnitTest --no-daemon --stacktrace
       - name: Build APK
-        run: bash ./gradlew :app:assembleSideloadDebug --no-daemon --stacktrace
+        run: bash ./gradlew :app:assembleSideloadDebug -PkharchaVersionCode=${{ github.run_number }} --no-daemon --stacktrace
       - name: Collect APK
         run: |
           mkdir -p out

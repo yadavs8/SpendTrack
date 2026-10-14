@@ -14,7 +14,8 @@ android {
         applicationId = "com.spendtrack.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
+        // CI passes its run number so each build is newer than the last and installs over it, keeping the app's data.
+        versionCode = (project.findProperty("kharchaVersionCode") as String?)?.toIntOrNull() ?: 1
         versionName = "1.0"
     }
 
