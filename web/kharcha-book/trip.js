@@ -248,6 +248,29 @@
     });
   }
 
+  var UPI_RE = /^[a-z0-9._-]{2,64}@[a-z][a-z0-9.-]{1,30}$/i;
+  function setMyUpi(upi) {
+    var m = savedMembership();
+    if (!m || !m.guest_token) return Promise.resolve();
+    return sb.rpc('trip_set_my_upi', { p_invite_token: token, p_guest_token: m.guest_token, p_upi: upi || null })
+      .then(function (res) {
+        if (res.error) throw res.error;
+        m.upi = upi || ''; saveMembership(m);
+        try { if (upi) localStorage.setItem('kharcha_vpa_' + canonicalTripName(m.display_name).toLowerCase(), upi); } catch (e) {}
+      });
+  }
+  // Everyone's saved UPI ids, so "Pay via UPI" is prefilled for each person.
+  function syncMemberUpis() {
+    sb.rpc('trip_member_upis', { p_invite_token: token }).then(function (res) {
+      if (res.error || !res.data) return;
+      try {
+        res.data.forEach(function (r) {
+          if (r.upi) localStorage.setItem('kharcha_vpa_' + canonicalTripName(r.member_name).toLowerCase(), r.upi);
+        });
+      } catch (e) {}
+    }, function () {});
+  }
+
   function renderJoinForm(tripName) {
     app.innerHTML = '';
     app.appendChild(renderHero(tripName));
@@ -258,14 +281,23 @@
     var input = el('input'); input.placeholder = 'e.g. Rohit'; input.maxLength = 40;
     field.appendChild(label); field.appendChild(input);
     card.appendChild(field);
+    var ufield = el('div', 'field');
+    var ulabel = el('label', null, 'Your UPI ID (optional, so friends can pay you)');
+    var uinput = el('input'); uinput.placeholder = 'e.g. rohit@okhdfcbank'; uinput.maxLength = 80;
+    uinput.setAttribute('autocapitalize', 'none'); uinput.setAttribute('autocomplete', 'off');
+    ufield.appendChild(ulabel); ufield.appendChild(uinput);
+    card.appendChild(ufield);
     var err = el('p', 'err'); err.hidden = true;
     var btn = el('button', 'primary', 'Join trip');
     btn.addEventListener('click', function () {
       var name = input.value.trim();
       if (!name) { err.textContent = 'Enter your name.'; err.hidden = false; return; }
+      var upi = uinput.value.trim();
+      if (upi && !UPI_RE.test(upi)) { err.textContent = 'That UPI ID looks wrong (like name@bank). Fix it or leave it empty.'; err.hidden = false; return; }
       btn.disabled = true; err.hidden = true;
       join(name, null).then(function (row) {
         saveMembership({ guest_token: row.guest_token, display_name: row.display_name });
+        if (upi) setMyUpi(upi).catch(function () {});
         renderTrip(row.trip_name);
       }).catch(function (e) {
         err.textContent = (e && e.message) || 'Could not join. Try again.';
@@ -634,8 +666,20 @@
         renderJoinForm(tripName);
       }
     });
+    var m0 = savedMembership() || {};
+    var upiBtn = el('button', 'btn-ghost-sm', m0.upi ? 'My UPI ✓' : 'Add my UPI');
+    upiBtn.addEventListener('click', function () {
+      var v = prompt('Your UPI ID (like name@bank). Friends will see it to pay you.', (savedMembership() || {}).upi || '');
+      if (v === null) return;
+      v = v.trim();
+      if (v && !UPI_RE.test(v)) { alert('That UPI ID looks wrong.'); return; }
+      setMyUpi(v).then(function () { upiBtn.textContent = v ? 'My UPI ✓' : 'Add my UPI'; })
+        .catch(function () { alert('Could not save. Try again.'); });
+    });
+    var btns = el('div'); btns.style.display = 'flex'; btns.style.gap = '6px';
+    btns.appendChild(upiBtn); btns.appendChild(changeBtn);
     head.appendChild(userSub);
-    head.appendChild(changeBtn);
+    head.appendChild(btns);
     app.appendChild(head);
 
     // Summary Card (Total spend)
@@ -801,6 +845,7 @@
     }
 
     function refresh() {
+      syncMemberUpis();
       sb.rpc('trip_summary', { p_invite_token: token }).then(function (res) {
         if (res.error || !res.data || !res.data.length) throw res.error || new Error('no data');
         var s = res.data[0];

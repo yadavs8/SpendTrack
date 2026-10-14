@@ -4819,6 +4819,14 @@
     if (!tripName || !sb || tripGuestEntriesCache[tripName] !== undefined) return;
     ensureTripRow(tripName).then(function (trip) {
       if (!trip || !trip.invite_token) { tripGuestEntriesCache[tripName] = []; return; }
+      // Friends' own UPI ids (entered on the trip link) prefill Pay UPI; never overwrite one already saved here.
+      sb.rpc('trip_member_upis', { p_invite_token: trip.invite_token }).then(function (r) {
+        if (r.error || !r.data) return;
+        r.data.forEach(function (row) {
+          var k = 'kharcha_vpa_' + String(row.member_name || '').trim().toLowerCase();
+          if (row.upi && !kv.get(k)) kv.set(k, row.upi);
+        });
+      }, function () {});
       return sb.rpc('trip_summary', { p_invite_token: trip.invite_token }).then(function (res) {
         if (res.error || !res.data || !res.data.length) { tripGuestEntriesCache[tripName] = []; return; }
         var guestRows = (res.data[0].expenses || []).filter(function (e) { return e.member_id; });
