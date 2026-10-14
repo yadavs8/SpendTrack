@@ -202,24 +202,20 @@
     var btn = document.getElementById('install-btn');
     if (btn) btn.hidden = false;
   });
-  var APK_URL = 'https://github.com/yadavs8/SpendTrack/releases/download/apk-latest/Kharcha-Book.apk';
-  // "Get the app" card: always visible (join screen and trip page), for Android and iPhone.
+  // "Add this trip to your home screen" card. It installs ONLY this trip page (per-trip manifest), never the
+  // full Kharcha Book app, so friends see just the trip.
   function renderInstallRow(container) {
-    // Already running as an installed app -- nothing to offer.
     if (window.matchMedia('(display-mode: standalone)').matches || navigator.standalone) return;
     var ua = navigator.userAgent || '';
     var isIos = /iphone|ipad|ipod/i.test(ua);
-    var isAndroid = /android/i.test(ua);
-    container.appendChild(el('p', 'sub', '📲 Get the Kharcha Book app'));
-    if (isIos || !isAndroid) {
-      var ip = el('p', 'sub', 'iPhone / iPad: open this page in Safari, tap Share, then "Add to Home Screen".');
-      ip.style.fontSize = '0.82rem';
-      container.appendChild(ip);
-    }
-    if (isAndroid || !isIos) {
-      var row = el('div', 'install-row');
-      var p = el('p', null, 'Android: install in one tap, or download the app.');
-      var btn = el('button', 'ghost', '📲 Install');
+    container.appendChild(el('p', 'sub', '📲 Keep this trip on your home screen'));
+    var row = el('div', 'install-row');
+    var p = el('p', null, isIos
+      ? 'Open this page in Safari, tap Share, then "Add to Home Screen". It opens just this trip.'
+      : 'Add this trip to your home screen. It opens just this trip.');
+    row.appendChild(p);
+    if (!isIos) {
+      var btn = el('button', 'ghost', '📲 Add');
       btn.id = 'install-btn';
       btn.hidden = !deferredInstallPrompt; // shown once Chrome offers it
       btn.addEventListener('click', function () {
@@ -227,13 +223,10 @@
         deferredInstallPrompt.prompt();
         deferredInstallPrompt.userChoice.finally(function () { deferredInstallPrompt = null; btn.hidden = true; });
       });
-      row.appendChild(p); row.appendChild(btn);
-      container.appendChild(row);
-      var dl = el('a', 'ghost', '⬇️ Download Android app (APK)');
-      dl.href = APK_URL; dl.rel = 'noopener';
-      dl.style.cssText = 'display:block;text-align:center;margin-top:8px;padding:10px;border:1px solid var(--line);border-radius:10px;text-decoration:none;color:inherit;font-weight:600';
-      container.appendChild(dl);
+      row.appendChild(btn);
+      if (!deferredInstallPrompt) p.textContent = 'In Chrome, tap the ⋮ menu, then "Add to Home screen". It opens just this trip.';
     }
+    container.appendChild(row);
   }
   if (!CFG || !window.supabase) { showError('Could not load Kharcha Book. Check your connection and reload.'); return; }
 
