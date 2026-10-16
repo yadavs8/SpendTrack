@@ -50,6 +50,11 @@
     } else {
       line(c2, 'ℹ️', 'You are in the web version', 'This copy runs in the browser, which cannot read SMS. The settings button lives in the Kharcha Book Android app (installed from the APK). Open that app and tap ⚙️ at the top right, or More > Phone settings.');
       line(c2, '📲', 'No Android app on this phone?', 'Then nothing is reading your bank messages, and credits and debits will only appear when you type them in. Install the Android app (APK) and sign in with the same email.');
+      var apkBtn = el('a', 'btn-primary', '⬇️ Download Kharcha-Book.apk');
+      apkBtn.href = 'https://github.com/yadavs8/SpendTrack/releases/download/apk-latest/Kharcha-Book.apk';
+      apkBtn.setAttribute('download', '');
+      apkBtn.style.cssText = 'display:inline-block;margin:10px 0 4px 38px;padding:8px 14px;background:var(--accent,#0B5D75);color:#fff;border-radius:8px;font-weight:600;text-decoration:none;font-size:0.85rem;';
+      c2.appendChild(apkBtn);
     }
     root.appendChild(c2);
 
