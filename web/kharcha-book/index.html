@@ -808,7 +808,7 @@
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
       navigator.serviceWorker.register('sw.js?v=105').then(function (reg) {
-        reg.update();
+        reg.update().catch(function () {});
         reg.addEventListener('updatefound', function () {
           var newWorker = reg.installing;
           if (newWorker) {

@@ -13,6 +13,10 @@
     else token = (localStorage.getItem('kharcha_trip_last') || '').trim();
   } catch (e) {}
   var urlUpi = (params.get('u') || '').trim();
+  // iPhone: an app added to the Home Screen has its own storage, apart from Safari's, so it would not
+  // know who you are. The install guide puts your guest code in the address (?g=) just before you add
+  // it; the Home Screen app starts from that address and recognises you without joining again.
+  var urlGuest = (params.get('g') || '').trim();
   if (urlUpi) {
     try {
       localStorage.setItem('kharcha_vpa_sanjeev yadav', urlUpi);
@@ -252,14 +256,36 @@
   function installSteps() {
     if (IN_APP_BROWSER && IS_ANDROID) return { intro: 'This link opened inside WhatsApp (or another app), which can\'t install apps. Open it in Chrome first:', steps: ['Tap "Open in Chrome" below (or ⋮ → Open in Chrome).', 'Then tap 📲 Install app on the trip page.'], chrome: true };
     if (IN_APP_BROWSER && IS_IOS) return { intro: 'This link opened inside WhatsApp (or another app). Open it in Safari first:', steps: ['Tap ⋯ or the compass icon → Open in Safari.', 'In Safari tap Share (□↑), then "Add to Home Screen", then Add.'] };
-    if (IS_IOS) return { intro: 'On iPhone / iPad:', steps: ['Tap Share (□↑) at the bottom of Safari (top-right in Chrome).', 'Scroll and tap "Add to Home Screen".', 'Tap Add. The Trip icon opens straight to this trip.'] };
+    if (IS_IOS) return { intro: 'On iPhone / iPad (free, no App Store needed):', steps: ['Opened from WhatsApp? First tap the compass icon (or ⋯ → Open in Safari) so the page is in Safari.', 'Tap Share (□↑) at the bottom of Safari (top-right in Chrome).', 'Scroll and tap "Add to Home Screen", then Add.', 'Open the new Trip icon: it goes straight to this trip and remembers you.'], ios: true };
     if (IS_SAMSUNG) return { intro: 'In Samsung Internet:', steps: ['Tap ☰ (bottom right).', 'Tap "Add page to" → "Home screen".'] };
     if (IS_ANDROID) return { intro: 'In Chrome:', steps: ['Tap ⋮ (top right).', 'Tap "Install app" or "Add to Home screen".', 'Tap Install. The Trip icon opens straight to this trip.'] };
     return { intro: 'On a computer:', steps: ['Click the install icon at the right end of the address bar (or ⋮ → "Install Kharcha Book — Trip").'] };
   }
 
+  // The page's address without the one-time guest code, for copying and sharing.
+  function cleanLink() {
+    var u = new URL(location.href);
+    u.searchParams.delete('g');
+    return u.toString();
+  }
+  var guestInUrlTimer = null;
+  function setGuestInUrl(on) {
+    try {
+      var u = new URL(location.href);
+      var m = savedMembership();
+      if (on && m && m.guest_token) u.searchParams.set('g', m.guest_token); else u.searchParams.delete('g');
+      if (u.toString() !== location.href) history.replaceState(null, '', u.toString());
+    } catch (e) {}
+  }
+
   function showInstallGuide() {
     var info = installSteps();
+    // iPhone saves the page's current address as the Home Screen app: include who you are, for a while.
+    if (info.ios && !isStandalone()) {
+      setGuestInUrl(true);
+      clearTimeout(guestInUrlTimer);
+      guestInUrlTimer = setTimeout(function () { setGuestInUrl(false); }, 10 * 60 * 1000);
+    }
     var back = el('div', 'modal-backdrop');
     var box = el('div', 'modal-box');
     box.appendChild(el('p', 'modal-title', '📲 Install the trip app'));
@@ -281,8 +307,8 @@
       var copy = el('button', 'btn-secondary', 'Copy link');
       copy.addEventListener('click', function () {
         var done = function () { copy.textContent = 'Copied ✓'; };
-        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(location.href).then(done, function () {});
-        else { try { prompt('Copy this link:', location.href); } catch (e) {} }
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(cleanLink()).then(done, function () {});
+        else { try { prompt('Copy this link:', cleanLink()); } catch (e) {} }
       });
       row.appendChild(copy);
     }
@@ -1368,6 +1394,9 @@
 
   // Entry point: recognize a returning guest via their saved token, else ask for a name.
   var existing = savedMembership();
+  if ((!existing || !existing.guest_token) && urlGuest) existing = { guest_token: urlGuest };
+  // Opened as the installed app: the code has done its job, so drop it from the address shown.
+  if (urlGuest && isStandalone()) { try { var cu = new URL(location.href); cu.searchParams.delete('g'); history.replaceState(null, '', cu.toString()); } catch (e) {} }
   if (existing && existing.guest_token) {
     join(null, existing.guest_token).then(function (row) {
       saveMembership({ guest_token: row.guest_token, display_name: row.display_name });
