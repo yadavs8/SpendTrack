@@ -62,7 +62,9 @@ class MainActivity : FragmentActivity() {
                 val newEntries = SmsBackfillManager.backfillMissedSms(applicationContext) +
                     SmsBackfillManager.catchUpMonthIfDue(applicationContext)
                 val answered = runCatching { com.spendtrack.app.core.notification.PromptReconciler.reconcileAll(applicationContext) }.getOrDefault(0)
-                if (repaired > 0 || newEntries > 0 || answered > 0) {
+                // ₹0 / WhatsApp-chat junk from older versions, and copies of one payment saved more than once.
+                val tidied = runCatching { com.spendtrack.app.core.deduplication.DuplicateJanitor.run(applicationContext) }.getOrDefault(0)
+                if (repaired > 0 || newEntries > 0 || answered > 0 || tidied > 0) {
                     ServiceLocator.cloudSyncRepository.syncPending()
                     withContext(Dispatchers.Main) {
                         activeWebView?.evaluateJavascript(

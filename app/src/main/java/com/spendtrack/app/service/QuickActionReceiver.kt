@@ -24,6 +24,10 @@ class QuickActionReceiver : BroadcastReceiver() {
         const val ACTION_REPROMPT_NUDGE = "com.spendtrack.app.ACTION_REPROMPT_NUDGE"
         const val ACTION_NOT_INCOME = "com.spendtrack.app.ACTION_NOT_INCOME"
         const val ACTION_LOG_MISSED = "com.spendtrack.app.ACTION_LOG_MISSED"
+        const val ACTION_SAME_PAYMENT = "com.spendtrack.app.ACTION_SAME_PAYMENT"
+        const val ACTION_NOT_DUPLICATE = "com.spendtrack.app.ACTION_NOT_DUPLICATE"
+        const val ACTION_KEEP_ONE = "com.spendtrack.app.ACTION_KEEP_ONE"
+        const val ACTION_KEEP_ALL = "com.spendtrack.app.ACTION_KEEP_ALL"
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -64,7 +68,8 @@ class QuickActionReceiver : BroadcastReceiver() {
                                 isProjectPaused = isProjectPaused,
                                 alert = true,
                                 trips = knownTrips,
-                                projects = knownProjects
+                                projects = knownProjects,
+                                duplicateOf = repo.duplicateCandidateFor(txn)
                             )
                             NudgeScheduler.scheduleNext(appContext, txn.id, previousStage = 0)
                         }
@@ -89,6 +94,38 @@ class QuickActionReceiver : BroadcastReceiver() {
                         // A bank message the parser could not read, filed by the user's choice.
                         val asIncome = intent.getStringExtra(com.spendtrack.app.core.notification.MissedMessages.EXTRA_KIND) == com.spendtrack.app.core.notification.MissedMessages.KIND_INCOME
                         com.spendtrack.app.core.notification.MissedMessages.log(appContext, transactionId, asIncome)
+                    }
+                    ACTION_SAME_PAYMENT -> {
+                        // "✅ Same payment": this copy stops counting; the earlier entry stays as it is.
+                        NudgeScheduler.cancel(appContext, transactionId)
+                        ExpensePromptNotifier.dismiss(appContext, transactionId)
+                        val kept = repo.confirmDuplicate(transactionId)
+                        if (kept != null) ExpensePromptNotifier.showMerged(appContext, kept)
+                        runCatching { com.spendtrack.app.widget.KharchaWidget.refresh(appContext) }
+                        ServiceLocator.cloudSyncRepository.syncPending()
+                    }
+                    ACTION_NOT_DUPLICATE -> {
+                        // "➕ Different payment": ask where it goes, like any other payment.
+                        val txn = repo.clearDuplicateLink(transactionId)
+                        if (txn != null && txn.needsReview && !txn.isExcluded) {
+                            val settings = ServiceLocator.settingsManager
+                            ExpensePromptNotifier.show(
+                                appContext, txn,
+                                activeTripName = settings.activeTripNameFlow.first(),
+                                isTripPaused = settings.isTripPausedFlow.first(),
+                                activeProjectName = settings.activeProjectNameFlow.first(),
+                                isProjectPaused = settings.isProjectPausedFlow.first(),
+                                alert = false,
+                                trips = repo.getAllKnownTrips(),
+                                projects = repo.getAllKnownProjects()
+                            )
+                        }
+                    }
+                    ACTION_KEEP_ONE, ACTION_KEEP_ALL -> {
+                        // Answer to the duplicate check-up ("₹X logged 3 times — keep one?").
+                        com.spendtrack.app.core.deduplication.DuplicateJanitor.answer(
+                            appContext, groupKey = transactionId, keepOne = intent.action == ACTION_KEEP_ONE
+                        )
                     }
                     ACTION_NOT_INCOME -> {
                         // "That wasn't income" (e.g. money back from a friend for a shared bill):

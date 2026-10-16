@@ -21,6 +21,14 @@ class NudgeWorker(
         val transaction = ServiceLocator.transactionRepository.getTransactionById(transactionId)
             ?: return Result.success() // deleted since
 
+        // A "₹0" entry from an older version is not a payment: drop it instead of asking about it daily.
+        if (transaction.amount <= 0.0 && !transaction.isManuallyAdded) {
+            ServiceLocator.transactionRepository.discardNotPayment(transactionId)
+            ExpensePromptNotifier.dismiss(applicationContext, transactionId)
+            ServiceLocator.cloudSyncRepository.syncPending()
+            return Result.success()
+        }
+
         if (!transaction.needsReview || transaction.isExcluded) {
             // Already resolved (quick action, note reply, or handled in the Needs Review screen).
             ExpensePromptNotifier.dismiss(applicationContext, transactionId)
@@ -49,7 +57,8 @@ class NudgeWorker(
             isProjectPaused = isProjectPaused,
             alert = true,
             trips = knownTrips,
-            projects = knownProjects
+            projects = knownProjects,
+            duplicateOf = repo.duplicateCandidateFor(transaction)
         )
         NudgeScheduler.scheduleNext(applicationContext, transactionId, previousStage = stage)
 

@@ -6,6 +6,12 @@
 <title>Kharcha Book — Shared Trip</title>
 <meta name="description" content="View and add to a shared trip's spending, no account needed.">
 <link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=99">
+<meta name="theme-color" content="#0284C7">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Trip">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <style>
   :root { --bg:#F7F9FA; --surface:#fff; --ink:#0F172A; --muted:#64748B; --line:#E2E8F0; --accent:#0284C7; --accent-soft:rgba(2,132,199,.1); --danger:#DC2626; }
   @media (prefers-color-scheme: dark) {
@@ -41,6 +47,13 @@
   .install-row { display:flex; align-items:center; gap:10px; justify-content:space-between; }
   .install-row p { margin:0; font-size:0.82rem; color:var(--muted); flex:1; }
   .ghost { background:var(--accent-soft); color:var(--accent); flex:none; padding:9px 14px; font-size:0.85rem; }
+  /* "Get the trip app" banner, under the trip header */
+  .install-banner { border-color:var(--accent); background:linear-gradient(135deg, var(--accent-soft) 0%, var(--surface) 70%); }
+  .install-title { font-weight:700; font-size:1.02rem; margin:0 0 4px; }
+  .install-sub { color:var(--muted); font-size:0.84rem; margin:0 0 12px; }
+  .install-actions { display:flex; gap:8px; }
+  .install-actions .primary { flex:1; width:auto; }
+  .install-actions .btn-secondary { flex:none; }
   /* Full-bleed hero: breaks out of .wrap's side/top padding via negative margins, so it reaches
      the screen edges on a phone instead of sitting inside the padded column like everything else. */
   .hero { position:relative; height:190px; overflow:hidden; margin:-20px -16px 18px; color:#fff; }
@@ -114,8 +127,8 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=100" onerror="void 0"></script>
-<script src="ledger-logic.js?v=100"></script>
-<script src="trip.js?v=100"></script>
+<script src="config.js?v=105" onerror="void 0"></script>
+<script src="ledger-logic.js?v=105"></script>
+<script src="trip.js?v=105"></script>
 </body>
 </html>

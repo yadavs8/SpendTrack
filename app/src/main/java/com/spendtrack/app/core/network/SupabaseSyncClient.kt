@@ -113,6 +113,30 @@ class SupabaseSyncClient(private val client: OkHttpClient = OkHttpClient()) {
         }
     }
 
+    /**
+     * Removes a phone-synced row that has no ref (a duplicate copy, or "not a payment"), matched on the
+     * exact SMS text *and* time it was synced with -- both written by this app, so a row the user typed
+     * in (no raw_sms) can never match.
+     */
+    fun deleteBySource(accessToken: String, transaction: TransactionEntity): Result<Unit> {
+        val rawSms = transaction.rawNotificationText?.take(500)?.takeIf { it.isNotBlank() }
+            ?: return Result.failure(IOException("No source text to match"))
+        val url = "${SupabaseConfig.SUPABASE_URL}/rest/v1/daily_expenses" +
+            "?raw_sms=eq.${enc(rawSms)}&spent_at=eq.${enc(isoFormat.format(Date(transaction.dateTime)))}&ref_no=is.null"
+        val request = Request.Builder()
+            .url(url)
+            .addHeader("apikey", SupabaseConfig.SUPABASE_ANON_KEY)
+            .addHeader("Authorization", "Bearer $accessToken")
+            .addHeader("Prefer", "return=minimal")
+            .delete()
+            .build()
+        return runCatching {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) throw IOException("Delete failed (${response.code}): ${response.body?.string().orEmpty()}")
+            }
+        }
+    }
+
     /** A row of the user's Kharcha Book, as the automations need it. */
     data class CloudRow(val amount: Double, val description: String, val spentAt: Long, val refNo: String?, val kind: String?, val method: String?)
 

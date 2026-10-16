@@ -113,6 +113,28 @@ object TransactionParser {
 
     fun looksLikeBankSms(text: String): Boolean = BANK_SMS_SHAPE_REGEX.containsMatchIn(text)
 
+    // WhatsApp is read only for WhatsApp Pay. Its chats are everything else: a dealer's "insurance
+    // payment of Rs 4,500 received", a friend's "I paid ₹500", a ₹0 invoice. Those used to become
+    // expenses (and "₹0 at Unknown Merchant" prompts), so a WhatsApp notification counts only when it
+    // reads like WhatsApp Pay's own short status line about *your* money.
+    val WHATSAPP_PACKAGES = setOf("com.whatsapp", "com.whatsapp.w4b")
+    private val WHATSAPP_PAY_REGEX = Regex(
+        """(?i)^\s*(?:you\s+(?:have\s+)?(?:paid|sent)\s+(?:rs\.?|inr|₹)\s*[0-9,]+|(?:rs\.?|inr|₹)\s*[0-9,]+(?:\.[0-9]{1,2})?\s+(?:paid|sent)\s+to\b|payment\s+(?:of\s+(?:rs\.?|inr|₹)\s*[0-9,]+(?:\.[0-9]{1,2})?\s+)?(?:to\s+[^.\n]{1,40}?\s+)?(?:sent|successful|completed)\b|[a-z][a-z .'-]{1,40}?\s+(?:paid|sent)\s+you\s+(?:rs\.?|inr|₹)|you\s+(?:have\s+)?received\s+(?:rs\.?|inr|₹))"""
+    )
+
+    /**
+     * True for WhatsApp Pay's own payment notification text ("You paid ₹200 to Rahul"), not a chat message.
+     * [anchored] = false also finds it after a title (stored entries keep "title text" together).
+     */
+    fun looksLikeWhatsAppPayment(text: String?, anchored: Boolean = true): Boolean {
+        val t = text?.trim().orEmpty()
+        if (t.isEmpty() || t.length > 260) return false
+        if (anchored) return WHATSAPP_PAY_REGEX.containsMatchIn(t)
+        val words = t.split(' ')
+        // Try the text after a title of up to five words ("Rahul Sharma You paid ₹200 to ...").
+        return (0..minOf(5, words.size - 1)).any { WHATSAPP_PAY_REGEX.containsMatchIn(words.drop(it).joinToString(" ")) }
+    }
+
     /** A bank credit alert ("A/c XX12 credited with ..."), the only shape income is taken from an SMS app. */
     fun looksLikeBankCreditSms(text: String): Boolean = BANK_CREDIT_SHAPE_REGEX.containsMatchIn(text)
 
@@ -220,8 +242,9 @@ object TransactionParser {
             return null
         }
 
-        // 6. Extract Amount
+        // 6. Extract Amount. Nothing was spent in a "₹0" message (a zero invoice, a ₹0 balance due).
         val amount = extractAmount(fullContent) ?: return null
+        if (amount <= 0) return null
 
         // 7. Extract VPA (UPI ID)
         val vpa = VPA_REGEX.find(fullContent)?.value

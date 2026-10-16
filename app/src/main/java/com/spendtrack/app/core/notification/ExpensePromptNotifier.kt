@@ -90,11 +90,16 @@ object ExpensePromptNotifier {
         isProjectPaused: Boolean = false,
         alert: Boolean = true,
         trips: List<String> = emptyList(),
-        projects: List<String> = emptyList()
+        projects: List<String> = emptyList(),
+        duplicateOf: TransactionEntity? = null
     ) {
         ensureChannel(context)
 
         val notificationId = notificationIdFor(transaction.id)
+        if (duplicateOf != null && transaction.transactionType == com.spendtrack.app.core.model.TransactionType.EXPENSE) {
+            showPossibleDuplicate(context, transaction, duplicateOf, notificationId, alert)
+            return
+        }
         val merchant = transaction.merchantName?.takeIf { it.isNotBlank() }
         val title = if (merchant != null) "${amountLabel(transaction.amount)} at $merchant" else "${amountLabel(transaction.amount)} spent"
 
@@ -165,6 +170,73 @@ object ExpensePromptNotifier {
     }
 
     /**
+     * A payment that looks like one already logged (the bank SMS, then the insurer's receipt hours later).
+     * Asks once, with the answer on the buttons, instead of silently dropping or double-counting it.
+     */
+    private fun showPossibleDuplicate(
+        context: Context,
+        transaction: TransactionEntity,
+        earlier: TransactionEntity,
+        notificationId: Int,
+        alert: Boolean
+    ) {
+        val merchant = transaction.merchantName?.takeIf { it.isNotBlank() && !it.equals("Unknown Merchant", ignoreCase = true) }
+        val earlierWhat = earlier.merchantName?.takeIf { it.isNotBlank() && !it.equals("Unknown Merchant", ignoreCase = true) }
+            ?.let { " at $it" } ?: ""
+        val title = "${amountLabel(transaction.amount)}${if (merchant != null) " at $merchant" else ""} — logged already?"
+        val text = "Looks like the ${amountLabel(earlier.amount)}$earlierWhat on ${whenLabel(earlier.dateTime)}. Same payment?"
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(com.spendtrack.app.R.drawable.ic_notification)
+            .setColor(0xFF0B5D75.toInt())
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText("$text\n\nThis message: ${whenLabel(transaction.dateTime)}"))
+            .setContentIntent(pickerIntent(context, transaction.id, notificationId, tripOnly = false, projectOnly = false))
+            .setDeleteIntent(dismissIntent(context, transaction.id, notificationId))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setAutoCancel(false)
+            .setOnlyAlertOnce(!alert)
+            .setSilent(!alert)
+            .addAction(simpleAction(context, transaction.id, notificationId, QuickActionReceiver.ACTION_SAME_PAYMENT, "✅ Same payment"))
+            .addAction(simpleAction(context, transaction.id, notificationId, QuickActionReceiver.ACTION_NOT_DUPLICATE, "➕ Different payment"))
+        NotificationManagerCompat.from(context).notify(notificationId, builder.build())
+    }
+
+    private fun simpleAction(context: Context, transactionId: String, notificationId: Int, action: String, label: String): NotificationCompat.Action {
+        val intent = Intent(context, QuickActionReceiver::class.java).apply {
+            this.action = action
+            putExtra(EXTRA_TRANSACTION_ID, transactionId)
+            putExtra(EXTRA_NOTIFICATION_ID, notificationId)
+        }
+        val pendingIntent = PendingIntent.getBroadcast(
+            context,
+            (transactionId + "_" + action).hashCode(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        return NotificationCompat.Action.Builder(0, label, pendingIntent).build()
+    }
+
+    /** Brief silent note that a second copy was folded into the payment already logged. */
+    fun showMerged(context: Context, kept: TransactionEntity) {
+        ensureChannel(context)
+        val notificationId = notificationIdFor(kept.id)
+        val merchant = kept.merchantName?.takeIf { it.isNotBlank() && !it.equals("Unknown Merchant", ignoreCase = true) }
+        val builder = NotificationCompat.Builder(context, LOGGED_CHANNEL_ID)
+            .setSmallIcon(com.spendtrack.app.R.drawable.ic_notification)
+            .setColor(0xFF0B5D75.toInt())
+            .setContentTitle("✅ Counted once")
+            .setContentText("${amountLabel(kept.amount)}${if (merchant != null) " at $merchant" else ""} · ${whenLabel(kept.dateTime)}")
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setAutoCancel(true)
+            .setTimeoutAfter(3000)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+        NotificationManagerCompat.from(context).notify(notificationId, builder.build())
+    }
+
+    /**
      * An expense that was filed without asking (a known payee like the milk vendor or the niece
      * allowance, an investment, a merchant answered the same way before). It replaces any prompt for
      * the same payment, says where it went, and tapping it opens the picker to move it.
@@ -204,7 +276,8 @@ object ExpensePromptNotifier {
         activeProjectName: String? = null,
         isProjectPaused: Boolean = false,
         trips: List<String> = emptyList(),
-        projects: List<String> = emptyList()
+        projects: List<String> = emptyList(),
+        duplicateOf: TransactionEntity? = null
     ) {
         if (txn.isExcluded || txn.transactionType != com.spendtrack.app.core.model.TransactionType.EXPENSE) return
         if (txn.needsReview) {
@@ -216,7 +289,8 @@ object ExpensePromptNotifier {
                 isProjectPaused = isProjectPaused,
                 alert = true,
                 trips = trips,
-                projects = projects
+                projects = projects,
+                duplicateOf = duplicateOf
             )
             com.spendtrack.app.core.nudge.NudgeScheduler.scheduleFirst(context, txn.id)
         } else if (txn.isEdited) {

@@ -7074,9 +7074,37 @@
   });
 
   var installBtn = $('install-btn');
+  // iPhone / iPad never offer an install prompt to a website, so the button would stay hidden there.
+  // Show it anyway and explain Add to Home Screen (free, no App Store; it updates itself like the web page).
+  var IS_IOS_DEVICE = /iphone|ipad|ipod/i.test(navigator.userAgent || '') || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  var RUNNING_INSTALLED = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+  if (installBtn && IS_IOS_DEVICE && !RUNNING_INSTALLED) installBtn.hidden = false;
+
+  function showIosInstallSteps() {
+    var back = document.createElement('div');
+    back.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+    var box = document.createElement('div');
+    box.style.cssText = 'background:var(--surface,#fff);color:inherit;border-radius:18px;padding:22px;max-width:400px;width:100%;box-shadow:0 12px 32px rgba(0,0,0,.2);font-size:.95rem;line-height:1.45';
+    var h = document.createElement('p'); h.style.cssText = 'font-weight:700;font-size:1.15rem;margin:0 0 8px'; h.textContent = '📲 Add Kharcha Book to your iPhone';
+    var intro = document.createElement('p'); intro.style.cssText = 'margin:0 0 10px;opacity:.8'; intro.textContent = 'Free, no App Store needed. It opens like an app and always shows the latest version.';
+    var ol = document.createElement('ol'); ol.style.cssText = 'margin:0 0 10px;padding-left:20px;display:flex;flex-direction:column;gap:6px';
+    ['Open this page in Safari (from WhatsApp: tap the compass icon first).', 'Tap Share (□↑) at the bottom.', 'Scroll and tap "Add to Home Screen", then Add.', 'Open the Kharcha icon and sign in once.'].forEach(function (t) {
+      var li = document.createElement('li'); li.textContent = t; ol.appendChild(li);
+    });
+    var note = document.createElement('p'); note.style.cssText = 'margin:0 0 14px;font-size:.82rem;opacity:.7';
+    note.textContent = 'Bank SMS can only be read automatically by the Android phone app; on iPhone, add entries or paste an SMS here.';
+    var ok = document.createElement('button'); ok.type = 'button'; ok.textContent = 'Got it';
+    ok.style.cssText = 'width:100%;padding:11px;border:0;border-radius:10px;font-weight:600;background:#0B5D75;color:#fff';
+    ok.addEventListener('click', function () { back.remove(); });
+    back.addEventListener('click', function (ev) { if (ev.target === back) back.remove(); });
+    box.appendChild(h); box.appendChild(intro); box.appendChild(ol); box.appendChild(note); box.appendChild(ok);
+    back.appendChild(box);
+    document.body.appendChild(back);
+  }
+
   if (installBtn) {
     installBtn.addEventListener('click', function () {
-      if (!deferredPrompt) return;
+      if (!deferredPrompt) { if (IS_IOS_DEVICE) showIosInstallSteps(); return; }
       deferredPrompt.prompt();
       deferredPrompt.userChoice.then(function (choice) {
         if (choice.outcome === 'accepted') {

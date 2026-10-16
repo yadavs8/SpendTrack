@@ -169,7 +169,10 @@ object MissedMessages {
             if (txn.transactionType == TransactionType.INCOME && !txn.isExcluded) {
                 com.spendtrack.app.core.automation.AutomationRunner.onIncomeLogged(appContext, txn)
             } else {
-                ExpensePromptNotifier.announce(appContext, txn, ServiceLocator.settingsManager.activeTripNameFlow.first())
+                ExpensePromptNotifier.announce(
+                    appContext, txn, ServiceLocator.settingsManager.activeTripNameFlow.first(),
+                    duplicateOf = ServiceLocator.transactionRepository.duplicateCandidateFor(txn)
+                )
             }
         }
         ServiceLocator.cloudSyncRepository.syncPending()

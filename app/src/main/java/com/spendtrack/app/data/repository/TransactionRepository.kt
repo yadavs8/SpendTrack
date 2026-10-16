@@ -92,6 +92,84 @@ class TransactionRepository(
     suspend fun getTransactionById(id: String): TransactionEntity? =
         transactionDao.getTransactionById(id)
 
+    private fun isPlaceholderMerchant(name: String): Boolean = name.trim().equals("Unknown Merchant", ignoreCase = true)
+
+    /**
+     * "🚫 Not a payment": a message that was read as a spend but wasn't one (a chat, a ₹0 invoice, an
+     * offer). It stops counting everywhere and leaves Kharcha Book if it already got there.
+     */
+    suspend fun discardNotPayment(transactionId: String): Boolean {
+        val txn = transactionDao.getTransactionById(transactionId) ?: return false
+        if (txn.isManuallyAdded) return false
+        transactionDao.updateTransaction(
+            txn.copy(
+                isExcluded = true,
+                needsReview = false,
+                needsCloudDelete = txn.needsCloudDelete || txn.syncedToCloud,
+                syncedToCloud = false,
+                updatedAt = System.currentTimeMillis()
+            )
+        )
+        return true
+    }
+
+    /** The earlier entry a new one may be a second copy of (set by the duplicate check), if still counted. */
+    suspend fun duplicateCandidateFor(txn: TransactionEntity): TransactionEntity? {
+        if (txn.transactionType != TransactionType.EXPENSE) return null
+        val otherId = txn.linkedTransactionId ?: return null
+        return transactionDao.getTransactionById(otherId)?.takeIf { !it.isExcluded && it.id != txn.id }
+    }
+
+    /**
+     * "✅ Same payment": [duplicateId] is a second copy of [keepId] (the earlier one, by default the entry
+     * the duplicate check pointed at). The copy stops counting; its reference is kept on the original
+     * when that helps recognise later copies. Returns the entry that was kept.
+     */
+    suspend fun confirmDuplicate(duplicateId: String, keepId: String? = null): TransactionEntity? {
+        val dup = transactionDao.getTransactionById(duplicateId) ?: return null
+        val keeper = transactionDao.getTransactionById(keepId ?: dup.linkedTransactionId ?: return null) ?: return null
+        if (keeper.id == dup.id) return keeper
+        val keeperRef = keeper.upiReference?.takeIf { it.isNotBlank() } ?: keeper.bankReference?.takeIf { it.isNotBlank() }
+        val dupRef = dup.upiReference?.takeIf { it.isNotBlank() } ?: dup.bankReference?.takeIf { it.isNotBlank() }
+        // Give the kept entry the copy's reference only while it is not in Kharcha Book yet: there the row
+        // is keyed by its ref, and adding one now would make the next sync add a second row.
+        val adoptRef = keeperRef == null && dupRef != null && !keeper.syncedToCloud
+        val keptEntry = keeper.copy(
+            upiReference = if (adoptRef) dup.upiReference ?: dupRef else keeper.upiReference,
+            bankReference = if (adoptRef) dup.bankReference ?: dupRef else keeper.bankReference,
+            accountLast4 = keeper.accountLast4 ?: dup.accountLast4,
+            bankName = keeper.bankName ?: dup.bankName,
+            updatedAt = System.currentTimeMillis()
+        )
+        transactionDao.updateTransaction(keptEntry)
+        // In Kharcha Book a copy that shares the kept row's ref *is* that row; only a separate row is removed.
+        val sharesCloudRow = dupRef != null && (dupRef == keeperRef || adoptRef)
+        val removeFromCloud = dup.syncedToCloud && !sharesCloudRow
+        transactionDao.updateTransaction(
+            dup.copy(
+                isExcluded = true,
+                needsReview = false,
+                linkedTransactionId = keeper.id,
+                needsCloudDelete = dup.needsCloudDelete || removeFromCloud,
+                syncedToCloud = if (removeFromCloud) false else dup.syncedToCloud,
+                updatedAt = System.currentTimeMillis()
+            )
+        )
+        return keptEntry
+    }
+
+    /** "➕ Different payment": forget the duplicate suspicion so it is asked about like any other payment. */
+    suspend fun clearDuplicateLink(transactionId: String): TransactionEntity? {
+        val txn = transactionDao.getTransactionById(transactionId) ?: return null
+        if (txn.transactionType != TransactionType.EXPENSE || txn.linkedTransactionId == null) return txn
+        val cleared = txn.copy(linkedTransactionId = null, updatedAt = System.currentTimeMillis())
+        transactionDao.updateTransaction(cleared)
+        return cleared
+    }
+
+    /** Counted spends and income since [since], oldest first (for the duplicate check-up). */
+    suspend fun getCountedSince(since: Long): List<TransactionEntity> = transactionDao.getCountedSince(since)
+
     // Truecaller and Messages post the same bank SMS within milliseconds. Processed in parallel, both
     // would pass the duplicate check before either is saved -- two rows, two prompts. One at a time.
     private val ingestMutex = Mutex()
@@ -153,7 +231,7 @@ class TransactionRepository(
         val effectiveTrip = if (!isTripPaused && !activeTrip.isNullOrBlank()) activeTrip else null
         val effectiveProject = if (!isProjectPaused && !activeProject.isNullOrBlank()) activeProject else null
 
-        val merchantKey = txn.merchantName ?: txn.merchantVpa
+        val merchantKey = (txn.merchantName?.takeUnless { isPlaceholderMerchant(it) }) ?: txn.merchantVpa
         val rule = if (!merchantKey.isNullOrBlank()) merchantRuleRepository.findMatchingRule(merchantKey) else null
 
         val knownPayee = KnownPayees.match(
@@ -549,7 +627,8 @@ class TransactionRepository(
         }
 
         // Auto-learn / remember user's scope decision for this merchant so they are never asked again! (unless it's a temporary trip or project)
-        val merchantKey = transaction.merchantName ?: transaction.merchantVpa
+        // "Unknown Merchant" is a placeholder: learning from it would auto-file every unreadable payment.
+        val merchantKey = (transaction.merchantName?.takeUnless { isPlaceholderMerchant(it) }) ?: transaction.merchantVpa
         // Trips and projects are temporary, so they never train the per-merchant memory.
         if (!merchantKey.isNullOrBlank() &&
             !scope.equals(ExpenseScope.TRIP, ignoreCase = true) &&

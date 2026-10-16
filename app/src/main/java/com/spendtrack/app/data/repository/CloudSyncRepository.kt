@@ -58,7 +58,20 @@ class CloudSyncRepository(
             // Rows that turned out to be transfers or were fully refunded: remove them by ref.
             for (gone in transactionDao.getPendingCloudDeletes()) {
                 val ref = gone.upiReference ?: gone.bankReference
-                if (ref.isNullOrBlank()) { transactionDao.markCloudDeleted(gone.id); continue }
+                if (ref.isNullOrBlank()) {
+                    // No ref: remove it by the exact SMS text and time it was synced with. If that can't be
+                    // done (an older Kharcha Book without raw_sms), stop trying rather than retry forever.
+                    var bySource = withContext(Dispatchers.IO) { syncClient.deleteBySource(token, gone) }
+                    if (bySource.isFailure && isUnauthorized(bySource.exceptionOrNull())) {
+                        token = refreshAccessToken() ?: return
+                        bySource = withContext(Dispatchers.IO) { syncClient.deleteBySource(token, gone) }
+                    }
+                    if (bySource.isSuccess || gone.rawNotificationText.isNullOrBlank() ||
+                        bySource.exceptionOrNull()?.message?.contains("(4") == true) {
+                        transactionDao.markCloudDeleted(gone.id)
+                    }
+                    continue
+                }
                 var del = withContext(Dispatchers.IO) { syncClient.deleteByRef(token, ref) }
                 if (del.isFailure && isUnauthorized(del.exceptionOrNull())) {
                     token = refreshAccessToken() ?: return
