@@ -78,6 +78,7 @@ class LogExpenseActivity : ComponentActivity() {
         setContent {
             SpendTrackTheme {
                 var txn by remember { mutableStateOf<TransactionEntity?>(null) }
+                var duplicateOf by remember { mutableStateOf<TransactionEntity?>(null) }
                 var knownTrips by remember { mutableStateOf<List<String>>(emptyList()) }
                 var knownProjects by remember { mutableStateOf<List<String>>(emptyList()) }
                 var ready by remember { mutableStateOf(cashMode) }
@@ -94,7 +95,13 @@ class LogExpenseActivity : ComponentActivity() {
                             finish()
                             return@LaunchedEffect
                         }
+                        // A "₹0" entry from an older version was never a payment: drop it, nothing to ask.
+                        if (loaded.amount <= 0.0 && !loaded.isManuallyAdded) {
+                            notPayment(loaded.id)
+                            return@LaunchedEffect
+                        }
                         txn = loaded
+                        if (loaded.needsReview) duplicateOf = ServiceLocator.transactionRepository.duplicateCandidateFor(loaded)
                         // Refresh shared settings quickly so web trips and projects are included
                         kotlinx.coroutines.withTimeoutOrNull(1800) {
                             runCatching { ServiceLocator.cloudSyncRepository.refreshSharedSettings() }
@@ -133,6 +140,9 @@ class LogExpenseActivity : ComponentActivity() {
                         projects = mergedProjects,
                         activeProject = activeProject,
                         projectOnly = projectOnly,
+                        duplicateOf = duplicateOf,
+                        onSamePayment = { txn?.id?.let { samePayment(it) } },
+                        onNotPayment = { txn?.id?.let { notPayment(it) } },
                         onDismiss = { finish() },
                         onChoose = { scope, trip, project, note, makeActiveTrip, makeActiveProject, cashAmount ->
                             choose(txn?.id, cashAmount, scope, trip, project, note, makeActiveTrip, makeActiveProject)
@@ -175,6 +185,31 @@ class LogExpenseActivity : ComponentActivity() {
         }
     }
 
+    /** "🚫 Not a payment": a chat or ₹0 message read as a spend. It stops counting and is not asked about again. */
+    private fun notPayment(transactionId: String) {
+        lifecycleScope.launch {
+            com.spendtrack.app.core.nudge.NudgeScheduler.cancel(applicationContext, transactionId)
+            ExpensePromptNotifier.dismiss(applicationContext, transactionId)
+            ServiceLocator.transactionRepository.discardNotPayment(transactionId)
+            runCatching { com.spendtrack.app.widget.KharchaWidget.refresh(applicationContext) }
+            ServiceLocator.cloudSyncRepository.syncPending()
+            finish()
+        }
+    }
+
+    /** "✅ Same payment": a second message about a payment already logged; count it once. */
+    private fun samePayment(transactionId: String) {
+        lifecycleScope.launch {
+            com.spendtrack.app.core.nudge.NudgeScheduler.cancel(applicationContext, transactionId)
+            ExpensePromptNotifier.dismiss(applicationContext, transactionId)
+            val kept = ServiceLocator.transactionRepository.confirmDuplicate(transactionId)
+            if (kept != null) ExpensePromptNotifier.showMerged(applicationContext, kept)
+            runCatching { com.spendtrack.app.widget.KharchaWidget.refresh(applicationContext) }
+            ServiceLocator.cloudSyncRepository.syncPending()
+            finish()
+        }
+    }
+
     companion object {
         const val ACTION_ADD_CASH = "com.spendtrack.app.ADD_CASH"
 
@@ -196,6 +231,9 @@ private fun LogSheet(
     projects: List<String> = emptyList(),
     activeProject: String? = null,
     projectOnly: Boolean = false,
+    duplicateOf: TransactionEntity? = null,
+    onSamePayment: () -> Unit = {},
+    onNotPayment: () -> Unit = {},
     onDismiss: () -> Unit,
     onChoose: (scope: String, trip: String?, project: String?, note: String?, makeActiveTrip: Boolean, makeActiveProject: Boolean, cashAmount: Double?) -> Unit
 ) {
@@ -273,6 +311,32 @@ private fun LogSheet(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outline
                     )
+                    if (duplicateOf != null) {
+                        val earlierMerchant = duplicateOf.merchantName
+                            ?.takeIf { it.isNotBlank() && !it.equals("Unknown Merchant", ignoreCase = true) }
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.secondaryContainer,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    "Looks like the ${ExpensePromptNotifier.amountLabel(duplicateOf.amount)}" +
+                                        (earlierMerchant?.let { " at $it" } ?: "") +
+                                        " already logged on ${ExpensePromptNotifier.whenLabel(duplicateOf.dateTime)}.",
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Button(onClick = { if (!busy) { busy = true; onSamePayment() } }, enabled = !busy) {
+                                    Text("✅ Same payment, count it once")
+                                }
+                                Text(
+                                    "A different payment? Choose where it goes below.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.outline
+                                )
+                            }
+                        }
+                    }
                 } else {
                     Text("💵 Cash spend", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     OutlinedTextField(
@@ -404,7 +468,18 @@ private fun LogSheet(
                 }
 
                 Spacer(Modifier.height(4.dp))
-                TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) { Text("Later") }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = if (cashMode) Arrangement.End else Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (!cashMode) {
+                        TextButton(onClick = { if (!busy) { busy = true; onNotPayment() } }, enabled = !busy) {
+                            Text("🚫 Not a payment", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                    TextButton(onClick = onDismiss) { Text("Later") }
+                }
             }
         }
     }

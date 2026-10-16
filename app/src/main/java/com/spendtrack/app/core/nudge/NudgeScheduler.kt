@@ -24,7 +24,11 @@ object NudgeScheduler {
     const val KEY_TRANSACTION_ID = "transaction_id"
     const val KEY_STAGE = "stage"
 
-    private val STAGE_DELAYS_MINUTES = listOf(15L, 120L, 180L, 180L, 1440L) // last stage repeats
+    private val STAGE_DELAYS_MINUTES = listOf(15L, 120L, 180L, 180L, 1440L)
+
+    // Reminders stop after the next-day one: an unanswered payment then waits quietly in Needs Review
+    // instead of re-posting every day forever.
+    const val LAST_STAGE = 4
 
     fun delayMinutesForStage(stage: Int): Long =
         STAGE_DELAYS_MINUTES[stage.coerceIn(0, STAGE_DELAYS_MINUTES.lastIndex)]
@@ -34,6 +38,7 @@ object NudgeScheduler {
     }
 
     fun scheduleNext(context: Context, transactionId: String, previousStage: Int) {
+        if (previousStage >= LAST_STAGE) return
         enqueue(context, transactionId, stage = previousStage + 1)
     }
 

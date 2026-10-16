@@ -1,6 +1,8 @@
 // Caches the app shell so it opens offline. Supabase calls are never cached.
-var CACHE = 'kharcha-shell-v104';
-var SHELL = ['./', './index.html', './styles.css?v=104', './modern.css?v=104', './modern.js?v=104', './insights.js?v=104', './card.js?v=104', './phone.js?v=104', './ledger-logic.js?v=104', './app.js?v=104', './config.js?v=104', './manifest.webmanifest', './icon-192.png?v=104', './logo-mark.png?v=104', './icon-512.png?v=104'];
+// Network first, revalidating with the server (no browser HTTP-cache shortcut), so a new deploy is what
+// opens next time -- on the main app and on installed trip apps alike, with nothing to reinstall.
+var CACHE = 'kharcha-shell-v105';
+var SHELL = ['./', './index.html', './styles.css?v=105', './modern.css?v=105', './modern.js?v=105', './insights.js?v=105', './card.js?v=105', './phone.js?v=105', './ledger-logic.js?v=105', './app.js?v=105', './config.js?v=105', './manifest.webmanifest', './icon-192.png?v=105', './logo-mark.png?v=105', './icon-512.png?v=105', './trip.html', './trip.js?v=105'];
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(SHELL); }).then(function () { return self.skipWaiting(); }));
 });
@@ -12,11 +14,20 @@ self.addEventListener('activate', function (e) {
 self.addEventListener('fetch', function (e) {
   var req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
-  e.respondWith(fetch(req).then(function (res) {
+  e.respondWith(fetch(req, { cache: 'no-cache' }).then(function (res) {
     if (res && res.status === 200) {
       var copy = res.clone();
       caches.open(CACHE).then(function (c) { c.put(req, copy); });
     }
     return res;
-  }).catch(function () { return caches.match(req).then(function (r) { return r || caches.match('./index.html'); }); }));
+  }).catch(function () {
+    return caches.match(req).then(function (r) {
+      if (r) return r;
+      // Offline: a trip link (trip.html?t=...) opens the cached trip page, anything else the main app.
+      if (req.mode === 'navigate' && /\/trip\.html$/.test(new URL(req.url).pathname)) {
+        return caches.match('./trip.html', { ignoreSearch: true });
+      }
+      return caches.match('./index.html');
+    });
+  }));
 });

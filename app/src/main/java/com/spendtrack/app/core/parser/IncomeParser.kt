@@ -65,6 +65,10 @@ object IncomeParser {
         // Money from an SMS app must look like a bank credit alert, not a chat ("I sent you ₹500").
         if (sourcePackage != null && sourcePackage in TransactionParser.MESSAGING_PACKAGES &&
             !TransactionParser.looksLikeBankCreditSms(full)) return null
+        // A raw SMS likewise: "we have received Rs 12,345 towards your premium" is the insurer's receipt for
+        // money you paid, not money you got. Income from an SMS needs your account to be the one credited.
+        if (sourcePackage == null && !OUR_ACCOUNT_CREDITED.containsMatchIn(full) &&
+            !TransactionParser.looksLikeBankCreditSms(full)) return null
 
         if (LOAN.containsMatchIn(full)) return null
         val isRefund = REFUND.containsMatchIn(full)

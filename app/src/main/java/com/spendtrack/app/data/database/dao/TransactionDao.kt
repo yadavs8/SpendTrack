@@ -91,6 +91,28 @@ interface TransactionDao {
     """)
     suspend fun findSameAmountNear(amount: Double, startWindow: Long, endWindow: Long, excludeId: String): List<TransactionEntity>
 
+    /**
+     * Payments of about [amount] (rounding aside) over a wide window: messages about one payment can
+     * arrive a day apart (bank debit now, the insurer's receipt tomorrow). Already-excluded rows
+     * (transfers, duplicates, "not a payment") are left out.
+     */
+    @Query("""
+        SELECT * FROM transactions
+        WHERE amount BETWEEN :amountLow AND :amountHigh AND dateTime BETWEEN :startWindow AND :endWindow
+            AND isDemo = 0 AND isExcluded = 0 AND transactionType IN ('EXPENSE', 'INCOME')
+        ORDER BY dateTime DESC
+        LIMIT 40
+    """)
+    suspend fun findAmountNear(amountLow: Double, amountHigh: Double, startWindow: Long, endWindow: Long): List<TransactionEntity>
+
+    /** Counted spends and income since a time, oldest first: what the duplicate check-up looks through. */
+    @Query("""
+        SELECT * FROM transactions
+        WHERE dateTime >= :since AND isDemo = 0 AND isExcluded = 0 AND transactionType IN ('EXPENSE', 'INCOME')
+        ORDER BY dateTime ASC
+    """)
+    suspend fun getCountedSince(since: Long): List<TransactionEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTransaction(transaction: TransactionEntity): Long
 
