@@ -7135,12 +7135,14 @@
     });
   }
 
-  // Phone-app settings (detection, cloud sync, trips) live natively; this button replaces the
-  // floating gear that used to cover the tabs.
   var appSettingsBtn = $('app-settings-btn');
   if (appSettingsBtn && window.KharchaNative && window.KharchaNative.openSettings) {
     appSettingsBtn.hidden = false;
     appSettingsBtn.addEventListener('click', function () { window.KharchaNative.openSettings(); });
+  }
+  if (window.KharchaNative) {
+    var apkBtn = $('apk-download-btn');
+    if (apkBtn) apkBtn.style.display = 'none';
   }
 
   // The running version, read from this script's own ?v= so the label can't drift from the real build.
