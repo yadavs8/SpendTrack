@@ -6736,6 +6736,17 @@
     $('addbtn').disabled = state.mode !== 'db';
   }
 
+  if ($('sync')) {
+    $('sync').style.cursor = 'pointer';
+    $('sync').addEventListener('click', function () {
+      if (state.mode === 'db') {
+        toast('✅ Cloud Sync: Connected to Supabase. All expenses are synced to the cloud.');
+      } else {
+        toast('⚠️ Cloud Sync: ' + (state.mode || 'Not connected'));
+      }
+    });
+  }
+
   /* ---------- events ---------- */
   $('prev').addEventListener('click', function () { shiftMonth(1); });
   $('next').addEventListener('click', function () { shiftMonth(-1); });
