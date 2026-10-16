@@ -55,6 +55,12 @@ class CloudSyncRepository(
         syncMutex.withLock {
             var token = accessToken
 
+            // Purge any local invalid <= 0 transactions so they never cause constraint errors
+            val purged = transactionDao.purgeZeroAmountTransactions()
+            if (purged > 0) {
+                SafeLogger.i("Purged $purged invalid zero-amount transaction(s) from local database")
+            }
+
             // Rows that turned out to be transfers or were fully refunded: remove them by ref.
             for (gone in transactionDao.getPendingCloudDeletes()) {
                 val ref = gone.upiReference ?: gone.bankReference
@@ -108,6 +114,12 @@ class CloudSyncRepository(
             }
 
             for (transaction in pending) {
+                val effectiveAmount = Math.round((transaction.amount - transaction.refundedAmount) * 100) / 100.0
+                if (transaction.amount <= 0.0 || effectiveAmount <= 0.0) {
+                    transactionDao.deleteById(transaction.id)
+                    continue
+                }
+
                 // An auto-detected income the user already typed in by hand (e.g. "💼 Salary 1")
                 // stays on the phone, so the money is never counted twice.
                 if (transaction.transactionType == com.spendtrack.app.core.model.TransactionType.INCOME &&

@@ -155,6 +155,7 @@ class SettingsViewModel : ViewModel() {
     fun syncCloudNow(onDone: () -> Unit) {
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isCloudSyncBusy = true)
+            settingsManager.setCloudSyncError(null)
             cloudSyncRepo.syncPending()
             _uiState.value = _uiState.value.copy(isCloudSyncBusy = false)
             onDone()

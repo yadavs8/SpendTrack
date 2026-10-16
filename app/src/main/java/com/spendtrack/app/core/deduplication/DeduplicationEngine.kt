@@ -21,10 +21,42 @@ class DeduplicationEngine(
         normalizedMerchant: String,
         categoryId: String
     ): DeduplicationResult {
-        val startWindow = parsed.dateTime - timeWindowMillis
-        val endWindow = parsed.dateTime + timeWindowMillis
+        // Zero or negative amounts must never be saved as transactions
+        if (parsed.amount <= 0.0) {
+            val dummy = TransactionEntity(
+                amount = 0.0,
+                currency = parsed.currency,
+                merchantName = normalizedMerchant,
+                isExcluded = true,
+                needsReview = false
+            )
+            return DeduplicationResult.MergedWithExisting(dummy)
+        }
+
         val parsedRef = parsed.upiReference?.takeIf { it.isNotBlank() }
             ?: parsed.bankReference?.takeIf { it.isNotBlank() }
+
+        // 1. Strict Raw Text duplicate check: identical message re-posted or re-delivered
+        val rawText = parsed.rawText?.trim()
+        if (!rawText.isNullOrBlank()) {
+            val existingByRaw = transactionDao.findByRawText(rawText)
+            if (existingByRaw != null && (existingByRaw.dateTime == parsed.dateTime ||
+                    abs(existingByRaw.dateTime - parsed.dateTime) <= 5 * 60 * 1000L ||
+                    (!parsedRef.isNullOrBlank() && existingByRaw.upiReference == parsedRef))) {
+                return DeduplicationResult.MergedWithExisting(existingByRaw)
+            }
+        }
+
+        // 2. Strict Reference check in DB: same UPI / bank ref already recorded for this amount
+        if (!parsedRef.isNullOrBlank()) {
+            val existingByRef = transactionDao.findExpenseByRef(parsedRef)
+            if (existingByRef != null && existingByRef.amount == parsed.amount) {
+                return mergeInto(existingByRef, parsed, normalizedMerchant)
+            }
+        }
+
+        val startWindow = parsed.dateTime - timeWindowMillis
+        val endWindow = parsed.dateTime + timeWindowMillis
 
         // Search for potential candidate transactions in DB
         val candidates = transactionDao.findPotentialDuplicates(
@@ -70,14 +102,16 @@ class DeduplicationEngine(
             val parsedIsUpiApp = parsed.sourcePackage != null && com.spendtrack.app.core.parser.TransactionParser.MONITORED_UPI_PACKAGES.contains(parsed.sourcePackage)
             val isComplementaryDualSource = (candidateIsUpiApp != parsedIsUpiApp) || (candidate.source != parsed.source)
 
+            val sameDirection = isIncoming(candidate.transactionType) == isIncoming(parsed.transactionType)
             val hasAnyRefEvidence = !parsedRef.isNullOrBlank() || !candidateRef.isNullOrBlank()
             val hasRealMerchantMatch = isExactMerchant || isFuzzyMerchant
             val heuristicMergeAllowed = hasAnyRefEvidence || hasRealMerchantMatch
-            val sameDirection = isIncoming(candidate.transactionType) == isIncoming(parsed.transactionType)
+            val isVeryClose = timeDiff <= 5 * 60 * 1000L
             val shouldMerge = isExactRefMatch || (
                 sameDirection && isSameAmount && !hasConflictingRef && !hasConflictingAccount && (
                     (isWithinWindow && isMerchantMatch && heuristicMergeAllowed) ||
-                    (isWithin10Min && hasAnyRefEvidence && (isComplementaryDualSource || !candidate.needsReview))
+                    (isWithin10Min && (isComplementaryDualSource || hasAnyRefEvidence || !candidate.needsReview || isMerchantMatch)) ||
+                    (isVeryClose && (isComplementaryDualSource || isMerchantMatch || candidateMerchant.isNullOrBlank() || knownMerchant.isBlank()))
                 )
             )
 
@@ -137,6 +171,32 @@ class DeduplicationEngine(
             if (best != null && bestScore >= SmartMatcher.SAME_PAYMENT) return mergeInto(best, parsed, normalizedMerchant)
             if (best != null && bestScore >= SmartMatcher.MAYBE_SAME && parsed.transactionType == TransactionType.EXPENSE) {
                 possibleDuplicateOf = best.id // not sure: ask "same payment?" instead of guessing either way
+            }
+        }
+
+        // 3. Database-backed recent similar expense check:
+        // Before creating a new expense, look up if a similar expense was already filed or confirmed
+        if (possibleDuplicateOf == null && (parsed.transactionType == TransactionType.EXPENSE || parsed.transactionType == TransactionType.INCOME)) {
+            val recentSimilar = transactionDao.findRecentSimilarExpenses(
+                amount = parsed.amount,
+                since = parsed.dateTime - 2 * 3600 * 1000L,
+                until = parsed.dateTime + 2 * 3600 * 1000L
+            )
+            for (recent in recentSimilar) {
+                if (recent.transactionType != parsed.transactionType) continue
+                val recentMerchant = recent.merchantName?.takeUnless { isUnknownMerchant(it) }
+                val hasConflictingAcc = !parsed.accountLast4.isNullOrBlank() && !recent.accountLast4.isNullOrBlank() && recent.accountLast4 != parsed.accountLast4
+                val recentRef = recent.upiReference ?: recent.bankReference
+                val hasConflictingR = !parsedRef.isNullOrBlank() && !recentRef.isNullOrBlank() && recentRef != parsedRef
+                if (hasConflictingAcc || hasConflictingR) continue
+
+                val isExactM = isExactMerchantMatch(recentMerchant, knownMerchant)
+                val isFuzzyM = !recentMerchant.isNullOrBlank() && knownMerchant.isNotBlank() && isFuzzyMerchantMatch(recentMerchant, knownMerchant)
+                val isCompSource = (recent.source != parsed.source) || (recent.sourcePackage != parsed.sourcePackage)
+
+                if (isExactM || isFuzzyM || (isCompSource && (recentMerchant.isNullOrBlank() || knownMerchant.isBlank()))) {
+                    return mergeInto(recent, parsed, normalizedMerchant)
+                }
             }
         }
 

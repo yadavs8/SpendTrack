@@ -21,6 +21,7 @@ class QuickActionReceiver : BroadcastReceiver() {
         const val ACTION_ADD_NOTE = "com.spendtrack.app.ACTION_ADD_NOTE"
         const val ACTION_SET_SCOPE = "com.spendtrack.app.ACTION_SET_SCOPE"
         const val ACTION_NOTIFICATION_DISMISSED = "com.spendtrack.app.ACTION_NOTIFICATION_DISMISSED"
+        const val ACTION_DISCARD = "com.spendtrack.app.ACTION_DISCARD"
         const val ACTION_REPROMPT_NUDGE = "com.spendtrack.app.ACTION_REPROMPT_NUDGE"
         const val ACTION_NOT_INCOME = "com.spendtrack.app.ACTION_NOT_INCOME"
         const val ACTION_LOG_MISSED = "com.spendtrack.app.ACTION_LOG_MISSED"
@@ -40,13 +41,25 @@ class QuickActionReceiver : BroadcastReceiver() {
             try {
                 val repo = ServiceLocator.transactionRepository
                 when (intent.action) {
-                    ACTION_NOTIFICATION_DISMISSED -> {
-                        // Swiped away unanswered: remind once later (not in 5 minutes, and without
-                        // restarting the whole reminder schedule).
+                    ACTION_DISCARD -> {
+                        NudgeScheduler.cancel(appContext, transactionId)
+                        ExpensePromptNotifier.dismiss(appContext, transactionId)
                         val txn = repo.getTransactionById(transactionId)
-                        if (txn != null && txn.needsReview && !txn.isExcluded) {
-                            NudgeScheduler.cancel(appContext, transactionId)
-                            NudgeScheduler.scheduleDismissalReprompt(appContext, transactionId)
+                        if (txn != null && txn.amount <= 0.0) {
+                            ServiceLocator.database.transactionDao().deleteById(transactionId)
+                        } else {
+                            repo.discardNotPayment(transactionId)
+                        }
+                        runCatching { com.spendtrack.app.core.notification.MissedMessages.discard(appContext, transactionId) }
+                        runCatching { com.spendtrack.app.widget.KharchaWidget.refresh(appContext) }
+                        ServiceLocator.cloudSyncRepository.syncPending()
+                    }
+                    ACTION_NOTIFICATION_DISMISSED -> {
+                        // Swiped away: cancel any active nudges so it doesn't repeatedly nag the user
+                        NudgeScheduler.cancel(appContext, transactionId)
+                        val txn = repo.getTransactionById(transactionId)
+                        if (txn != null && txn.amount <= 0.0) {
+                            ServiceLocator.database.transactionDao().deleteById(transactionId)
                         }
                     }
                     ACTION_REPROMPT_NUDGE -> {
@@ -91,9 +104,14 @@ class QuickActionReceiver : BroadcastReceiver() {
                         ServiceLocator.cloudSyncRepository.syncPending()
                     }
                     ACTION_LOG_MISSED -> {
-                        // A bank message the parser could not read, filed by the user's choice.
-                        val asIncome = intent.getStringExtra(com.spendtrack.app.core.notification.MissedMessages.EXTRA_KIND) == com.spendtrack.app.core.notification.MissedMessages.KIND_INCOME
-                        com.spendtrack.app.core.notification.MissedMessages.log(appContext, transactionId, asIncome)
+                        // A bank message the parser could not read, filed or discarded by the user's choice.
+                        val kind = intent.getStringExtra(com.spendtrack.app.core.notification.MissedMessages.EXTRA_KIND)
+                        if (kind == com.spendtrack.app.core.notification.MissedMessages.KIND_DISCARD) {
+                            com.spendtrack.app.core.notification.MissedMessages.discard(appContext, transactionId)
+                        } else {
+                            val asIncome = kind == com.spendtrack.app.core.notification.MissedMessages.KIND_INCOME
+                            com.spendtrack.app.core.notification.MissedMessages.log(appContext, transactionId, asIncome)
+                        }
                     }
                     ACTION_SAME_PAYMENT -> {
                         // "✅ Same payment": this copy stops counting; the earlier entry stays as it is.

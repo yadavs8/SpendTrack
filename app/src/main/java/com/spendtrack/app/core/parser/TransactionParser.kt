@@ -85,6 +85,21 @@ object TransactionParser {
         """(?i)\b(?:claim|unlock(?:ed)?|tap to|offer|deal|starting (?:from|at)|get it for|\d+\s*%\s*off|flat\s*(?:rs\.?|₹)?\s*\d+\s*off|win|won|reward|coupon|voucher|scratch|coins?|hurry|limited (?:time|period)|pre-approved|apply now|otp|one[- ]time password|verification code)\b"""
     )
 
+    // Insurance marketing, quotes, renewal pitches, and policy offers (not completed debits).
+    private val INSURANCE_PROMO_REGEX = Regex(
+        """(?i)\b(?:term\s+insurance|health\s+insurance|car\s+insurance|bike\s+insurance|motor\s+insurance|life\s+insurance|sum\s+insured|life\s+cover|term\s+cover|health\s+cover|mediclaim|policybazaar|renew\s+(?:your\s+)?policy|policy\s+(?:is\s+)?expir(?:ing|ed)|buy\s+insurance|get\s+insured|insurance\s+quote|insure\s+your)\b"""
+    )
+
+    // Mention of zero cost, zero premium, zero charges promotional spam
+    private val ZERO_AMOUNT_PROMO_REGEX = Regex(
+        """(?i)\b(?:zero\s*(?:cost|premium|charges?|effective\s*price|processing\s*fee|balance|interest|down\s*payment)|0%\s*interest|no\s*cost\s*emi)\b"""
+    )
+
+    /** True for insurance promotions, marketing quotes, and zero-amount pitches. */
+    fun isInsurancePromo(text: String): Boolean {
+        return INSURANCE_PROMO_REGEX.containsMatchIn(text) || ZERO_AMOUNT_PROMO_REGEX.containsMatchIn(text)
+    }
+
     // Money actually leaving the account. Note "credited" can still appear in a debit SMS for the payee
     // ("...debited for Rs 90.00; Piyush Yadav credited"), so a strong outgoing verb wins over it.
     private val STRONG_DEBIT_REGEX = Regex("""(?i)\b(?:debited|spent|withdrawn|paid|sent)\b""")
@@ -175,8 +190,8 @@ object TransactionParser {
 
         val lowerContent = fullContent.lowercase(Locale.ROOT)
 
-        // 0. Ads, offers and OTPs -> DO NOT RECORD
-        if (isNonTransaction(fullContent)) return null
+        // 0. Ads, offers, OTPs, insurance promos and zero amounts -> DO NOT RECORD
+        if (isNonTransaction(fullContent) || isInsurancePromo(fullContent)) return null
 
         // 1. Check for Failed / Declined payments -> DO NOT RECORD
         for (failedKey in FAILED_KEYWORDS) {

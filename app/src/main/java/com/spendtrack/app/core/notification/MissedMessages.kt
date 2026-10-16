@@ -33,6 +33,7 @@ object MissedMessages {
     const val EXTRA_KIND = "missed_kind"
     const val KIND_INCOME = "income"
     const val KIND_EXPENSE = "expense"
+    const val KIND_DISCARD = "discard"
 
     data class Item(val id: String, val ts: Long, val amount: Double, val sender: String?, val text: String)
 
@@ -43,11 +44,11 @@ object MissedMessages {
     /** True for a bank message that moves money, so silence about it would be wrong. */
     fun looksLikeMoney(text: String, sender: String? = null): Boolean {
         if (text.isBlank()) return false
-        if (TransactionParser.isNonTransaction(text) || TransactionParser.isNotYetCompleted(text)) return false
+        if (TransactionParser.isNonTransaction(text) || TransactionParser.isInsurancePromo(text) || TransactionParser.isNotYetCompleted(text)) return false
         if (CardBillParser.parseStatement(text) != null) return false
         if (CARD_BILL.containsMatchIn(text)) return false
         val amount = TransactionParser.extractAmount(text) ?: return false
-        if (amount <= 0) return false
+        if (amount <= 0.0) return false
         if (!MONEY_WORDS.containsMatchIn(text)) return false
         return ACCOUNT_WORDS.containsMatchIn(text) || TransactionParser.looksLikeBankSms(text) || TransactionParser.looksLikeBankCreditSms(text) ||
             (sender != null && Regex("""(?i)bank|icici|hdfc|axis|sbi|kotak|pnb|bob|indus|paytm|cred""").containsMatchIn(sender))
@@ -125,6 +126,17 @@ object MissedMessages {
             Intent(appContext, com.spendtrack.app.MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        val dismissPi = PendingIntent.getBroadcast(
+            appContext,
+            ("missed_${item.id}_dismiss").hashCode(),
+            Intent(appContext, QuickActionReceiver::class.java).apply {
+                action = QuickActionReceiver.ACTION_LOG_MISSED
+                putExtra(ExpensePromptNotifier.EXTRA_TRANSACTION_ID, item.id)
+                putExtra(EXTRA_KIND, KIND_DISCARD)
+                putExtra(ExpensePromptNotifier.EXTRA_NOTIFICATION_ID, nid)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         val builder = NotificationCompat.Builder(appContext, channel)
             .setSmallIcon(com.spendtrack.app.R.drawable.ic_notification)
             .setColor(0xFF0B5D75.toInt())
@@ -132,10 +144,12 @@ object MissedMessages {
             .setContentText(item.text.take(100))
             .setStyle(NotificationCompat.BigTextStyle().bigText(item.text.take(300) + "\n\nWhat is it?"))
             .setContentIntent(open)
-            .setAutoCancel(false)
+            .setDeleteIntent(dismissPi)
+            .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .addAction(action(KIND_INCOME, "💰 It's income"))
             .addAction(action(KIND_EXPENSE, "💸 It's a spend"))
+            .addAction(action(KIND_DISCARD, "🚫 Discard"))
         runCatching { NotificationManagerCompat.from(appContext).notify(nid, builder.build()) }
     }
 
@@ -176,6 +190,14 @@ object MissedMessages {
             }
         }
         ServiceLocator.cloudSyncRepository.syncPending()
+        markHandled(appContext, id)
+        save(appContext, load(appContext).filter { it.id != id })
+    }
+
+    /** Discards a kept message without logging it. */
+    fun discard(context: Context, id: String) {
+        val appContext = context.applicationContext
+        NotificationManagerCompat.from(appContext).cancel(notificationId(id))
         markHandled(appContext, id)
         save(appContext, load(appContext).filter { it.id != id })
     }

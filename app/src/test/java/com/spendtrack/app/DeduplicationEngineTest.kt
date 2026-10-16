@@ -38,6 +38,18 @@ class DeduplicationEngineTest {
                     (it.transactionType == TransactionType.EXPENSE || it.transactionType == TransactionType.INCOME)
             }.sortedByDescending { it.dateTime }
 
+        override suspend fun purgeZeroAmountTransactions(): Int {
+            val toRemove = rows.filter { it.value.amount <= 0 }.keys
+            toRemove.forEach { rows.remove(it) }
+            return toRemove.size
+        }
+        override suspend fun getZeroAmountTransactions(): List<TransactionEntity> =
+            rows.values.filter { it.amount <= 0 }
+        override suspend fun findByRawText(rawText: String): TransactionEntity? =
+            rows.values.firstOrNull { it.rawNotificationText == rawText }
+        override suspend fun findRecentSimilarExpenses(amount: Double, since: Long, until: Long): List<TransactionEntity> =
+            rows.values.filter { it.amount == amount && it.dateTime in since..until && !it.isExcluded && !it.isDemo }
+
         override fun getAllExpenses(): Flow<List<TransactionEntity>> = TODO()
         override fun getExpensesForRange(startTime: Long, endTime: Long): Flow<List<TransactionEntity>> = TODO()
         override fun getTotalSpentForRange(startTime: Long, endTime: Long): Flow<Double?> = TODO()
@@ -47,13 +59,20 @@ class DeduplicationEngineTest {
         override suspend fun getNeedsReviewTransactionsSync(): List<TransactionEntity> = TODO()
         override fun getCategorySpends(startTime: Long, endTime: Long): Flow<List<CategorySpend>> = TODO()
         override fun getPaymentMethodSpends(startTime: Long, endTime: Long): Flow<List<PaymentMethodSpend>> = TODO()
-        override suspend fun findSameAmountNear(amount: Double, startWindow: Long, endWindow: Long, excludeId: String): List<TransactionEntity> = TODO()
+        override suspend fun findSameAmountNear(amount: Double, startWindow: Long, endWindow: Long, excludeId: String): List<TransactionEntity> =
+            rows.values.filter { it.amount == amount && it.dateTime in startWindow..endWindow && it.id != excludeId }
         override suspend fun getCountedSince(since: Long): List<TransactionEntity> = TODO()
-        override suspend fun insertTransactions(transactions: List<TransactionEntity>) = TODO()
-        override suspend fun deleteTransaction(transaction: TransactionEntity) = TODO()
-        override suspend fun deleteById(id: String) = TODO()
+        override suspend fun insertTransactions(transactions: List<TransactionEntity>) {
+            transactions.forEach { rows[it.id] = it }
+        }
+        override suspend fun deleteTransaction(transaction: TransactionEntity) {
+            rows.remove(transaction.id)
+        }
+        override suspend fun deleteById(id: String) {
+            rows.remove(id)
+        }
         override suspend fun deleteDemoTransactions() = TODO()
-        override suspend fun getAllTransactionsSync(): List<TransactionEntity> = TODO()
+        override suspend fun getAllTransactionsSync(): List<TransactionEntity> = rows.values.toList()
         override suspend fun getUnsyncedExpenses(): List<TransactionEntity> = TODO()
         override suspend fun getLocalTripDescriptions(): List<String> = TODO()
         override suspend fun getLocalProjectDescriptions(): List<String> = TODO()
@@ -62,7 +81,8 @@ class DeduplicationEngineTest {
         override suspend fun getPendingCloudDeletes(): List<TransactionEntity> = TODO()
         override suspend fun markCloudDeleted(id: String) = TODO()
         override suspend fun findRefundCandidates(amount: Double, since: Long, until: Long): List<TransactionEntity> = TODO()
-        override suspend fun findExpenseByRef(ref: String): TransactionEntity? = TODO()
+        override suspend fun findExpenseByRef(ref: String): TransactionEntity? =
+            rows.values.firstOrNull { (it.upiReference == ref || it.bankReference == ref) && !it.isExcluded }
         override suspend fun sumCashWithdrawn(start: Long, end: Long): Double = TODO()
         override suspend fun sumCashSpent(start: Long, end: Long): Double = TODO()
         override suspend fun countCashSpends(start: Long, end: Long): Int = TODO()
@@ -127,5 +147,32 @@ class DeduplicationEngineTest {
         val b = engine.process(parsed(640.0, t0 + 60_000, null, "AD-SBIBNK Rs 640 debited from A/c XX7788 on 14Oct", last4 = "7788", pkg = null, source = "SMS"), "Unknown Merchant", "cat_other")
         assertTrue(b is DeduplicationResult.MergedWithExisting)
         assertEquals("Rahul", (b as DeduplicationResult.MergedWithExisting).updatedTransaction.merchantName)
+    }
+
+    @Test
+    fun zeroAmount_isNotSavedAsNewTransaction() = runBlocking {
+        val dao = FakeDao()
+        val engine = DeduplicationEngine(dao)
+        val result = engine.process(
+            parsed(0.0, t0, "Unknown", "A/c debited for Rs 0"),
+            "Unknown", "cat_other"
+        )
+        assertTrue(result is DeduplicationResult.MergedWithExisting)
+        assertEquals(0, dao.rows.size)
+    }
+
+    @Test
+    fun rawTextDuplicate_withinWindow_isMergedWithoutNewEntry() = runBlocking {
+        val dao = FakeDao()
+        val engine = DeduplicationEngine(dao)
+        val msg = "HDFCBK: Rs 150 spent on Card XX1234 at CAFE"
+        val first = engine.process(parsed(150.0, t0, "CAFE", msg), "CAFE", "cat_food")
+        assertTrue(first is DeduplicationResult.NewTransaction)
+        assertEquals(1, dao.rows.size)
+
+        // Same notification / SMS delivered again 30 seconds later
+        val second = engine.process(parsed(150.0, t0 + 30_000, "CAFE", msg), "CAFE", "cat_food")
+        assertTrue(second is DeduplicationResult.MergedWithExisting)
+        assertEquals(1, dao.rows.size)
     }
 }

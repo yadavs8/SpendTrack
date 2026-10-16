@@ -131,6 +131,22 @@ interface TransactionDao {
     @Query("DELETE FROM transactions WHERE isDemo = 1")
     suspend fun deleteDemoTransactions()
 
+    @Query("DELETE FROM transactions WHERE amount <= 0")
+    suspend fun purgeZeroAmountTransactions(): Int
+
+    @Query("SELECT * FROM transactions WHERE amount <= 0")
+    suspend fun getZeroAmountTransactions(): List<TransactionEntity>
+
+    @Query("SELECT * FROM transactions WHERE rawNotificationText = :rawText AND isDemo = 0 LIMIT 1")
+    suspend fun findByRawText(rawText: String): TransactionEntity?
+
+    @Query("""
+        SELECT * FROM transactions
+        WHERE amount = :amount AND isDemo = 0 AND isExcluded = 0 AND dateTime BETWEEN :since AND :until
+        ORDER BY dateTime DESC
+    """)
+    suspend fun findRecentSimilarExpenses(amount: Double, since: Long, until: Long): List<TransactionEntity>
+
     @Query("SELECT * FROM transactions ORDER BY dateTime DESC")
     suspend fun getAllTransactionsSync(): List<TransactionEntity>
 
@@ -144,6 +160,7 @@ interface TransactionDao {
         WHERE syncedToCloud = 0 AND isExcluded = 0 AND isDemo = 0 AND needsCloudDelete = 0
             AND transactionType IN ('EXPENSE', 'INCOME', 'CASH_WITHDRAWAL')
             AND needsReview = 0
+            AND amount > 0
         ORDER BY dateTime ASC
     """)
     suspend fun getUnsyncedExpenses(): List<TransactionEntity>

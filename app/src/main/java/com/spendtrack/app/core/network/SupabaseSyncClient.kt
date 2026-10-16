@@ -51,6 +51,9 @@ class SupabaseSyncClient(private val client: OkHttpClient = OkHttpClient()) {
         val rawSms = transaction.rawNotificationText?.take(500)
         // A partly refunded expense shows what was really spent.
         val amount = Math.round((transaction.amount - transaction.refundedAmount) * 100) / 100.0
+        if (amount <= 0.0) {
+            return Result.success(Unit) // Do not send invalid <= 0 amounts to Supabase
+        }
 
         val row = JSONObject().apply {
             put("amount", amount)

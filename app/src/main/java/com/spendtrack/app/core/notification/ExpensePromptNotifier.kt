@@ -93,6 +93,11 @@ object ExpensePromptNotifier {
         projects: List<String> = emptyList(),
         duplicateOf: TransactionEntity? = null
     ) {
+        if (transaction.amount <= 0.0 || transaction.isExcluded) {
+            dismiss(context, transaction.id)
+            return
+        }
+
         ensureChannel(context)
 
         val notificationId = notificationIdFor(transaction.id)
@@ -134,36 +139,27 @@ object ExpensePromptNotifier {
             .setDeleteIntent(dismissIntent(context, transaction.id, notificationId))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
-            .setAutoCancel(false)
+            .setAutoCancel(true)
             .setOnlyAlertOnce(!alert)
             .setSilent(!alert)
 
-        // Android displays up to 3 action buttons:
+        // Android displays up to 3 action buttons: always provide Personal/Family/Trip and Discard
         if (effectiveTrip != null && effectiveProject != null) {
-            // Collision case: both Trip and Project are active! Give 1-tap choice right on notification:
-            builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_PERSONAL, "👤 Personal"))
             builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_TRIP, "✈️ $effectiveTrip", tripName = effectiveTrip))
-            builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_PROJECT, "🔨 $effectiveProject", projectName = effectiveProject))
+            builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_PERSONAL, "👤 Personal"))
+            builder.addAction(discardAction(context, transaction.id, notificationId))
+        } else if (effectiveTrip != null) {
+            builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_TRIP, "✈️ $effectiveTrip", tripName = effectiveTrip))
+            builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_PERSONAL, "👤 Personal"))
+            builder.addAction(discardAction(context, transaction.id, notificationId))
         } else if (effectiveProject != null) {
-            builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_PERSONAL, "👤 Personal"))
-            builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_FAMILY, "🏠 Family"))
             builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_PROJECT, "🔨 $effectiveProject", projectName = effectiveProject))
-        } else if (knownProjects.isNotEmpty() && knownTrips.isEmpty()) {
             builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_PERSONAL, "👤 Personal"))
-            builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_FAMILY, "🏠 Family"))
-            if (knownProjects.size == 1) {
-                builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_PROJECT, "🔨 Projects", projectName = knownProjects.single()))
-            } else {
-                builder.addAction(projectPickerAction(context, transaction.id, notificationId, "🔨 Projects"))
-            }
+            builder.addAction(discardAction(context, transaction.id, notificationId))
         } else {
             builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_PERSONAL, "👤 Personal"))
             builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_FAMILY, "🏠 Family"))
-            if (knownTrips.size == 1) {
-                builder.addAction(scopeAction(context, transaction.id, notificationId, SCOPE_TRIP, "✈️ Trips", tripName = knownTrips.single()))
-            } else {
-                builder.addAction(tripPickerAction(context, transaction.id, notificationId, "✈️ Trips"))
-            }
+            builder.addAction(discardAction(context, transaction.id, notificationId))
         }
 
         NotificationManagerCompat.from(context).notify(notificationId, builder.build())
@@ -195,13 +191,17 @@ object ExpensePromptNotifier {
             .setDeleteIntent(dismissIntent(context, transaction.id, notificationId))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
-            .setAutoCancel(false)
+            .setAutoCancel(true)
             .setOnlyAlertOnce(!alert)
             .setSilent(!alert)
             .addAction(simpleAction(context, transaction.id, notificationId, QuickActionReceiver.ACTION_SAME_PAYMENT, "✅ Same payment"))
             .addAction(simpleAction(context, transaction.id, notificationId, QuickActionReceiver.ACTION_NOT_DUPLICATE, "➕ Different payment"))
+            .addAction(discardAction(context, transaction.id, notificationId))
         NotificationManagerCompat.from(context).notify(notificationId, builder.build())
     }
+
+    fun discardAction(context: Context, transactionId: String, notificationId: Int): NotificationCompat.Action =
+        simpleAction(context, transactionId, notificationId, QuickActionReceiver.ACTION_DISCARD, "🚫 Discard")
 
     private fun simpleAction(context: Context, transactionId: String, notificationId: Int, action: String, label: String): NotificationCompat.Action {
         val intent = Intent(context, QuickActionReceiver::class.java).apply {
@@ -279,7 +279,7 @@ object ExpensePromptNotifier {
         projects: List<String> = emptyList(),
         duplicateOf: TransactionEntity? = null
     ) {
-        if (txn.isExcluded || txn.transactionType != com.spendtrack.app.core.model.TransactionType.EXPENSE) return
+        if (txn.isExcluded || txn.transactionType != com.spendtrack.app.core.model.TransactionType.EXPENSE || txn.amount <= 0.0) return
         if (txn.needsReview) {
             show(
                 context, txn,
