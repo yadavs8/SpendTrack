@@ -82,5 +82,6 @@ object ServiceLocator {
         if (appContext == null) {
             appContext = context.applicationContext
         }
+        com.spendtrack.app.core.network.SharedSession.init(context)
     }
 }

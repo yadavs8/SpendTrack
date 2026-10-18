@@ -2,6 +2,7 @@ package com.spendtrack.app.data.repository
 
 import com.spendtrack.app.core.logger.SafeLogger
 import com.spendtrack.app.core.network.SupabaseAuthClient
+import com.spendtrack.app.core.network.SharedSession
 import com.spendtrack.app.core.network.SupabaseSyncClient
 import com.spendtrack.app.data.database.dao.TransactionDao
 import com.spendtrack.app.data.datastore.SettingsManager
@@ -54,8 +55,8 @@ class CloudSyncRepository(
      * off, not signed in, or there's nothing ready to send.
      */
     suspend fun syncPending() {
-        if (!settingsManager.isCloudSyncEnabled.first()) return
-        val accessToken = settingsManager.cloudSyncAccessToken.first() ?: return
+        if (!canSync()) return
+        val accessToken = currentToken() ?: return
 
         syncMutex.withLock {
             var token = accessToken
@@ -178,7 +179,7 @@ class CloudSyncRepository(
      * signed out, offline, or before the kharcha_settings table exists.
      */
     suspend fun refreshSharedSettings() {
-        if (!settingsManager.isCloudSyncEnabled.first()) return
+        if (!canSync()) return
         val server = withFreshToken { token -> syncClient.fetchSettings(token) }?.getOrNull()
         val local = settingsManager.sharedSettingsFlow.first()
         if (server == null) {
@@ -194,14 +195,14 @@ class CloudSyncRepository(
     }
 
     suspend fun pushSharedSettings(doc: org.json.JSONObject) {
-        if (!settingsManager.isCloudSyncEnabled.first()) return
+        if (!canSync()) return
         val result = withFreshToken { token -> syncClient.pushSettings(token, doc) }
         result?.exceptionOrNull()?.let { SafeLogger.e("Settings push failed", it as? Exception) }
     }
 
     /** Runs a Supabase call, refreshing an expired session once. Null when not signed in. */
     private suspend fun <T> withFreshToken(call: (String) -> Result<T>): Result<T>? {
-        val token = settingsManager.cloudSyncAccessToken.first() ?: return null
+        val token = currentToken() ?: return null
         var result = withContext(Dispatchers.IO) { call(token) }
         if (result.isFailure && isUnauthorized(result.exceptionOrNull())) {
             val fresh = refreshAccessToken() ?: return result
@@ -250,8 +251,8 @@ class CloudSyncRepository(
 
     /** Signed-in access token, refreshed if needed; null when Cloud Sync is off or signed out. */
     suspend fun freshToken(): String? {
-        if (!settingsManager.isCloudSyncEnabled.first()) return null
-        val token = settingsManager.cloudSyncAccessToken.first() ?: return null
+        if (!canSync()) return null
+        val token = currentToken() ?: return null
         val probe = withContext(Dispatchers.IO) { syncClient.fetchRows(token, 0L, 1L) }
         if (probe.isFailure && isUnauthorized(probe.exceptionOrNull())) return refreshAccessToken()
         return token
@@ -263,7 +264,64 @@ class CloudSyncRepository(
         return withContext(Dispatchers.IO) { syncClient.fetchRows(token, from, to) }.getOrNull()
     }
 
-    private suspend fun refreshAccessToken(): String? {
+    private val authMutex = Mutex()
+
+    /** Is there any way to sync: Kharcha Book's own sign-in on this phone, or the older Cloud Sync login? */
+    suspend fun canSync(): Boolean =
+        SharedSession.current() != null ||
+            (settingsManager.isCloudSyncEnabled.first() && settingsManager.cloudSyncAccessToken.first() != null)
+
+    /**
+     * A usable access token. Kharcha Book's sign-in comes first -- signing in there is all the phone
+     * needs -- and it's renewed a couple of minutes before it expires. The separate Cloud Sync login
+     * is only a fallback for when Kharcha Book isn't signed in.
+     */
+    private suspend fun currentToken(): String? {
+        val shared = SharedSession.current()
+        if (shared != null) {
+            val left = shared.expiresAt - System.currentTimeMillis() / 1000
+            if (shared.expiresAt > 0 && left > 120) return shared.accessToken
+            return refreshAccessToken() ?: shared.accessToken.takeIf { left > 0 }
+        }
+        if (!settingsManager.isCloudSyncEnabled.first()) return null
+        return settingsManager.cloudSyncAccessToken.first()
+    }
+
+    private suspend fun refreshAccessToken(): String? = authMutex.withLock {
+        val shared = SharedSession.current()
+        if (shared != null) return@withLock refreshShared(shared)
+        refreshLegacy()
+    }
+
+    /**
+     * Renews Kharcha Book's shared session and stores it where the page reads it. If the page renewed
+     * it a moment ago, the stored session is already newer -- use that instead of renewing again.
+     */
+    private suspend fun refreshShared(seen: SharedSession.Session): String? {
+        val result = withContext(Dispatchers.IO) { authClient.refreshSession(seen.refreshToken) }
+        result.getOrNull()?.let { session ->
+            SharedSession.saveRenewed(session.rawJson)
+            settingsManager.setCloudSyncError(null)
+            return session.accessToken
+        }
+        val latest = SharedSession.current()
+        if (latest != null && latest.refreshToken != seen.refreshToken) return latest.accessToken // page renewed it first
+        val signedOut = result.exceptionOrNull() is com.spendtrack.app.core.network.AuthRejectedException
+        settingsManager.setCloudSyncError(
+            if (signedOut) "Signed out of Kharcha Book. Open Kharcha Book and sign in once; syncing resumes on its own."
+            else "Couldn't reach Kharcha Book (offline?). Will retry automatically."
+        )
+        if (signedOut && settingsManager.claimAlert("signedout|${System.currentTimeMillis() / (12L * 3600 * 1000)}")) {
+            com.spendtrack.app.data.di.ServiceLocator.contextOrNull()?.let {
+                com.spendtrack.app.core.notification.ExpensePromptNotifier.showSyncProblem(
+                    it, "You are signed out, so new payments are NOT reaching Kharcha Book. Open Kharcha Book and sign in; that's all the phone needs."
+                )
+            }
+        }
+        return null
+    }
+
+    private suspend fun refreshLegacy(): String? {
         val refreshToken = settingsManager.cloudSyncRefreshToken.first() ?: return null
         val result = withContext(Dispatchers.IO) { authClient.refreshSession(refreshToken) }
         return result.fold(
@@ -285,7 +343,7 @@ class CloudSyncRepository(
                 if (signedOut && settingsManager.claimAlert("signedout|${System.currentTimeMillis() / (12L * 3600 * 1000)}")) {
                     com.spendtrack.app.data.di.ServiceLocator.contextOrNull()?.let {
                         com.spendtrack.app.core.notification.ExpensePromptNotifier.showSyncProblem(
-                            it, "You are signed out, so new payments are NOT reaching Kharcha Book. Open the app, tap ⚙️ > Cloud Sync and sign in again."
+                            it, "You are signed out, so new payments are NOT reaching Kharcha Book. Open Kharcha Book and sign in; that's all the phone needs."
                         )
                     }
                 }

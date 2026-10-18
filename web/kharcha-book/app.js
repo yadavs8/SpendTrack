@@ -7030,13 +7030,36 @@
       console.warn('Kharcha: Supabase config or script missing');
       showScreen('setup'); return;
     }
-    sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, {
-      auth: {
-        lock: async function (name, acquireTimeout, fn) {
-          return await fn();
-        }
+    // Inside the phone app, keep the sign-in in the app (KharchaNative.auth*Item) rather than the
+    // WebView's storage: the background sync then uses this very session, so signing in here once is
+    // all the phone needs -- no separate Cloud Sync login. An existing WebView session moves across
+    // on first read, so nobody has to sign in again.
+    var NB = window.KharchaNative;
+    var nativeAuthStorage = (NB && typeof NB.authGetItem === 'function') ? {
+      getItem: function (k) {
+        var v = NB.authGetItem(k);
+        if (v != null && v !== '') return v;
+        var old = null;
+        try { old = localStorage.getItem(k); } catch (e) {}
+        if (old) { NB.authSetItem(k, old); return old; }
+        return null;
+      },
+      setItem: function (k, v) {
+        NB.authSetItem(k, v);
+        try { localStorage.setItem(k, v); } catch (e) {}
+      },
+      removeItem: function (k) {
+        NB.authRemoveItem(k);
+        try { localStorage.removeItem(k); } catch (e) {}
       }
-    });
+    } : undefined;
+    var authOpts = {
+      lock: async function (name, acquireTimeout, fn) {
+        return await fn();
+      }
+    };
+    if (nativeAuthStorage) authOpts.storage = nativeAuthStorage;
+    sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, { auth: authOpts });
     console.log('Kharcha: Supabase client created');
     await detectLock();
     console.log('Kharcha: detectLock done, lockSupported=' + lockSupported);

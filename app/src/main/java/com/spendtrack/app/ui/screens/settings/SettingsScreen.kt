@@ -817,7 +817,36 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.height(12.dp))
 
                         val cloudSyncEmail = uiState.cloudSyncEmail
-                        if (cloudSyncEmail == null) {
+                        // Kharcha Book's own sign-in (shared with the app) makes a separate login unnecessary.
+                        val linked = remember(uiState.cloudSyncLastSuccessAt, uiState.cloudSyncLastError) {
+                            com.spendtrack.app.core.network.SharedSession.current()
+                        }
+                        if (linked != null) {
+                            Text(
+                                "✓ Using your Kharcha Book sign-in" + (linked.email?.let { " ($it)" } ?: "") + ". Nothing to log in here: it stays signed in and syncs on its own.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                uiState.cloudSyncLastError
+                                    ?: uiState.cloudSyncLastSuccessAt?.let {
+                                        "Last synced " + java.text.SimpleDateFormat("d MMM, h:mm a", java.util.Locale.getDefault()).format(java.util.Date(it))
+                                    }
+                                    ?: "Syncs automatically",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (uiState.cloudSyncLastError != null) CoralRed else MaterialTheme.colorScheme.outline
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            OutlinedButton(
+                                onClick = {
+                                    viewModel.syncCloudNow {
+                                        coroutineScope.launch { snackbarHostState.showSnackbar("Sync complete") }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = !uiState.isCloudSyncBusy
+                            ) { Text("Sync Now") }
+                        } else if (cloudSyncEmail == null) {
                             Button(
                                 onClick = { showCloudSignInDialog = true },
                                 modifier = Modifier.fillMaxWidth(),

@@ -64,9 +64,9 @@ object ExpenseFiler {
         // "✅ Logged" alone is misleading if it never reached Kharcha Book -- say so.
         val settings = ServiceLocator.settingsManager
         val stillLocal = repo.getTransactionById(transactionId)?.let { !it.syncedToCloud && it.transactionType.isExpense } ?: false
-        if (stillLocal && settings.isCloudSyncEnabled.first()) {
+        if (stillLocal) {
             val reason = settings.cloudSyncLastError.first()
-                ?: if (settings.cloudSyncAccessToken.first() == null) "Cloud Sync is not signed in." else null
+                ?: if (!ServiceLocator.cloudSyncRepository.canSync()) "Kharcha Book isn't signed in on this phone. Open it and sign in once." else null
             if (reason != null) ExpensePromptNotifier.showSyncProblem(context, reason)
         }
     }

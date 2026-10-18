@@ -140,6 +140,7 @@ fun KharchaWebViewScreen(
     AndroidView(
         modifier = modifier.fillMaxSize(),
         factory = { context ->
+            val loadedUrl = java.util.concurrent.atomic.AtomicReference<String?>(KHARCHA_BOOK_URL)
             WebView(context).apply {
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
@@ -239,6 +240,9 @@ fun KharchaWebViewScreen(
                 val view = this
                 addJavascriptInterface(object {
                     private fun fromKharcha(): Boolean = view.url?.startsWith(KHARCHA_BOOK_ORIGIN) == true
+                    // Bridge calls arrive on a background thread, where view.url can't be read;
+                    // the page address is mirrored here by the WebViewClient instead.
+                    private fun fromKharchaNow(): Boolean = loadedUrl.get()?.startsWith(KHARCHA_BOOK_ORIGIN) == true
 
                     @JavascriptInterface
                     fun openSettings() {
@@ -303,6 +307,25 @@ fun KharchaWebViewScreen(
                         }
                     }
 
+                    // Kharcha Book's sign-in lives in the app (SharedSession), not the WebView's storage,
+                    // so the background sync uses the very same session -- one sign-in, no second login.
+                    // Synchronous on purpose (supabase-js storage is called in-line). Only Supabase keys.
+                    @JavascriptInterface
+                    fun authGetItem(key: String?): String? =
+                        if (key != null && key.startsWith("sb-") && fromKharchaNow()) com.spendtrack.app.core.network.SharedSession.getItem(key) else null
+
+                    @JavascriptInterface
+                    fun authSetItem(key: String?, value: String?) {
+                        if (key == null || value == null || !key.startsWith("sb-") || value.length > 100_000 || !fromKharchaNow()) return
+                        com.spendtrack.app.core.network.SharedSession.setItem(key, value)
+                    }
+
+                    @JavascriptInterface
+                    fun authRemoveItem(key: String?) {
+                        if (key == null || !key.startsWith("sb-") || !fromKharchaNow()) return
+                        com.spendtrack.app.core.network.SharedSession.removeItem(key)
+                    }
+
                     @JavascriptInterface
                     fun reportSummary(json: String?) {
                         if (json.isNullOrBlank() || json.length > 20000) return // summary + recurring bills list
@@ -311,6 +334,10 @@ fun KharchaWebViewScreen(
                 }, "KharchaNative")
 
                 webViewClient = object : WebViewClient() {
+                    override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
+                        loadedUrl.set(url)
+                    }
+
                     // Kharcha Book stays in here; everything else (WhatsApp "Ask" links, upi:// pay
                     // links, tel:, mailto:, other sites) goes to the app that handles it. Without this
                     // the WebView tried to load wa.me itself and died on its whatsapp:// redirect.
