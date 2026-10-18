@@ -96,6 +96,25 @@ class SupabaseSyncClient(private val client: OkHttpClient = OkHttpClient()) {
         }
     }
 
+    /** The description Kharcha Book already has for this bank/UPI ref, or null when it has no such row. */
+    fun fetchDescriptionByRef(accessToken: String, refNo: String): Result<String?> {
+        val url = "${SupabaseConfig.SUPABASE_URL}/rest/v1/daily_expenses?select=description&limit=1&ref_no=eq.${java.net.URLEncoder.encode(refNo, "UTF-8")}"
+        val request = Request.Builder()
+            .url(url)
+            .addHeader("apikey", SupabaseConfig.SUPABASE_ANON_KEY)
+            .addHeader("Authorization", "Bearer $accessToken")
+            .get()
+            .build()
+        return runCatching {
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) throw IOException("Lookup failed (${response.code}): $body")
+                val arr = JSONArray(body)
+                if (arr.length() == 0) null else arr.getJSONObject(0).optString("description").takeIf { it.isNotBlank() }
+            }
+        }
+    }
+
     /**
      * Removes a row that no longer belongs in Kharcha Book (became a transfer, or fully refunded).
      * Only by ref_no -- never by guessing -- so nothing the user typed in can be deleted.

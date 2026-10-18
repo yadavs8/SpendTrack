@@ -34,6 +34,8 @@ class TransactionRepository(
     companion object {
         /** A merchant is filed automatically once answered the same way this many times in a row. */
         const val AUTO_FILE_AFTER_ANSWERS = 2
+        /** An active trip/project auto-files only payments at most this old (see ingestTransaction). */
+        const val FRESH_FOR_TRIP_MS = 3L * 60 * 60 * 1000
         /** Shared setting holding Kharcha Book's rules (payee words, day, amount, scope). */
         const val KNOWN_PAYEES_KEY = "kharcha_rules"
     }
@@ -228,8 +230,12 @@ class TransactionRepository(
         val activeProject = runCatching { settingsManager?.activeProjectNameFlow?.first() }.getOrNull()
         val isProjectPaused = runCatching { settingsManager?.isProjectPausedFlow?.first() }.getOrNull() ?: false
 
-        val effectiveTrip = if (!isTripPaused && !activeTrip.isNullOrBlank()) activeTrip else null
-        val effectiveProject = if (!isProjectPaused && !activeProject.isNullOrBlank()) activeProject else null
+        // A trip/project only catches payments made while it's running -- not old messages re-read
+        // later (missed-message catch-up, or a reinstall reading the inbox again). Re-reads after a
+        // reset once filed two weeks of daily spends into a project started days later.
+        val isFresh = txn.dateTime >= now - FRESH_FOR_TRIP_MS
+        val effectiveTrip = if (isFresh && !isTripPaused && !activeTrip.isNullOrBlank()) activeTrip else null
+        val effectiveProject = if (isFresh && !isProjectPaused && !activeProject.isNullOrBlank()) activeProject else null
 
         val merchantKey = (txn.merchantName?.takeUnless { isPlaceholderMerchant(it) }) ?: txn.merchantVpa
         val rule = if (!merchantKey.isNullOrBlank()) merchantRuleRepository.findMatchingRule(merchantKey) else null
