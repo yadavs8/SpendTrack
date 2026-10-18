@@ -72,6 +72,38 @@ internal fun openExternally(context: Context, url: String) {
     }
 }
 
+/**
+ * WebViews ignore `<a download>`. Pages make downloads by clicking such a link (often to a blob:
+ * URL), so this patches the click: the file is read in the page and handed to
+ * KharchaNative.shareBase64 -> Android's share sheet (save to Files/Drive, send on WhatsApp).
+ * Installed once per page load; harmless if the page never downloads anything.
+ */
+private const val DOWNLOAD_BRIDGE_JS = """
+(function () {
+  if (window.__kharchaDownloadBridge || !window.KharchaNative || !window.KharchaNative.shareBase64) return;
+  window.__kharchaDownloadBridge = true;
+  // Pages revoke the blob: URL right after click(); keep each blob so it can still be read.
+  var blobs = {}, origCreate = URL.createObjectURL;
+  URL.createObjectURL = function (obj) { var u = origCreate.call(URL, obj); if (obj instanceof Blob) blobs[u] = obj; return u; };
+  var orig = HTMLAnchorElement.prototype.click;
+  HTMLAnchorElement.prototype.click = function () {
+    var a = this;
+    if (!a.hasAttribute('download') || !a.href) return orig.apply(a, arguments);
+    var name = a.getAttribute('download') || 'kharcha-file';
+    var kept = blobs[a.href];
+    (kept ? Promise.resolve(kept) : fetch(a.href).then(function (r) { return r.blob(); })).then(function (blob) {
+      delete blobs[a.href];
+      var fr = new FileReader();
+      fr.onload = function () {
+        var s = String(fr.result || ''), i = s.indexOf(',');
+        window.KharchaNative.shareBase64(name, blob.type || '', i >= 0 ? s.slice(i + 1) : s);
+      };
+      fr.readAsDataURL(blob);
+    }).catch(function () { orig.apply(a, []); });
+  };
+})();
+"""
+
 /** The Kharcha Book Supabase-backed web app the whole UI now lives inside. */
 const val KHARCHA_BOOK_URL = "https://yadavs8.github.io/SpendTrack/web/kharcha-book/"
 private const val KHARCHA_BOOK_ORIGIN = "https://yadavs8.github.io"
@@ -160,6 +192,32 @@ fun KharchaWebViewScreen(
                         return true
                     }
 
+                    // <input type="file">: receipt photos, "Restore backup". Without this the WebView
+                    // silently ignores the tap -- one reason a second (Chrome) copy of the app was needed.
+                    override fun onShowFileChooser(view: WebView, callback: android.webkit.ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean {
+                        val activity = view.context as? androidx.activity.ComponentActivity
+                        if (activity == null) { callback.onReceiveValue(null); return false }
+                        val launcher = arrayOfNulls<androidx.activity.result.ActivityResultLauncher<Intent>>(1)
+                        launcher[0] = activity.activityResultRegistry.register(
+                            "kharcha_file_" + System.nanoTime(),
+                            androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+                        ) { result ->
+                            val uris = FileChooserParams.parseResult(result.resultCode, result.data)
+                            callback.onReceiveValue(uris)
+                            launcher[0]?.unregister()
+                        }
+                        val intent = runCatching { params.createIntent() }.getOrNull()
+                            ?: Intent(Intent.ACTION_GET_CONTENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+                        return try {
+                            launcher[0]!!.launch(intent)
+                            true
+                        } catch (e: Exception) {
+                            launcher[0]?.unregister()
+                            callback.onReceiveValue(null)
+                            false
+                        }
+                    }
+
                     // A target="_blank" link or window.open(): catch the URL in a throwaway WebView
                     // and hand it to the right app instead of opening a window we can't show.
                     override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message): Boolean {
@@ -223,6 +281,28 @@ fun KharchaWebViewScreen(
                         }
                     }
 
+                    /** Any download (backup JSON, month report image, trip export) as base64 -> share sheet. */
+                    @JavascriptInterface
+                    fun shareBase64(fileName: String?, mimeType: String?, base64: String?) {
+                        if (base64.isNullOrBlank() || base64.length > 20_000_000) return
+                        val safeName = (fileName ?: "kharcha-file").replace(Regex("[^A-Za-z0-9._-]"), "_").take(80)
+                        main.post {
+                            if (!fromKharcha()) return@post
+                            runCatching {
+                                val bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
+                                val dir = java.io.File(view.context.cacheDir, "exports").apply { mkdirs() }
+                                val file = java.io.File(dir, safeName).apply { writeBytes(bytes) }
+                                val uri = androidx.core.content.FileProvider.getUriForFile(view.context, "${view.context.packageName}.fileprovider", file)
+                                val send = Intent(Intent.ACTION_SEND).apply {
+                                    type = mimeType?.takeIf { it.isNotBlank() } ?: "application/octet-stream"
+                                    putExtra(Intent.EXTRA_STREAM, uri)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                view.context.startActivity(Intent.createChooser(send, "Save or share $safeName").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                            }.onFailure { SafeLogger.e("File share failed", it as? Exception) }
+                        }
+                    }
+
                     @JavascriptInterface
                     fun reportSummary(json: String?) {
                         if (json.isNullOrBlank() || json.length > 20000) return // summary + recurring bills list
@@ -248,6 +328,7 @@ fun KharchaWebViewScreen(
                     }
 
                     override fun onPageFinished(view: WebView, url: String?) {
+                        if (url?.startsWith(KHARCHA_BOOK_ORIGIN) == true) view.evaluateJavascript(DOWNLOAD_BRIDGE_JS, null)
                         pageReady(url?.startsWith(KHARCHA_BOOK_ORIGIN) == true)
                     }
                 }

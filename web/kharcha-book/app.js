@@ -7077,8 +7077,13 @@
 
   /* ---------- PWA Installation Handler ---------- */
   var deferredPrompt = null;
+  // On Android the real Kharcha Book app (SpendTrack) is the app: offering Chrome's web-app install
+  // too put a second "Kharcha Book" icon on the phone. Swallow Chrome's prompt there; offer it on
+  // desktop only.
+  var IS_ANDROID_DEVICE = /android/i.test(navigator.userAgent || '');
   window.addEventListener('beforeinstallprompt', function (ev) {
     ev.preventDefault();
+    if (IS_ANDROID_DEVICE) return;
     deferredPrompt = ev;
     var btn = $('install-btn');
     if (btn) btn.hidden = false;
