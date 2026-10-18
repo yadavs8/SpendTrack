@@ -27,6 +27,11 @@ class CloudSyncRepository(
 ) {
     private val syncMutex = Mutex()
 
+    companion object {
+        /** A row created this long after its payment is a re-read of an old message (see syncPending). */
+        const val REREAD_AFTER_MS = 6L * 60 * 60 * 1000
+    }
+
     suspend fun signIn(email: String, password: String): Result<Unit> {
         val result = withContext(Dispatchers.IO) { authClient.signInWithPassword(email, password) }
         return result.fold(
@@ -127,6 +132,23 @@ class CloudSyncRepository(
                     transactionDao.markSynced(transaction.id)
                     continue
                 }
+                // A row created long after its payment is a re-read of an old message (catch-up after
+                // a reinstall/reset). If Kharcha Book already has that payment, its label is the user's
+                // -- take it, never overwrite it. (A re-read once replaced two weeks of labels.)
+                val ref = (transaction.upiReference ?: transaction.bankReference)?.takeIf { it.isNotBlank() }
+                if (ref != null && transaction.createdAt - transaction.dateTime > REREAD_AFTER_MS) {
+                    val existing = withContext(Dispatchers.IO) { syncClient.fetchDescriptionByRef(token, ref) }
+                    if (existing.isFailure) continue // can't tell yet: try again next sync, don't risk overwriting
+                    val cloudDesc = existing.getOrNull()
+                    if (cloudDesc != null) {
+                        transactionDao.updateTransaction(
+                            transaction.copy(description = cloudDesc, isEdited = true, needsReview = false,
+                                syncedToCloud = true, updatedAt = System.currentTimeMillis())
+                        )
+                        continue
+                    }
+                }
+
                 var result = withContext(Dispatchers.IO) { syncClient.upsertExpense(token, transaction) }
 
                 if (result.isFailure && isUnauthorized(result.exceptionOrNull())) {

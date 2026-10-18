@@ -33,6 +33,9 @@ object TransactionParser {
 
     // Patterns for merchant extraction
     private val MERCHANT_PATTERNS = listOf(
+        // ICICI card: "...Card XX1014 on 12-Oct-26 at Airbnb Payments." / "...on 03-Oct-26 on AMAZON PAY IN E. Avl Limit"
+        // Checked first: these SMS end with "SMS BLOCK 1014 to 9215676766", which the generic "to" pattern grabs.
+        Regex("""(?i)\bcard\b[^;]{0,40}?\bon\s+\d{1,2}[-/ ][A-Za-z0-9]{2,3}[-/ ]\d{2,4}\s+(?:at|on)\s+([A-Za-z0-9][A-Za-z0-9 &'\-_*]{1,40}?)\s*(?:\.(?:\s|$)|$)"""),
         // ICICI: "Acct XX602 debited for Rs 90.00 on 05-Oct-26; Piyush Yadav credited."
         Regex("""(?i);\s*([a-zA-Z][a-zA-Z0-9\s&.\-_']{1,40}?)\s+credited"""),
         Regex("""(?i)(?:paid\s*to|sent\s*to|transfer\s*to|to\s*VPA|to)\s+([a-zA-Z0-9\s&.\-_]+?)(?:\s+(?:on|via|using|ref|utr|through|from|for|dated|\.|$))"""),
@@ -337,12 +340,16 @@ object TransactionParser {
         return null
     }
 
+    // A phone number or the bank's own footer ("9215676766. To Convert This Txn To Emi..."), not a payee.
+    private val NOT_A_MERCHANT = Regex("""(?i)^\d{6,}|missed call|convert this|sms block|\bdispute\b|call \d""")
+
     private fun extractMerchant(text: String, vpa: String?): String? {
         for (pattern in MERCHANT_PATTERNS) {
             val match = pattern.find(text)
             if (match != null) {
                 val candidate = match.groupValues[1].trim()
-                if (candidate.isNotBlank() && candidate.length > 1 && !candidate.equals("vpa", ignoreCase = true)) {
+                if (candidate.isNotBlank() && candidate.length > 1 && !candidate.equals("vpa", ignoreCase = true) &&
+                    !NOT_A_MERCHANT.containsMatchIn(candidate)) {
                     return candidate
                 }
             }
