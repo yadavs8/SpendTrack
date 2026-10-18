@@ -34,6 +34,11 @@ class DataRepairRegressionTest {
         assertNull("the bank's EMI-conversion footer is not a Flat EMI payment", r)
     }
 
+    // Real SMS recorded as a ₹1,199.50 spend called "Be Debited": it's a reminder of a future debit.
+    @Test fun standingInstructionReminder_isNotASpend() {
+        assertNull(TransactionParser.parse("ICICIT", "AX-ICICIT-T Payment of INR 1199.50 towards Merchant Tickertape to be debited from ICICI Bank Credit Card 1014, as per Standing Instruction ICmFNfOZby, is due by 16/10/2026. To cancel this debit or your Standing Instructions, visit www.icici.bank.in"))
+    }
+
     @Test fun realEmiPayment_stillMatches() {
         val r = KnownPayees.match("HDFC Home Loan", null, "Rs 31,000 debited from A/c XX8749 towards Flat EMI on 05-10-26", 31000.0, System.currentTimeMillis(), KnownPayees.defaults())
         assertEquals("Flat EMI", r?.name)

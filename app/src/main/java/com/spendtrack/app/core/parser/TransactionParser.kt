@@ -73,7 +73,7 @@ object TransactionParser {
     // words below can. When in doubt here, the right call is to NOT record it: a missed real expense
     // is far less harmful than a phantom one that never happened.
     private val NOT_YET_COMPLETED_REGEX = Regex(
-        """(?i)\b(?:will\s+be\s+(?:debited|deducted|charged|executed)|scheduled\s+(?:on|for)|due\s+on|upcoming\s+payment|payment\s+reminder|collect\s+request|payment\s+request|has\s+requested|requested\s+(?:a\s+payment\s+of|rs\.?|inr|₹)|awaiting\s+(?:your\s+)?approval|enter\s+(?:your\s+)?upi\s+pin|approve\s+(?:this\s+|the\s+)?(?:payment|transaction|request)|tap\s+to\s+pay)\b"""
+        """(?i)\b(?:(?:will|to)\s+be\s+(?:debited|deducted|charged|executed)|is\s+due\s+(?:by|on)|scheduled\s+(?:on|for)|due\s+on|upcoming\s+payment|payment\s+reminder|collect\s+request|payment\s+request|has\s+requested|requested\s+(?:a\s+payment\s+of|rs\.?|inr|₹)|awaiting\s+(?:your\s+)?approval|enter\s+(?:your\s+)?upi\s+pin|approve\s+(?:this\s+|the\s+)?(?:payment|transaction|request)|tap\s+to\s+pay)\b"""
     )
 
     /** True for scheduled/pending/requested payments that have not actually completed yet. */
