@@ -14,7 +14,9 @@ data class SupabaseSession(
     val accessToken: String,
     val refreshToken: String,
     val userId: String,
-    val email: String
+    val email: String,
+    /** The whole response: what supabase-js stores as its session (see SharedSession.saveRenewed). */
+    val rawJson: String = ""
 )
 
 /**
@@ -81,7 +83,8 @@ class SupabaseAuthClient(private val client: OkHttpClient = OkHttpClient()) {
             accessToken = json.getString("access_token"),
             refreshToken = json.getString("refresh_token"),
             userId = user.getString("id"),
-            email = user.optString("email", "")
+            email = user.optString("email", ""),
+            rawJson = text
         )
     }
 
