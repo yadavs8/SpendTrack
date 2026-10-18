@@ -196,7 +196,7 @@ interface TransactionDao {
             AND dateTime BETWEEN :since AND :until
             AND amount - refundedAmount >= :amount - 0.005
         ORDER BY dateTime DESC
-        LIMIT 50
+        LIMIT 300
     """)
     suspend fun findRefundCandidates(amount: Double, since: Long, until: Long): List<TransactionEntity>
 

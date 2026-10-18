@@ -4763,6 +4763,36 @@
     }).catch(function () {});
   }
 
+  /** Keeps the shared trip ledger in step with your own entries after the phone changed them
+     (a refund lowers a booking, or removes it when fully refunded). The ledger can only add and
+     delete, so a changed amount is re-added. Only rows this device mirrored (the map) are touched,
+     and only after a complete load -- never by guessing. Best-effort and silent. */
+  var reconcilingMirrors = false;
+  async function reconcileTripMirrors() {
+    if (!sb || reconcilingMirrors || !state.entries || !state.entries.length) return;
+    var map = loadTripMirrorMap(), localIds = Object.keys(map);
+    if (!localIds.length) return;
+    reconcilingMirrors = true;
+    try {
+      var mirrorIds = localIds.map(function (k) { return map[k]; });
+      var res = await sb.from('trip_expenses').select('id, amount, spent_at').in('id', mirrorIds);
+      if (res.error || !res.data) return;
+      var byId = {};
+      res.data.forEach(function (r) { byId[r.id] = r; });
+      for (var i = 0; i < localIds.length; i++) {
+        var localId = localIds[i], mirror = byId[map[localId]];
+        if (!mirror) continue; // already gone from the ledger
+        var entry = state.entries.find(function (e) { return e.id === localId; });
+        if (!entry) { deleteTripMirrorIfAny(localId); continue; } // fully refunded / deleted
+        if (Math.abs(Number(mirror.amount) - Number(entry.amount)) < 0.01) continue;
+        var tripName = extractTripNameFromDesc(entry.desc);
+        if (!tripName) continue;
+        deleteTripMirrorIfAny(localId);
+        mirrorOwnerTripExpense(tripName, entry.amount, cleanScopePrefix(entry.desc), new Date(entry.ts).toISOString(), entry.id, parseTripSplit(entry.desc));
+      }
+    } catch (e) { /* best-effort */ } finally { reconcilingMirrors = false; }
+  }
+
   /** Catches up the shared ledger with everything already logged for this trip locally, before
      mirroring existed (or from before this trip was ever shared) -- so inviting someone shows the
      whole trip's history, not just what gets added from today onward. Entries already mirrored
@@ -6901,6 +6931,7 @@
     try {
       var latest = await store.loadAll();
       state.entries = latest;
+      reconcileTripMirrors();
       // Pick up trips/budgets changed on the phone -- unless a local change is still waiting to save.
       if (!kv.timer) await kv.load();
       render();
@@ -7001,6 +7032,7 @@
       console.log('Kharcha: calling store.loadAll()');
       state.entries = await store.loadAll();
       console.log('Kharcha: store.loadAll completed with ' + state.entries.length + ' entries');
+      reconcileTripMirrors();
       state.mode = 'db';
       await kv.load();
       ensureRulesSeeded();
