@@ -258,6 +258,17 @@ class CloudSyncRepository(
         return token
     }
 
+    // ---- refunds applied straight to Kharcha Book (the phone may not remember older purchases) ----
+
+    suspend fun refundCandidates(from: Long, to: Long): List<SupabaseSyncClient.RefundCandidate>? =
+        if (!canSync()) null else withFreshToken { t -> syncClient.fetchRefundCandidates(t, from, to) }?.getOrNull()
+
+    suspend fun reduceCloudRow(id: String, amount: Double, description: String): Boolean =
+        withFreshToken { t -> syncClient.updateAmountById(t, id, amount, description) }?.isSuccess == true
+
+    suspend fun deleteCloudRow(id: String): Boolean =
+        withFreshToken { t -> syncClient.deleteById(t, id) }?.isSuccess == true
+
     /** The user's Kharcha Book rows in [from, to), for automations (budgets, summaries, settle-up). */
     suspend fun fetchCloudRows(from: Long, to: Long): List<SupabaseSyncClient.CloudRow>? {
         val token = freshToken() ?: return null

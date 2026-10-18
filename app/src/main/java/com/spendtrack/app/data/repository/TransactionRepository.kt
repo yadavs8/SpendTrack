@@ -1,6 +1,8 @@
 package com.spendtrack.app.data.repository
 
 import com.spendtrack.app.core.automation.KnownPayees
+import com.spendtrack.app.core.automation.RefundMatcher
+import com.spendtrack.app.data.di.ServiceLocator
 import com.spendtrack.app.core.categorizer.CategoryEngine
 import com.spendtrack.app.core.deduplication.DeduplicationEngine
 import com.spendtrack.app.core.model.ExpenseScope
@@ -36,6 +38,8 @@ class TransactionRepository(
         const val AUTO_FILE_AFTER_ANSWERS = 2
         /** An active trip/project auto-files only payments at most this old (see ingestTransaction). */
         const val FRESH_FOR_TRIP_MS = 3L * 60 * 60 * 1000
+        /** How far back a refund looks for the purchase it belongs to (bookings get refunded late). */
+        const val REFUND_LOOKBACK_MS = 120L * 24 * 60 * 60 * 1000
         /** Shared setting holding Kharcha Book's rules (payee words, day, amount, scope). */
         const val KNOWN_PAYEES_KEY = "kharcha_rules"
     }
@@ -201,7 +205,7 @@ class TransactionRepository(
 
         when (result.transaction.transactionType) {
             TransactionType.INCOME -> return@withLock DeduplicationEngine.DeduplicationResult.NewTransaction(fileIncome(result.transaction, parsed.incomeKind))
-            TransactionType.REFUND -> return@withLock DeduplicationEngine.DeduplicationResult.NewTransaction(fileRefund(result.transaction))
+            TransactionType.REFUND -> return@withLock DeduplicationEngine.DeduplicationResult.NewTransaction(fileRefund(result.transaction)!!)
             TransactionType.CASH_WITHDRAWAL -> {
                 val w = result.transaction.copy(
                     description = MoneyLabels.cashWithdrawal(result.transaction.bankName),
@@ -452,6 +456,12 @@ class TransactionRepository(
         } else {
             val family = ExpenseScope.parseOwners(runCatching { settingsManager?.familyPayersFlow?.first() }.getOrNull())
             val fromFamily = ExpenseScope.isFromPeople(txn.merchantName, txn.merchantVpa, family)
+            // A plain credit from a business you recently paid ("credited ... from MYNTRA DESIGNS") is
+            // that purchase being refunded, even when the bank doesn't say "refund".
+            if (!fromFamily && (kind == null || kind == "RECEIVED") && RefundMatcher.isRealCredit(raw ?: "") &&
+                RefundMatcher.looksLikeBusiness(txn.merchantName, raw ?: "")) {
+                fileRefund(txn.copy(transactionType = TransactionType.REFUND), quiet = true)?.let { return it }
+            }
             txn.copy(
                 description = MoneyLabels.income(kind, txn.merchantName, txn.bankName, fromFamily),
                 categoryId = "cat_financial",
@@ -471,55 +481,120 @@ class TransactionRepository(
      * happened before the app was installed), it is logged as income instead, so the money is
      * still accounted for.
      */
-    private suspend fun fileRefund(refund: TransactionEntity): TransactionEntity {
+    private suspend fun fileRefund(refund: TransactionEntity, quiet: Boolean = false): TransactionEntity? {
         val now = System.currentTimeMillis()
-        val raw = (refund.rawNotificationText ?: refund.description ?: "").lowercase()
-        val byRef = listOfNotNull(refund.upiReference, refund.bankReference).firstNotNullOfOrNull { transactionDao.findExpenseByRef(it) }
-        val original = byRef?.takeIf { it.amount - it.refundedAmount >= refund.amount - 0.005 } ?: run {
-            val candidates = transactionDao.findRefundCandidates(refund.amount, refund.dateTime - 90L * 24 * 3600 * 1000, refund.dateTime)
-            candidates.firstOrNull { c ->
-                val name = c.merchantName?.lowercase()?.trim().orEmpty()
-                val core = name.split(' ').firstOrNull { it.length >= 4 }
-                (name.length >= 3 && raw.contains(name)) || (core != null && raw.contains(core)) ||
-                    (!c.merchantVpa.isNullOrBlank() && raw.contains(c.merchantVpa.lowercase())) ||
-                    (!refund.merchantName.isNullOrBlank() && name.isNotBlank() &&
-                        refund.merchantName.lowercase().let { it.contains(name) || name.contains(it) })
-            }
-        }
+        val rawText = refund.rawNotificationText ?: refund.description ?: ""
+        val from = RefundMatcher.refundFrom(rawText, refund.merchantName)
+        val merchantLabel = from?.let { MerchantNormalizer.normalize(it, null) }?.takeIf { it.isNotBlank() } ?: "the merchant"
 
-        if (original != null) {
-            val hasRef = !original.upiReference.isNullOrBlank() || !original.bankReference.isNullOrBlank()
-            // Kharcha Book can only be corrected through the ref; an already-pushed expense without
-            // one can't be updated there, so log the refund as income instead (keeps totals honest).
-            if (hasRef || !original.syncedToCloud) {
-                val refunded = (original.refundedAmount + refund.amount).coerceAtMost(original.amount)
-                val fully = original.amount - refunded < 0.005
-                val updatedOriginal = original.copy(
-                    refundedAmount = refunded,
-                    isRefunded = true,
-                    // Fully refunded: remove it from Kharcha Book; partly: re-push the reduced amount.
-                    needsCloudDelete = fully && original.syncedToCloud,
-                    isExcluded = fully,
-                    syncedToCloud = false,
-                    updatedAt = now
+        // A shop's "refund initiated / will be credited" isn't money back yet -- the bank's credit
+        // message is. Counting both would lower the purchase twice.
+        // An old refund message read again (missed-message catch-up, reinstall) was applied when it
+        // first arrived; applying it again would lower the purchase twice.
+        val reRead = now - refund.dateTime > CloudSyncRepository.REREAD_AFTER_MS
+        if (reRead || !RefundMatcher.isRealCredit(rawText)) {
+            if (quiet) return null
+            val ignored = refund.copy(isExcluded = true, needsReview = false, updatedAt = now)
+            transactionDao.updateTransaction(ignored)
+            return ignored
+        }
+        val keys = RefundMatcher.keywords(from, rawText)
+        val since = refund.dateTime - REFUND_LOOKBACK_MS
+
+        // 1. Bank ref quoted in the refund, else the merchant's purchases on this phone.
+        val byRef = listOfNotNull(refund.upiReference, refund.bankReference).firstNotNullOfOrNull { transactionDao.findExpenseByRef(it) }
+            ?.takeIf { it.amount - it.refundedAmount >= refund.amount - 0.5 }
+        val local = byRef ?: run {
+            val cands = transactionDao.findRefundCandidates(refund.amount - 0.5, since, refund.dateTime).filter { it.id != refund.id }
+            val asCands = cands.map { c ->
+                RefundMatcher.Candidate(c.id, c.amount - c.refundedAmount,
+                    listOfNotNull(c.merchantName, c.merchantVpa, c.description, c.rawNotificationText).joinToString(" "),
+                    c.description ?: c.merchantName ?: "", c.dateTime)
+            }
+            RefundMatcher.pick(asCands, refund.amount, keys)?.let { p -> cands.first { it.id == p.key } }
+        }
+        if (local != null) {
+            val hasRef = !local.upiReference.isNullOrBlank() || !local.bankReference.isNullOrBlank()
+            // A pushed purchase without a ref is corrected in Kharcha Book directly (step 2) instead.
+            if (hasRef || !local.syncedToCloud) {
+                val before = local.amount - local.refundedAmount
+                val refunded = (local.refundedAmount + refund.amount).coerceAtMost(local.amount)
+                val fully = local.amount - refunded < 0.5
+                val label = (if (local.isEdited) local.description else null) ?: local.merchantName ?: "Expense"
+                transactionDao.updateTransaction(
+                    local.copy(
+                        refundedAmount = refunded,
+                        isRefunded = true,
+                        description = if (fully) local.description else RefundMatcher.withRefundNote(label, refund.amount),
+                        isEdited = if (fully) local.isEdited else true,
+                        // Fully refunded: remove it from Kharcha Book; partly: re-push the lower amount.
+                        needsCloudDelete = fully && local.syncedToCloud,
+                        isExcluded = fully,
+                        syncedToCloud = false,
+                        updatedAt = now
+                    )
                 )
-                transactionDao.updateTransaction(updatedOriginal)
-                val linked = refund.copy(linkedTransactionId = original.id, isExcluded = true, needsReview = false, updatedAt = now)
+                val linked = refund.copy(linkedTransactionId = local.id, isExcluded = true, needsReview = false, updatedAt = now)
                 transactionDao.updateTransaction(linked)
+                announceRefund(refund.amount, merchantLabel, label, before, if (fully) 0.0 else local.amount - refunded)
                 return linked
             }
         }
 
+        // 2. Purchases only in Kharcha Book (typed there, or from before this phone's data was reset).
+        val cloud = runCatching { ServiceLocator.cloudSyncRepository.refundCandidates(since, refund.dateTime + 60_000) }.getOrNull()
+        if (cloud != null) {
+            val asCands = cloud.filter { c ->
+                (c.kind == null || c.kind == "expense") &&
+                    !c.description.trimStart().let { d -> d.startsWith("💰") || d.startsWith("💼") || d.startsWith("👵") || d.startsWith("🔁") || d.startsWith("💵") || d.startsWith("📈") }
+            }.map { c -> RefundMatcher.Candidate(c.id, c.amount, c.description + " " + (c.rawSms ?: ""), c.description, c.spentAt) }
+            val hit = RefundMatcher.pick(asCands, refund.amount, keys)
+            if (hit != null) {
+                val left = Math.round((hit.amount - refund.amount) * 100) / 100.0
+                val ok = if (left < 0.5) ServiceLocator.cloudSyncRepository.deleteCloudRow(hit.key)
+                    else ServiceLocator.cloudSyncRepository.reduceCloudRow(hit.key, left, RefundMatcher.withRefundNote(hit.description, refund.amount))
+                if (ok) {
+                    val linked = refund.copy(linkedTransactionId = hit.key, isExcluded = true, needsReview = false, updatedAt = now)
+                    transactionDao.updateTransaction(linked)
+                    announceRefund(refund.amount, merchantLabel, hit.description, hit.amount, if (left < 0.5) 0.0 else left)
+                    return linked
+                }
+            }
+        }
+
+        // 3. Nothing it fits: keep the money visible as income, and say so. (A quiet refund -- a plain
+        // credit we only suspected was one -- just goes back to being ordinary income.)
+        if (quiet) return null
         val asIncome = refund.copy(
             transactionType = TransactionType.INCOME,
-            description = MoneyLabels.unmatchedRefund(refund.merchantName),
+            description = MoneyLabels.unmatchedRefund(from ?: refund.merchantName),
             isExcluded = false,
             isEdited = true,
             needsReview = false,
             updatedAt = now
         )
         transactionDao.updateTransaction(asIncome)
+        announceRefund(refund.amount, merchantLabel, null, 0.0, 0.0)
         return asIncome
+    }
+
+    /**
+     * "↩️ ₹1,200 refunded by Myntra — taken off 👤 Personal: ₹2,462 → ₹1,262" (or "fully refunded:
+     * removed from ✈️ Manali trip"). [original] null = no purchase matched; it went to Incomings.
+     */
+    private fun announceRefund(amount: Double, from: String, original: String?, before: Double, after: Double) {
+        val ctx = ServiceLocator.contextOrNull() ?: return
+        val money = com.spendtrack.app.core.automation.Insights.rupees(amount)
+        val title = "↩️ $money refunded by $from"
+        val text = when {
+            original == null -> "Couldn't find the purchase, so it's added to 💰 Incomings. Edit it in Kharcha Book if needed."
+            after <= 0.0 -> "Fully refunded: removed \"${ExpenseScope.stripScope(original).take(30)}\" from ${com.spendtrack.app.core.notification.ExpensePromptNotifier.labelForDescription(original)}."
+            else -> "Taken off ${com.spendtrack.app.core.notification.ExpensePromptNotifier.labelForDescription(original)}: " +
+                "\"${ExpenseScope.stripScope(original).substringBefore(" (↩").take(30)}\" ${com.spendtrack.app.core.automation.Insights.rupees(before)} → ${com.spendtrack.app.core.automation.Insights.rupees(after)}"
+        }
+        runCatching {
+            com.spendtrack.app.core.automation.AutomationNotifier.post(ctx, 0x7B60 + (System.nanoTime() and 0xFF).toInt(), title, text)
+        }
     }
 
     /**

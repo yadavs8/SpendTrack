@@ -196,8 +196,13 @@ object TransactionParser {
         // 0. Ads, offers, OTPs, insurance promos and zero amounts -> DO NOT RECORD
         if (isNonTransaction(fullContent) || isInsurancePromo(fullContent)) return null
 
-        // 1. Check for Failed / Declined payments -> DO NOT RECORD
-        for (failedKey in FAILED_KEYWORDS) {
+        // 1. Check for Failed / Declined payments -> DO NOT RECORD.
+        // Except money credited back for a cancelled booking/order: "Refund of Rs 13,566 for your
+        // cancelled booking has been credited" is a refund, not a failed payment.
+        val isCreditedRefund = REFUND_KEYWORDS.any { lowerContent.contains(it) } &&
+            Regex("""\b(?:credited|reversed|refunded)\b""").containsMatchIn(lowerContent) &&
+            !Regex("""\b(?:failed|declined|unsuccessful)\b""").containsMatchIn(lowerContent)
+        if (!isCreditedRefund) for (failedKey in FAILED_KEYWORDS) {
             if (lowerContent.contains(failedKey)) {
                 return null
             }
