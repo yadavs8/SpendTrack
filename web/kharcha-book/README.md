@@ -183,3 +183,6 @@ Tap any bar of the 7-day chart, or the Today / 7 days / Avg per day boxes, to se
 
 ## Money back from the same person (v112)
 When someone sends back money you paid them (you pay Rishabh ₹10,700, he returns ₹10,700), Kharcha Book matches the two by the person's name from the bank SMS and counts neither as spending nor income (with Undo). It also matches when the return adds up to two or three recent payments to that person. A partial return asks first ("Rishabh sent ₹4,000 back?") and then lowers the original spend, noting "(↩ ₹4,000 back)". More > Udhaar shows "Sent and got back" for every person: sent, got back, and who is down; tap a person for the payments, and "It was income" undoes a match.
+
+## Tap Today to jump to it (v113)
+Tapping Today, or any bar of the week chart, scrolls down to that day in "Day by day", opens it and highlights it. When the day is not in the list (another month open, or a filter hides it) the summary popup opens instead. The popup now draws above everything inside the phone app too.
