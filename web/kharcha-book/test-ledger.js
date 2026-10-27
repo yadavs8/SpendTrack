@@ -547,3 +547,31 @@ t('smartSearch: hair/salon find salons, petrol finds filling stations, typos tol
   assert.ok(m('king', 'King Food'));           // plain substring still works
   assert.ok(m('food king', 'King Food'));      // all words must match
 });
+
+t('smsAccounts: one account per bank + number, newest balance', () => {
+  const e = [
+    { id: 'a', ts: 1, raw: 'JX-PNBSMS-S Ac XX0096 Credited with Rs.20000.00,27-10-2026.Avl Bal Rs.1314829.66CR.Helpline', bank: 'PNB' },
+    { id: 'b', ts: 2, raw: 'JX-PNBSMS-S Ac XX0096 Credited with Rs.38000.00.Avl Bal Rs.1314826.66CR', bank: 'PNB' },
+    { id: 'c', ts: 3, raw: 'AX-ICICIT-S ICICI Bank Acct XX602 debited for Rs 72.00', bank: 'ICICI' },
+    { id: 'd', ts: 4, raw: 'HDFC Bank Credit Card XX1014 spent Rs 500. Avl Bal Rs 9000', bank: 'HDFC' }
+  ];
+  const r = L.smsAccounts(e);
+  assert.strictEqual(r.length, 1);
+  assert.strictEqual(r[0].name, 'PNB'); assert.strictEqual(r[0].last4, '0096'); assert.strictEqual(r[0].balance, 1314826.66);
+});
+t('askQuery answers plain questions', () => {
+  const now = new Date(2026, 9, 27, 12).getTime(), D = 86400000;
+  const E = [{ id: 1, ts: now - D * 40, amount: 500, desc: 'Naturals Salon' }, { id: 2, ts: now - 1000, amount: 104, desc: 'King Food' }, { id: 3, ts: now - 2000, amount: 72, desc: 'Lavish Kirana' }];
+  const ex = () => true;
+  assert.strictEqual(L.askQuery(E, 'hair', now, ex), null);
+  assert.strictEqual(L.askQuery(E, 'how much on hair all time spent', now, ex).total, 500);
+  assert.strictEqual(L.askQuery(E, 'food today', now, ex).total, 104);
+  assert.strictEqual(L.askQuery(E, 'spent today', now, ex).total, 176);
+});
+t('forecastMonth and unusualSpends run', () => {
+  const now = new Date(2026, 9, 27, 12).getTime(), D = 86400000;
+  const E = []; for (let i = 1; i <= 5; i++) E.push({ id: 'p' + i, ts: now - i * 5 * D, amount: 1000, desc: 'HP Petrol Pump' });
+  E.push({ id: 'big', ts: now - 1000, amount: 3400, desc: 'HP Petrol Pump' });
+  const f = L.forecastMonth(E, now, () => true, 0); assert.ok(f.projected >= f.spent);
+  const u = L.unusualSpends(E, now, () => true); assert.strictEqual(u.length, 1); assert.ok(u[0].times > 3);
+});

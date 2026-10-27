@@ -165,3 +165,9 @@ Friends joining a trip link can enter their UPI ID (optional) or add it later wi
 
 ## Smart search (v105)
 The search box understands related words: "hair" finds salon/barber/parlour spends, "petrol" finds filling stations and pumps (HP, Indian Oil, Shell...), and likewise food, grocery, medicine, travel, recharge, bills, shopping and more. Small typos are tolerated, several words narrow the result, and amounts still work (906, >1000). It searches all months, newest first.
+
+## Per-bank balances, forecast, unusual spends, ask (v106)
+- Each bank (ICICI, PNB, ...) is added by itself from your bank SMS and its total moves to the newest balance the bank prints. No pop-ups. Only the ICICI balance is shown at the top of the app; all banks are under More > Banks.
+- Credit card spends stay separate under the Credit card screen and never touch bank balances.
+- Insights now has a month-end forecast and an "unusual spends" card (a payee far above its usual amount, or charged twice in a day).
+- The search box answers questions: "food last month", "petrol this week", "how much did I spend today".

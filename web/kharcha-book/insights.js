@@ -421,12 +421,38 @@
   }
   document.addEventListener('kharcha:rules', billsCalendar);
 
+  /* ---------- month-end forecast + unusual spends ---------- */
+  function forecastCard() {
+    var KL = window.KharchaLedger, card = el('section', 'in-card');
+    card.appendChild(el('div', 'in-k', 'MONTH-END FORECAST'));
+    if (!KL || !KL.forecastMonth) { card.appendChild(el('p', 'in-sub', 'Not available yet.')); return card; }
+    var up = 0; try { var rules = K.loadRules(); var ups = KL.upcomingRules(rules, K.getEntries(), Date.now(), new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0, 23, 59).getTime()); up = ups.reduce(function (n, u) { return n + Number(u.amount || 0); }, 0); } catch (e) {}
+    var f = KL.forecastMonth(K.getEntries(), Date.now(), function (e) { return K.isExpense(e); }, up);
+    card.appendChild(el('div', 'in-big', '\u2248 ' + rupees(f.projected)));
+    card.appendChild(el('p', 'in-sub', 'Expected spend by month end. So far ' + rupees(f.spent) + ', ' + f.daysLeft + ' days to go' + (up ? ', plus ' + rupees(up) + ' of monthly payments due' : '') + '.'));
+    if (f.riskyAvg > 0) card.appendChild(el('p', 'in-sub', 'Watch out on ' + f.riskyDay + 's: you usually spend about ' + rupees(f.riskyAvg) + ' that day.'));
+    return card;
+  }
+  function unusualCard() {
+    var KL = window.KharchaLedger, card = el('section', 'in-card');
+    card.appendChild(el('div', 'in-k', 'UNUSUAL SPENDS'));
+    var list = KL && KL.unusualSpends ? KL.unusualSpends(K.getEntries(), Date.now(), function (e) { return K.isExpense(e); }) : [];
+    if (!list.length) { card.appendChild(el('p', 'in-sub', 'Nothing odd in the last 3 days. Spends look normal.')); return card; }
+    list.slice(0, 5).forEach(function (u) {
+      var name = String(u.e.desc || '').replace(/^[^\wऀ-ॿ]+/, '').slice(0, 30);
+      card.appendChild(el('p', 'in-sub', u.twice ? '\u26A0\uFE0F ' + name + ' ' + rupees(u.e.amount) + ' was charged twice on the same day.' : '\u26A0\uFE0F ' + name + ' ' + rupees(u.e.amount) + ' is ' + u.times.toFixed(1) + '\u00d7 your usual ' + rupees(u.usual) + '.'));
+    });
+    return card;
+  }
+
   /* ---------- screen ---------- */
   function render() {
     var root = $('insights-root'); if (!root || !K.getNetWorthParts) return;
     var keepScroll = root.querySelector('.story-rail') ? root.querySelector('.story-rail').scrollLeft : 0;
     root.textContent = '';
     root.appendChild(netWorthCard());
+    root.appendChild(forecastCard());
+    root.appendChild(unusualCard());
     root.appendChild(weeklyStory());
     root.appendChild(streakCard());
     root.appendChild(goalCard(render));

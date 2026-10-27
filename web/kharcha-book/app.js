@@ -966,6 +966,15 @@
     return { has: accts.length > 0, total: p / 100, count: accts.length };
   }
 
+  // The one balance shown at the top of the app: ICICI (falls back to the main account).
+  function getTopBank() {
+    var KL = window.KharchaLedger, accts = loadBank();
+    if (!KL || !accts.length) return null;
+    var a = accts.filter(function (x) { return KL.nameKey(x.name).indexOf('icici') >= 0; })[0] || accts.filter(function (x) { return x.id === primaryAcctId(accts); })[0] || accts[0];
+    var pr = bankPreds(a, accts), est = KL.bankEstimate(state.entries, a, pr.isIn, pr.isOut, loadTransfers());
+    return { name: a.name, balance: est.balance };
+  }
+
   function groupByDay(list) {
     var map = new Map();
     list.slice().sort(byTimeDesc).forEach(function (e) {
@@ -1348,7 +1357,7 @@
     enterApp: enterApp,
     getSb: function () { return sb; },
     getEntries: function () { return state.entries; },
-    getMonthlySummary: getMonthlySummary, getMonthlyHistory: getMonthlyHistory, monthsWithAnyEntry: monthsWithAnyEntry, getPeriodSummary: getPeriodSummary, isBankIn: isBankIn, isBankOut: isBankOut, getBankTotals: getBankTotals, getHomeFacts: getHomeFacts, isIncome: isIncome, getNetWorthParts: getNetWorthParts, getSpendSources: getSpendSources, backupData: backupData, inspectBackup: inspectBackup, restoreData: restoreData, loadRules: loadRules, kvGet: function (k) { return kv.get(k); }, kvSet: function (k, v) { kv.set(k, v); }, toast: function (m, u) { toast(m, u); }, confirmBox: function (o) { showConfirmModal(o); }, startOfDay: startOfDay,
+    getMonthlySummary: getMonthlySummary, getMonthlyHistory: getMonthlyHistory, monthsWithAnyEntry: monthsWithAnyEntry, getPeriodSummary: getPeriodSummary, isBankIn: isBankIn, isBankOut: isBankOut, getBankTotals: getBankTotals, getTopBank: getTopBank, getHomeFacts: getHomeFacts, isIncome: isIncome, getNetWorthParts: getNetWorthParts, getSpendSources: getSpendSources, backupData: backupData, inspectBackup: inspectBackup, restoreData: restoreData, loadRules: loadRules, kvGet: function (k) { return kv.get(k); }, kvSet: function (k, v) { kv.set(k, v); }, toast: function (m, u) { toast(m, u); }, confirmBox: function (o) { showConfirmModal(o); }, startOfDay: startOfDay,
     parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, parseSMSDate: parseSMSDate, findDuplicate: findDuplicate, categoryBreakdown: categoryBreakdown, monthCompare: monthCompare,
     isIncome: isIncome, isMotherSettlement: isMotherSettlement, isMotherPension: isMotherPension, isSalary: isSalary, isExpense: isExpense, isInvestment: isInvestment, getFamilySettlement: getFamilySettlement, getPersonalCashFlow: getPersonalCashFlow,
     isProjectEntry: isProjectEntry, isProjectMotherPaid: isProjectMotherPaid, getProjectSummary: getProjectSummary, projectNameOf: projectNameOf, cleanScopePrefix: cleanScopePrefix,
@@ -3238,20 +3247,34 @@
   // A bank SMS that prints "Avl Bal" sets that account's balance by itself (no typing).
   function applyBalanceFromSms() {
     var KL = window.KharchaLedger, accts = loadBank();
-    if (!KL || !accts.length) return;
-    var map = loadJsonObj(ACCTMAP_KEY), rules = loadRules(), pid = primaryAcctId(accts), own = loadOwn(), updates = {}, names = [];
+    if (!KL) return;
+    // Banks seen in your SMS that you do not track yet are added by themselves (balance from the SMS, number added to
+    // "my accounts" so their messages file under the right bank). Nothing existing is changed or removed.
+    var seen = KL.smsAccounts ? KL.smsAccounts(state.entries) : [], added = false;
+    if (seen.length) {
+      var own = loadOwn(), ownObj = own ? JSON.parse(JSON.stringify(own)) : { names: [], banks: [], cards: [] };
+      seen.forEach(function (s) {
+        if (accts.length >= 6 || accts.some(function (x) { return KL.nameKey(x.name).indexOf(s.key) >= 0; })) return;
+        accts = accts.concat([{ id: newLoanId(), name: s.name, held: [], deposits: [], snapshots: [{ ts: s.ts, balance: s.balance, src: 'sms' }] }]);
+        if (!ownObj.banks.some(function (b) { return b.key === s.key; })) ownObj.banks.push({ key: s.key, last4: s.last4, upi: [] });
+        added = true;
+      });
+      if (added) { saveBank(accts); kv.set(OWN_KEY, JSON.stringify(ownObj)); accts = loadBank(); }
+    }
+    if (!accts.length) return;
+    var map = loadJsonObj(ACCTMAP_KEY), rules = loadRules(), pid = primaryAcctId(accts), own2 = loadOwn(), updates = {}, any = added;
     accts.forEach(function (a) {
-      var found = KL.balanceFromSms(state.entries, a, function (e) { return KL.routeAccount(e, accts, map, rules, pid, own); }, isCardEntry);
-      if (found) { updates[a.id] = found; names.push(a.name + ' ' + money(found.balance)); }
+      var found = KL.balanceFromSms(state.entries, a, function (e) { return KL.routeAccount(e, accts, map, rules, pid, own2); }, isCardEntry);
+      if (found) { updates[a.id] = found; any = true; }
     });
-    if (!names.length) return;
+    if (!any) return;
+    // Silent: the bank's total just moves to the newest balance the bank printed. No pop-up.
     saveBank(loadBank().map(function (a) {
       var f = updates[a.id];
       return f ? Object.assign({}, a, { snapshots: a.snapshots.concat([{ ts: f.ts, balance: f.balance, src: 'sms' }]) }) : a;
     }));
     render();
     if (state.activeStream === 'bank') renderBank();
-    toast('Balance from your bank SMS: ' + names.join(', '));
   }
 
   /* ---------- Duplicate check: runs whenever entries load or refresh ---------- */
