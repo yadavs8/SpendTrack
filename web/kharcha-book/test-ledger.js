@@ -575,3 +575,16 @@ t('forecastMonth and unusualSpends run', () => {
   const f = L.forecastMonth(E, now, () => true, 0); assert.ok(f.projected >= f.spent);
   const u = L.unusualSpends(E, now, () => true); assert.strictEqual(u.length, 1); assert.ok(u[0].times > 3);
 });
+
+t('another bank SMS never sets an ICICI balance, and old mistakes are repaired', () => {
+  const pnb = { id: 'p', ts: 500, raw: 'JX-PNBSMS-S Ac XX0096 Credited with Rs.38000.00.Avl Bal Rs.1314826.66CR', bank: 'PNB' };
+  const ic = { id: 'i', ts: 300, raw: 'ICICI Bank Account XX602 credited. Avl Bal Rs 32,387.62', bank: 'ICICI' };
+  const icici = { id: 'a1', name: 'ICICI SALARY account', snapshots: [{ ts: 100, balance: 1000 }, { ts: 300, balance: 32387.62, src: 'sms' }, { ts: 500, balance: 1314826.66, src: 'sms' }] };
+  const pnbAcct = { id: 'a2', name: 'PNB', snapshots: [{ ts: 500, balance: 1314826.66, src: 'sms' }] };
+  const r = L.cleanBankAccounts([icici, pnbAcct], [pnb, ic], ['icici', 'hdfc']);
+  assert.strictEqual(r.accts.length, 1);
+  assert.strictEqual(r.accts[0].snapshots[r.accts[0].snapshots.length - 1].balance, 32387.62);
+  const got = L.balanceFromSms([pnb], { id: 'a1', name: 'ICICI', snapshots: [{ ts: 1, balance: 5 }] }, () => 'a1', () => false);
+  assert.strictEqual(got, null);
+  assert.strictEqual(L.routeAccount(pnb, [{ id: 'a1', name: 'ICICI' }], {}, [], 'a1', null), null);
+});

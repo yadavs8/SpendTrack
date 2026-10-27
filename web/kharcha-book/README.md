@@ -171,3 +171,6 @@ The search box understands related words: "hair" finds salon/barber/parlour spen
 - Credit card spends stay separate under the Credit card screen and never touch bank balances.
 - Insights now has a month-end forecast and an "unusual spends" card (a payee far above its usual amount, or charged twice in a day).
 - The search box answers questions: "food last month", "petrol this week", "how much did I spend today".
+
+## Only your own banks (v107)
+A bank SMS only updates the balance of that same bank. SMS from other banks (for example a family member's account) no longer touch your ICICI balance or count as bank money, and the top of the app shows ICICI only. Earlier wrong balances are repaired automatically.
