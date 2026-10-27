@@ -398,9 +398,9 @@ body.calm #add:not(.open) { display: none; }
 @keyframes hxBlaze { from { filter: brightness(1); box-shadow: 0 0 10px 1px rgba(255, 110, 0, 0.6), 0 0 22px 4px rgba(255, 60, 0, 0.25); } to { filter: brightness(1.18); box-shadow: 0 0 18px 4px rgba(255, 140, 0, 0.9), 0 0 34px 10px rgba(255, 60, 0, 0.45); } }
 @keyframes hxFlame { from { transform: translateX(-50%) scale(0.9) rotate(-6deg); } to { transform: translateX(-50%) scale(1.15) rotate(6deg); } }
 @media (prefers-reduced-motion: reduce) { .hx-col.hot .hx-bar, .hx-flame { animation: none; } }
-.hx-pop-bd { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 9000; background: rgba(8, 20, 40, 0.55); animation: hxFade 0.18s ease; }
+.hx-pop-bd { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 9000; background: rgba(8, 20, 40, 0.6); }
 @keyframes hxFade { from { opacity: 0; } to { opacity: 1; } }
-.hx-pop { position: fixed; left: 0; right: 0; bottom: 0; margin: 0 auto; box-sizing: border-box; padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px)) !important; width: min(480px, 100%); max-height: 80vh; overflow: auto; background: var(--surface, #fff); color: var(--ink, #0f172a); border-radius: 22px 22px 0 0; padding: 16px 18px 28px; box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.25); animation: hxUp 0.22s ease; }
+.hx-pop { position: absolute; z-index: 9001; left: 0; right: 0; margin: 0 auto; box-sizing: border-box; width: min(480px, calc(100% - 24px)); max-height: 78vh; overflow: auto; -webkit-overflow-scrolling: touch; background: var(--surface, #fff); color: var(--ink, #0f172a); border: 1px solid var(--line, #e2e8f0); border-radius: 22px; padding: 16px 18px 18px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35); animation: hxDrop 0.2s ease; }
 @keyframes hxUp { from { transform: translateY(24px); opacity: 0.6; } to { transform: none; opacity: 1; } }
 .hx-pop-head { display: flex; justify-content: space-between; align-items: center; } .hx-pop-head b { font-size: 1rem; }
 .hx-pop-x { border: 0; background: var(--bg, #eef2f7); width: 32px; height: 32px; border-radius: 50%; font-size: 1.2rem; line-height: 1; color: inherit; cursor: pointer; }
@@ -511,3 +511,8 @@ body.privacy .cal-amt, body.privacy .cal-cat-t span, body.privacy .ds-a { filter
 @media (max-width: 430px) { header.top .theme-btn { display: none; } header.top h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; } }
 .udhaar-sec select, .incomings-sec select, select.input, select.trip-select { max-width: 100%; min-width: 0; text-overflow: ellipsis; }
 .trip-select-row { min-width: 0; max-width: 100%; } .trip-select-row select { flex: 1 1 auto; width: 100%; }
+
+@keyframes hxDrop { from { transform: translateY(-10px); } to { transform: none; } }
+/* You opened the card on purpose: show its amounts even when "hide amounts" is on. */
+body.privacy .hx-pop-amt, body.privacy .hx-cat-top b, body.privacy .hx-big b, body.privacy .hx-pop-note, body.privacy .ds-a { filter: none !important; }
+.hx-pop .ds-t b, .hx-pop .hx-pop-head b { color: var(--ink, #0f172a); }

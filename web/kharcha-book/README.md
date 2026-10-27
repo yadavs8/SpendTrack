@@ -197,3 +197,6 @@ Tapping Today, or any bar of the week chart, scrolls down to that day in "Day by
 - ☰ menu at the top left opens a sidebar with every page.
 - Bank page: each bank shows the cash withdrawn from it this month (and last month), with dates.
 - Neater pages: consistent cards, spacing and headings on Bank, Trips, Udhaar, Card, Wallet and the rest; the trip picker no longer runs off the screen.
+
+## Day card always on screen (v116)
+Tapping a calendar date, a week bar or a top-card box opens a solid card near the top of what you are looking at (no longer pinned to the bottom edge, where the phone's navigation bar could hide it). Its amounts show even when "hide amounts" is on, since you opened it on purpose. Tap ✕ or outside to close.

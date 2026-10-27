@@ -456,9 +456,24 @@
     return true;
   }
 
+  /* A card that opens where you are looking: placed at the top of the part of the page on screen (works the same in
+     Chrome and inside the phone app, where a sheet pinned to the bottom edge can end up under the navigation bar). */
+  function closeSheets() { document.querySelectorAll('.hx-pop-bd, .hx-pop').forEach(function (n) { n.remove(); }); }
+  function showSheet(bd, pop, x) {
+    document.body.appendChild(bd); document.body.appendChild(pop);
+    var vh = Math.min(window.innerHeight || 700, (window.screen && window.screen.height) || 900);
+    pop.style.top = (window.pageYOffset + Math.max(56, Math.round(vh * 0.1))) + 'px';
+    pop.style.maxHeight = Math.round(vh * 0.78) + 'px';
+    function close() { bd.remove(); pop.remove(); document.removeEventListener('keydown', onKey); }
+    function onKey(ev) { if (ev.key === 'Escape') close(); }
+    x.addEventListener('click', close); bd.addEventListener('click', close);
+    document.addEventListener('keydown', onKey);
+    return close;
+  }
+
   /* ---------- tap a bar or box on the top card: how much, and on what ---------- */
   function openPop(title, items, note, avgFor) {
-    var old = document.querySelector('.hx-pop-bd'); if (old) old.remove();
+    closeSheets();
     var total = items.reduce(function (n, e) { return n + paise(e.amount); }, 0) / 100;
     var bd = el('div', 'hx-pop-bd'), pop = el('div', 'hx-pop'); pop.setAttribute('role', 'dialog'); pop.setAttribute('aria-label', title);
     var head = el('div', 'hx-pop-head'); head.appendChild(el('b', null, title));
@@ -481,11 +496,7 @@
         r.appendChild(el('b', null, K.money(e.amount))); pop.appendChild(r);
       });
     } else pop.appendChild(el('p', 'hx-pop-note', 'Nothing to show.'));
-    bd.appendChild(pop); document.body.appendChild(bd);
-    function close() { bd.remove(); document.removeEventListener('keydown', onKey); }
-    function onKey(ev) { if (ev.key === 'Escape') close(); }
-    x.addEventListener('click', close); bd.addEventListener('click', function (ev) { if (ev.target === bd) close(); });
-    document.addEventListener('keydown', onKey);
+    var close = showSheet(bd, pop, x);
   }
 
 
@@ -590,7 +601,7 @@
     }
   }
   function openDaySheet(dayTs, items, title) {
-    var old = document.querySelector('.hx-pop-bd'); if (old) old.remove();
+    closeSheets();
     var dayName = new Intl.DateTimeFormat('en-IN', { weekday: 'long', day: 'numeric', month: 'short' }), tF = new Intl.DateTimeFormat('en-IN', { hour: 'numeric', minute: '2-digit' });
     var dF = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short' });
     var total = items.reduce(function (n, e) { return n + paise(e.amount); }, 0) / 100;
@@ -612,11 +623,7 @@
       go.addEventListener('click', function () { close(); goToDay(dayTs); });
       pop.appendChild(go);
     }
-    bd.appendChild(pop); document.body.appendChild(bd);
-    function close() { bd.remove(); document.removeEventListener('keydown', onKey); }
-    function onKey(ev) { if (ev.key === 'Escape') close(); }
-    x.addEventListener('click', close); bd.addEventListener('click', function (ev) { if (ev.target === bd) close(); });
-    document.addEventListener('keydown', onKey);
+    var close = showSheet(bd, pop, x);
   }
   // Day by day keeps only the two newest days; the calendar is the overview. "Show all days" brings the rest back.
   function trimDays() {
