@@ -249,6 +249,49 @@ fun KharchaWebViewScreen(
                         main.post { if (fromKharcha()) openSettings() }
                     }
 
+                    /** Pick one contact (name + phone) for a trip. ACTION_PICK on phone numbers needs no contacts
+                     *  permission: the system picker only hands back the one row the person chose. */
+                    @JavascriptInterface
+                    fun pickContact() {
+                        main.post {
+                            if (!fromKharcha()) return@post
+                            val activity = view.context as? androidx.activity.ComponentActivity ?: return@post
+                            val launcher = arrayOfNulls<androidx.activity.result.ActivityResultLauncher<Intent>>(1)
+                            launcher[0] = activity.activityResultRegistry.register(
+                                "kharcha_contact_" + System.nanoTime(),
+                                androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+                            ) { result ->
+                                launcher[0]?.unregister()
+                                var json = "null"
+                                val uri = result.data?.data
+                                if (result.resultCode == android.app.Activity.RESULT_OK && uri != null) {
+                                    runCatching {
+                                        view.context.contentResolver.query(
+                                            uri,
+                                            arrayOf(
+                                                android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                                                android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER
+                                            ), null, null, null
+                                        )?.use { c ->
+                                            if (c.moveToFirst()) {
+                                                json = org.json.JSONObject()
+                                                    .put("name", c.getString(0) ?: "")
+                                                    .put("tel", c.getString(1) ?: "")
+                                                    .toString()
+                                            }
+                                        }
+                                    }.onFailure { SafeLogger.e("Contact pick failed", it as? Exception) }
+                                }
+                                view.evaluateJavascript("window.__kharchaContactPicked && window.__kharchaContactPicked($json)", null)
+                            }
+                            val intent = Intent(Intent.ACTION_PICK, android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI)
+                            runCatching { launcher[0]!!.launch(intent) }.onFailure {
+                                launcher[0]?.unregister()
+                                view.evaluateJavascript("window.__kharchaContactPicked && window.__kharchaContactPicked(null)", null)
+                            }
+                        }
+                    }
+
                     /** Launch UPI payment chooser directly to pay a trip member or friend. */
                     @JavascriptInterface
                     fun payUpi(vpa: String?, name: String?, amount: String?, note: String?) {
