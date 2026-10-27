@@ -1374,7 +1374,7 @@
     enterApp: enterApp,
     getSb: function () { return sb; },
     getEntries: function () { return state.entries; },
-    getMonthlySummary: getMonthlySummary, getMonthlyHistory: getMonthlyHistory, monthsWithAnyEntry: monthsWithAnyEntry, getPeriodSummary: getPeriodSummary, isBankIn: isBankIn, isBankOut: isBankOut, getBankTotals: getBankTotals, getTopBank: getTopBank, dayKey: dayKey, getHomeFacts: getHomeFacts, isIncome: isIncome, getNetWorthParts: getNetWorthParts, getSpendSources: getSpendSources, backupData: backupData, inspectBackup: inspectBackup, restoreData: restoreData, loadRules: loadRules, kvGet: function (k) { return kv.get(k); }, kvSet: function (k, v) { kv.set(k, v); }, toast: function (m, u) { toast(m, u); }, confirmBox: function (o) { showConfirmModal(o); }, startOfDay: startOfDay,
+    getMonthlySummary: getMonthlySummary, getMonthlyHistory: getMonthlyHistory, monthsWithAnyEntry: monthsWithAnyEntry, getPeriodSummary: getPeriodSummary, isBankIn: isBankIn, isBankOut: isBankOut, getBankTotals: getBankTotals, getTopBank: getTopBank, dayKey: dayKey, selMonth: function () { return state.sel; }, visibleEntries: function () { return visibleEntries(state.sel); }, isCashWithdrawal: isCashWithdrawal, getHomeFacts: getHomeFacts, isIncome: isIncome, getNetWorthParts: getNetWorthParts, getSpendSources: getSpendSources, backupData: backupData, inspectBackup: inspectBackup, restoreData: restoreData, loadRules: loadRules, kvGet: function (k) { return kv.get(k); }, kvSet: function (k, v) { kv.set(k, v); }, toast: function (m, u) { toast(m, u); }, confirmBox: function (o) { showConfirmModal(o); }, startOfDay: startOfDay,
     parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, parseSMSDate: parseSMSDate, findDuplicate: findDuplicate, categoryBreakdown: categoryBreakdown, monthCompare: monthCompare,
     isIncome: isIncome, isMotherSettlement: isMotherSettlement, isMotherPension: isMotherPension, isSalary: isSalary, isExpense: isExpense, isInvestment: isInvestment, getFamilySettlement: getFamilySettlement, getPersonalCashFlow: getPersonalCashFlow,
     isProjectEntry: isProjectEntry, isProjectMotherPaid: isProjectMotherPaid, getProjectSummary: getProjectSummary, projectNameOf: projectNameOf, cleanScopePrefix: cleanScopePrefix,
@@ -3791,6 +3791,7 @@
       acts.appendChild(b);
     });
     card.appendChild(acts);
+    card.appendChild(bankWithdrawals(a, allAccts));
     card.appendChild(bankCash(a));
     var mode = bankUi.mode[a.id];
     if (mode === 'check') card.appendChild(bankCheck(a, est));
@@ -3811,6 +3812,26 @@
 
   /* Income received as cash and kept at home: held out of the bank estimate until deposited. A deposit is a
      transfer, so it moves money into the bank without creating income (savings stay counted once). */
+  // Cash taken out of this bank (ATM / cash withdrawal SMS), this month and last month.
+  function bankWithdrawals(a, allAccts) {
+    var KL = window.KharchaLedger, map = loadJsonObj(ACCTMAP_KEY), rules = loadRules(), pid = primaryAcctId(allAccts), own = loadOwn();
+    var now = new Date(), m0 = new Date(now.getFullYear(), now.getMonth(), 1).getTime(), m1 = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime();
+    var list = state.entries.filter(function (e) {
+      return e && !e.synthetic && e.ts >= m1 && isCashWithdrawal(e) && KL.routeAccount(e, allAccts, map, rules, pid, own) === a.id;
+    }).sort(function (x, y) { return y.ts - x.ts; });
+    var thisM = list.filter(function (e) { return e.ts >= m0; }), lastM = list.filter(function (e) { return e.ts < m0; });
+    var box = el('div', 'wal-form bank-atm');
+    box.appendChild(el('h4', 'wal-h', '\uD83C\uDFE7 Cash withdrawn'));
+    var sumT = thisM.reduce(function (n, e) { return n + paise(e.amount); }, 0) / 100, sumL = lastM.reduce(function (n, e) { return n + paise(e.amount); }, 0) / 100;
+    box.appendChild(el('p', 'wal-sub', thisM.length ? 'This month ' + money(sumT) + ' in ' + thisM.length + (thisM.length === 1 ? ' withdrawal' : ' withdrawals') + (lastM.length ? ' \u00b7 last month ' + money(sumL) : '') : 'No cash taken out of ' + a.name + ' this month' + (lastM.length ? ' (last month ' + money(sumL) + ')' : '') + '.'));
+    thisM.slice(0, 6).forEach(function (e) {
+      var r = el('div', 'wal-item');
+      r.appendChild(el('span', null, dFmt.format(new Date(e.ts)) + ' \u00b7 ' + tFmt.format(new Date(e.ts))));
+      r.appendChild(el('b', null, money(e.amount)));
+      box.appendChild(r);
+    });
+    return box;
+  }
   function bankCash(a) {
     var snapTs = a.snapshots[a.snapshots.length - 1].ts, held = a.held || [];
     function save(fn) {
@@ -6597,6 +6618,7 @@
     var b = el('button', 'row');
     b.type = 'button';
     b.setAttribute('aria-label', 'Edit ' + e.desc + ', ' + money(e.amount));
+    b.dataset.desc = e.desc || ''; if (e.raw) b.dataset.raw = String(e.raw).slice(0, 160);
     b.appendChild(el('span', 't', (showDate ? rowDateFmt : tFmt).format(new Date(e.ts))));
     var dSpan = el('span', 'd', e.desc);
     var how = methodLabel(e);

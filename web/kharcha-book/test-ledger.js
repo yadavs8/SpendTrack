@@ -612,3 +612,18 @@ t('money back from the same person: Rishabh 10,700 out and back', () => {
   const pl = L.peopleLedger([out, small, back], { isSent: e => e.kind === 'expense', isGot: e => e.kind === 'income' }, now, 180, []);
   assert.strictEqual(pl.length, 1); assert.strictEqual(pl[0].name, 'Rishabh Shokeen'); assert.strictEqual(pl[0].net, 5);
 });
+
+t('categoryOf gives a picture per spend', () => {
+  const c = (d, r) => L.categoryOf(d, r).key;
+  assert.strictEqual(c('Netflix'), 'subscription');
+  assert.strictEqual(c('👤 Google Play'), 'subscription');
+  assert.strictEqual(c('Food & Dining (Swiggy)'), 'food');
+  assert.strictEqual(c('🏠 Lavish Kirana Store'), 'grocery');
+  assert.strictEqual(c('HP Petrol Pump'), 'petrol');
+  assert.strictEqual(c('Naturals Salon'), 'salon');
+  assert.strictEqual(c('👤 Rishabh Shokeen'), 'person');
+  assert.strictEqual(c('Cash', 'Rs 2000 withdrawn at ATM'), 'cash');
+  assert.strictEqual(c('🏠 Milk vendor'), 'grocery');
+  assert.strictEqual(c('King Food'), 'food');
+  assert.strictEqual(c('Xyz Traders'), 'other');
+});

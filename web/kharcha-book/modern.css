@@ -437,3 +437,77 @@ body.calm #category-sec { display: none !important; }
 .cc-item { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; font-size: 0.9rem; } .cc-a { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
 .cc-more { margin-top: 8px; }
 body.privacy .cc-amt, body.privacy .cc-a, body.privacy .cc-day b { filter: blur(8px); }
+
+/* ---------- v115: category pictures on rows ---------- */
+.cat-chip { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; font-size: 0.68rem; font-weight: 700; vertical-align: middle; white-space: nowrap; }
+body.privacy .cat-chip { filter: none; }
+
+/* ---------- v115: month calendar ---------- */
+.cal-sec { margin: 14px 0; padding: 14px; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); box-shadow: var(--shadow-sm, 0 1px 2px rgba(0,0,0,.04)); }
+.cal-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; } .cal-head .sec-title { margin: 0; }
+.cal-hint { font-size: 0.72rem; color: var(--muted); }
+.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; }
+.cal-wd { text-align: center; font-size: 0.64rem; font-weight: 700; color: var(--muted); padding-bottom: 2px; }
+.cal-day { position: relative; display: grid; grid-template-rows: auto 1fr auto; align-items: center; justify-items: center; min-height: 56px; padding: 4px 2px; border: 0; border-radius: 12px; font: inherit; color: var(--ink); background: var(--bg); cursor: pointer; overflow: hidden; transition: transform 0.12s ease; -webkit-tap-highlight-color: transparent; }
+.cal-day:active { transform: scale(0.94); }
+.cal-n { font-size: 0.72rem; font-weight: 700; opacity: 0.8; justify-self: start; padding-left: 4px; }
+.cal-ic { font-size: 0.86rem; line-height: 1; letter-spacing: -2px; }
+.cal-amt { font-size: 0.64rem; font-weight: 800; font-variant-numeric: tabular-nums; }
+.cal-day.lvl1 { background: #e0f2fe; } .cal-day.lvl2 { background: #bae6fd; } .cal-day.lvl3 { background: #7dd3fc; } .cal-day.lvl4 { background: #38bdf8; color: #082f49; }
+.cal-day.hot { background: linear-gradient(160deg, #fde047, #fb923c 55%, #ef4444); color: #fff; box-shadow: 0 0 12px rgba(239, 68, 68, 0.45); }
+.cal-day.hot .cal-n { opacity: 1; }
+.cal-day.today { outline: 2px solid var(--accent, #0284c7); outline-offset: 1px; }
+.cal-day.future { opacity: 0.45; }
+.cal-blank { min-height: 56px; }
+.cal-cats { display: flex; gap: 8px; overflow-x: auto; margin-top: 12px; padding-bottom: 2px; scrollbar-width: none; } .cal-cats::-webkit-scrollbar { display: none; }
+.cal-cat { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 12px 8px 8px; border-radius: 14px; border: 1px solid var(--line); background: var(--bg); font: inherit; color: var(--ink); cursor: pointer; }
+.cal-cat-ic { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; font-size: 1.05rem; background: color-mix(in srgb, var(--cc) 14%, transparent); }
+.cal-cat-t { display: grid; text-align: left; } .cal-cat-t b { font-size: 0.8rem; } .cal-cat-t span { font-size: 0.72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+body.privacy .cal-amt, body.privacy .cal-cat-t span, body.privacy .ds-a { filter: blur(6px); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .cal-day.lvl1 { background: #0c4a6e55; } :root:not([data-theme="light"]) .cal-day.lvl2 { background: #0c4a6e99; } :root:not([data-theme="light"]) .cal-day.lvl3 { background: #0369a1; color: #fff; } :root:not([data-theme="light"]) .cal-day.lvl4 { background: #0284c7; color: #fff; } }
+:root[data-theme="dark"] .cal-day.lvl1 { background: #0c4a6e55; } :root[data-theme="dark"] .cal-day.lvl2 { background: #0c4a6e99; } :root[data-theme="dark"] .cal-day.lvl3 { background: #0369a1; color: #fff; } :root[data-theme="dark"] .cal-day.lvl4 { background: #0284c7; color: #fff; }
+
+/* day sheet rows */
+.ds-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line, #e2e8f0); }
+.ds-ic { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 12px; font-size: 1.1rem; }
+.ds-t { flex: 1; min-width: 0; display: grid; } .ds-t b { font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .ds-t span { font-size: 0.74rem; color: var(--muted, #64748b); }
+.ds-a { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.days-more { width: 100%; margin: 8px 0 4px; padding: 11px; border: 1px dashed var(--line); border-radius: 14px; background: transparent; color: var(--accent, #0284c7); font: inherit; font-weight: 700; cursor: pointer; }
+
+/* ---------- v115: sidebar ---------- */
+.side-btn { flex: none; display: grid; gap: 4px; align-content: center; justify-items: center; width: 38px; height: 38px; margin-right: 4px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); cursor: pointer; padding: 0; }
+.side-btn span { display: block; width: 16px; height: 2px; border-radius: 2px; background: var(--ink); }
+.side-bd { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 9500; background: rgba(2, 6, 23, 0); transition: background 0.22s ease; }
+.side-bd.open { background: rgba(2, 6, 23, 0.5); }
+.side { position: absolute; top: 0; bottom: 0; left: 0; width: min(300px, 84vw); overflow-y: auto; padding: calc(18px + env(safe-area-inset-top, 0px)) 12px calc(24px + env(safe-area-inset-bottom, 0px)); background: var(--surface, #fff); box-shadow: 8px 0 30px rgba(0, 0, 0, 0.2); transform: translateX(-102%); transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1); border-radius: 0 22px 22px 0; }
+.side-bd.open .side { transform: none; }
+.side-brand { display: grid; gap: 2px; padding: 4px 10px 12px; border-bottom: 1px solid var(--line); margin-bottom: 6px; } .side-brand b { font-size: 1.15rem; } .side-brand span { font-size: 0.78rem; color: var(--muted); }
+.side-h { margin: 14px 10px 4px; font-size: 0.66rem; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.side-link { display: flex; align-items: center; gap: 12px; width: 100%; padding: 9px 10px; border: 0; border-radius: 14px; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.side-link:active, .side-link.active { background: color-mix(in srgb, var(--accent, #0284c7) 12%, transparent); }
+.side-link.active b { color: var(--accent, #0284c7); }
+.side-ic { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 12px; background: var(--bg); font-size: 1.1rem; flex: none; }
+.side-t { display: grid; } .side-t b { font-size: 0.92rem; } .side-t small { font-size: 0.72rem; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { .side, .side-bd { transition: none; } }
+
+/* ---------- v115: neat pages (Bank, Trips, Udhaar, Card, Wallet, Monthly, Rules, Insights...) ---------- */
+.udhaar-sec, .incomings-sec { padding-top: 4px; }
+.udhaar-sec .wal-card, .udhaar-sec .udh-summary, .udhaar-sec .in-card { border-radius: 20px; border: 1px solid var(--line); background: var(--surface); box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.05); padding: 16px; margin: 0 0 14px; }
+.wal-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 4px; }
+.wal-name { font-size: 1.02rem; font-weight: 800; }
+.wal-bal { font-size: 1.9rem; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; margin: 2px 0 4px; }
+.wal-sub { color: var(--muted); font-size: 0.84rem; line-height: 1.45; }
+.wal-hint { margin-top: 6px; font-size: 0.78rem; color: var(--muted); }
+.wal-acts { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 4px; }
+.wal-form { margin-top: 12px; padding: 12px; border-radius: 16px; background: var(--bg); }
+.wal-h { margin: 0 0 4px; font-size: 0.9rem; font-weight: 800; }
+.wal-item { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 0.86rem; }
+.wal-item b { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.backbar { box-shadow: 0 1px 0 var(--line); }
+.backbar .backttl { font-size: 1.05rem; font-weight: 800; }
+.udhaar-sec .sec-title, .incomings-sec .sec-title { margin-top: 18px; }
+.udhaar-sec .scope-pill, .wal-acts .scope-pill { border-radius: 999px; }
+/* v115 fixes: narrow header keeps the logo, menu and buttons; selects never overflow the page */
+@media (max-width: 430px) { header.top .theme-btn { display: none; } header.top h1 { min-width: 0; overflow: hidden; text-overflow: ellipsis; } }
+.udhaar-sec select, .incomings-sec select, select.input, select.trip-select { max-width: 100%; min-width: 0; text-overflow: ellipsis; }
+.trip-select-row { min-width: 0; max-width: 100%; } .trip-select-row select { flex: 1 1 auto; width: 100%; }
