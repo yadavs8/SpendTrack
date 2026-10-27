@@ -2070,6 +2070,14 @@
   }
 
   /* ---------- render ---------- */
+  // Smart match for the search box: related words (hair~salon, petrol~filling station) and small typos.
+  var smartCache = { q: null, s: null };
+  function smartMatch(desc) {
+    var KLs = window.KharchaLedger;
+    if (!KLs || !KLs.smartSearch) return String(desc || '').toLowerCase().includes(searchQuery);
+    if (smartCache.q !== searchQuery) smartCache = { q: searchQuery, s: KLs.smartSearch(searchQuery) };
+    return smartCache.s.test(desc);
+  }
   // Expenses of one month after the scope tab and search box are applied (excludes Trip entries, which live exclusively in Trips).
   function visibleEntries(key) {
     var list = state.entries.filter(function (e) { return monthKey(e.ts) === key && isExpense(e) && !isTripEntry(e); });
@@ -2080,7 +2088,7 @@
     }
     if (searchQuery) {
       list = list.filter(function (e) {
-        return e.desc.toLowerCase().includes(searchQuery) || dFmt.format(new Date(e.ts)).toLowerCase().includes(searchQuery);
+        return smartMatch(e.desc) || dFmt.format(new Date(e.ts)).toLowerCase().includes(searchQuery);
       });
     }
     return list;
@@ -2091,7 +2099,7 @@
     var list = state.entries.filter(function (e) { return monthKey(e.ts) === key && isIncome(e); });
     if (searchQuery) {
       list = list.filter(function (e) {
-        return e.desc.toLowerCase().includes(searchQuery) || dFmt.format(new Date(e.ts)).toLowerCase().includes(searchQuery);
+        return smartMatch(e.desc) || dFmt.format(new Date(e.ts)).toLowerCase().includes(searchQuery);
       });
     }
     return list;

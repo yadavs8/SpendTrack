@@ -855,6 +855,82 @@
     return out;
   }
 
+
+  /* ---------- smart search: "hair" finds salon, "petrol" finds filling stations ---------- */
+  // Each concept lists words/brands that mean the same kind of spend. Short terms (<=3 chars) match whole words only.
+  var SEARCH_CONCEPTS = {
+    salon: ['salon', 'saloon', 'hair', 'haircut', 'hair cut', 'barber', 'beauty', 'parlour', 'parlor', 'spa', 'grooming', 'shave', 'trim', 'unisex', 'facial', 'waxing', 'manicure', 'pedicure', 'mehndi', 'naturals', 'jawed habib', 'lakme', 'green trends', 'toni', 'urban company', 'looks'],
+    petrol: ['petrol', 'diesel', 'fuel', 'pump', 'petro', 'filling station', 'fuel station', 'gas station', 'cng', 'hpcl', 'bpcl', 'iocl', 'hp', 'indian oil', 'bharat petroleum', 'hindustan petroleum', 'shell', 'reliance bp', 'nayara', 'essar', 'service station', 'auto fuel', 'fastag'],
+    food: ['food', 'restaurant', 'cafe', 'dining', 'dhaba', 'eatery', 'biryani', 'pizza', 'burger', 'dominos', 'mcdonald', 'kfc', 'subway', 'zomato', 'swiggy', 'bakery', 'sweets', 'mithai', 'chai', 'tea', 'coffee', 'starbucks', 'canteen', 'hotel', 'kitchen', 'tiffin', 'thali', 'dosa', 'juice', 'ice cream', 'haldiram'],
+    grocery: ['grocery', 'kirana', 'mart', 'supermarket', 'bigbasket', 'blinkit', 'zepto', 'instamart', 'dmart', 'vegetable', 'sabzi', 'fruit', 'milk', 'dairy', 'amul', 'mother dairy', 'provision', 'general store', 'ration', 'jiomart', 'more retail', 'reliance fresh'],
+    medicine: ['medicine', 'medical', 'pharmacy', 'pharma', 'chemist', 'apollo', 'medplus', '1mg', 'pharmeasy', 'netmeds', 'hospital', 'clinic', 'doctor', 'dr', 'lab', 'diagnostic', 'pathology', 'dental', 'dentist', 'health', 'tablet', 'drug'],
+    travel: ['travel', 'cab', 'taxi', 'uber', 'ola', 'rapido', 'auto', 'rickshaw', 'metro', 'irctc', 'railway', 'train', 'bus', 'redbus', 'flight', 'indigo', 'air india', 'makemytrip', 'goibibo', 'toll', 'parking', 'ride'],
+    recharge: ['recharge', 'jio', 'airtel', 'vi', 'vodafone', 'bsnl', 'mobile', 'prepaid', 'postpaid', 'broadband', 'wifi', 'fiber', 'dth', 'tata play', 'dish tv', 'internet'],
+    bills: ['bill', 'electricity', 'bijli', 'power', 'discom', 'bses', 'water', 'gas', 'lpg', 'cylinder', 'piped gas', 'maintenance', 'society', 'rent', 'municipal', 'tax'],
+    shopping: ['shopping', 'amazon', 'flipkart', 'myntra', 'ajio', 'meesho', 'nykaa', 'clothes', 'cloth', 'garment', 'shoes', 'footwear', 'store', 'showroom', 'mall', 'lifestyle', 'westside', 'pantaloons', 'zudio', 'decathlon'],
+    entertainment: ['entertainment', 'movie', 'cinema', 'pvr', 'inox', 'bookmyshow', 'netflix', 'hotstar', 'spotify', 'prime', 'youtube', 'game', 'gaming', 'subscription'],
+    fitness: ['fitness', 'gym', 'yoga', 'cult', 'sports', 'swimming', 'protein', 'supplement'],
+    education: ['education', 'school', 'college', 'tuition', 'fees', 'fee', 'course', 'udemy', 'coaching', 'books', 'stationery', 'exam'],
+    insurance: ['insurance', 'premium', 'lic', 'policy', 'hdfc life', 'sbi life', 'icici pru', 'star health', 'acko'],
+    home: ['home', 'repair', 'plumber', 'electrician', 'carpenter', 'maid', 'servant', 'cook', 'laundry', 'dry clean', 'ironing', 'furniture', 'hardware', 'paint']
+  };
+  var SEARCH_ALIASES = { hair: 'salon', haircut: 'salon', barber: 'salon', parlour: 'salon', parlor: 'salon', beauty: 'salon', fuel: 'petrol', diesel: 'petrol', cng: 'petrol', pump: 'petrol', gas: 'petrol', restaurant: 'food', eat: 'food', eating: 'food', lunch: 'food', dinner: 'food', breakfast: 'food', vegetables: 'grocery', veggies: 'grocery', kirana: 'grocery', medicines: 'medicine', pharmacy: 'medicine', doctor: 'medicine', cab: 'travel', taxi: 'travel', uber: 'travel', ola: 'travel', flight: 'travel', train: 'travel', phone: 'recharge', mobile: 'recharge', electricity: 'bills', light: 'bills', movie: 'entertainment', movies: 'entertainment', cinema: 'entertainment', gym: 'fitness', clothes: 'shopping', cloth: 'shopping', school: 'education', fees: 'education' };
+  function searchHit(hay, term) {
+    if (term.length <= 3) return new RegExp('(^|[^a-z0-9])' + term.replace(/[^a-z0-9 ]/g, '') + '([^a-z0-9]|$)').test(hay);
+    return hay.indexOf(term) >= 0;
+  }
+  function editWithin(a, b, max) { // true when edit distance <= max (small strings only)
+    if (Math.abs(a.length - b.length) > max) return false;
+    var prev = [], i, j;
+    for (j = 0; j <= b.length; j++) prev[j] = j;
+    for (i = 1; i <= a.length; i++) {
+      var cur = [i], best = i;
+      for (j = 1; j <= b.length; j++) {
+        cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+        if (cur[j] < best) best = cur[j];
+      }
+      if (best > max) return false;
+      prev = cur;
+    }
+    return prev[b.length] <= max;
+  }
+  // Which concept(s) does one typed word mean? Exact key/alias/term, or a 3+ letter prefix of a key ("saloo" -> salon).
+  function searchConcepts(word) {
+    var hits = [];
+    if (SEARCH_CONCEPTS[word]) hits.push(word);
+    if (SEARCH_ALIASES[word] && hits.indexOf(SEARCH_ALIASES[word]) < 0) hits.push(SEARCH_ALIASES[word]);
+    Object.keys(SEARCH_CONCEPTS).forEach(function (k) {
+      if (hits.indexOf(k) >= 0) return;
+      if (SEARCH_CONCEPTS[k].indexOf(word) >= 0 || (word.length >= 3 && k.indexOf(word) === 0)) hits.push(k);
+    });
+    return hits;
+  }
+  // Returns {test(text) -> bool, concepts:[...]}: every typed word must match, either literally, through its
+  // concept's related words, or (for 5+ letter words) with one typo.
+  function smartSearch(query) {
+    var words = String(query || '').toLowerCase().split(/[\s,]+/).filter(Boolean);
+    var shown = [];
+    var parts = words.map(function (w) {
+      var terms = [w];
+      searchConcepts(w).forEach(function (k) { terms = terms.concat(SEARCH_CONCEPTS[k]); if (shown.indexOf(k) < 0) shown.push(k); });
+      return { w: w, terms: terms };
+    });
+    return {
+      concepts: shown,
+      test: function (text) {
+        var hay = String(text || '').toLowerCase();
+        return parts.every(function (pt) {
+          if (pt.terms.some(function (t) { return searchHit(hay, t); })) return true;
+          if (pt.w.length >= 5) {
+            var maxEd = pt.w.length >= 8 ? 2 : 1;
+            return hay.split(/[^a-z0-9]+/).some(function (h) { return h.length >= 4 && editWithin(h, pt.w, maxEd); });
+          }
+          return false;
+        });
+      }
+    };
+  }
+
   return {
     findDuplicates: findDuplicates, autoTransferPairs: autoTransferPairs, parseCardLimit: parseCardLimit, cardState: cardState, seedRules: seedRules,
     upcomingRules: upcomingRules, parseOwn: parseOwn, defaultOwn: defaultOwn, cardFor: cardFor, ownAccountFor: ownAccountFor, transferCandidates: transferCandidates, autoOwnTransfers: autoOwnTransfers, orphanTransfers: orphanTransfers, isOwnName: isOwnName, sourceAccountFromRaw: sourceAccountFromRaw,
@@ -867,6 +943,7 @@
     addPayment: addPayment, editLoan: editLoan, editPayment: editPayment, summarize: summarize,
     walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, parseWalletDesc: parseWalletDesc,
     parseWallets: parseWallets, walletState: walletState, walletReconcile: walletReconcile,
+    smartSearch: smartSearch,
     payCycles: payCycles, lastWorkingDay: lastWorkingDay, nextPayday: nextPayday, parseBank: parseBank, parseAvlBalance: parseAvlBalance, balanceFromSms: balanceFromSms, bankEstimate: bankEstimate, parseTransfers: parseTransfers
   };
 });

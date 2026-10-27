@@ -855,9 +855,11 @@
     var q = inp.value.trim().toLowerCase();
     box.textContent = '';
     if (q.length < 2 && !/^[<>]/.test(q)) { box.hidden = true; return; }
+    var KLs = window.KharchaLedger, smart = !amountTest(q) && KLs && KLs.smartSearch ? KLs.smartSearch(q) : null;
     var test = amountTest(q), rows = (K.getEntries ? K.getEntries() : []).filter(function (e) {
       if (!e || e.synthetic) return false;
-      return test ? test(e.amount) : String(e.desc || '').toLowerCase().indexOf(q) >= 0;
+      if (test) return test(e.amount);
+      return smart ? smart.test(e.desc) : String(e.desc || '').toLowerCase().indexOf(q) >= 0;
     }).sort(function (a, b) { return b.ts - a.ts; });
     box.hidden = false;
     var total = rows.reduce(function (n, e) { return n + (K.isExpense(e) ? e.amount : 0); }, 0);
@@ -869,12 +871,13 @@
       r.appendChild(el('span', 'sa-a' + (isIn ? ' in' : ''), (isIn ? '+ ' : '') + K.money(e.amount)));
       box.appendChild(r);
     });
+    if (smart && smart.concepts.length && rows.length) box.insertBefore(el('div', 'sa-more', 'Also matching related words for: ' + smart.concepts.join(', ')), box.children[1] || null);
     if (rows.length > 30) box.appendChild(el('div', 'sa-more', '…and ' + (rows.length - 30) + ' more. Narrow the search.'));
   }
   (function initSearchAll() {
     var inp = $('search'); if (!inp) return;
     var t = 0; inp.addEventListener('input', function () { clearTimeout(t); t = setTimeout(renderSearchAll, 160); });
-    inp.placeholder = 'Search everything: name, 906, >1000';
+    inp.placeholder = 'Search: salon, petrol, swiggy, 906, >1000';
   })();
 
   /* ---------- first-run tour ---------- */
