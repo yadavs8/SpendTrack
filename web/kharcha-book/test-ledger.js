@@ -529,3 +529,21 @@ t('tripSettlement: full settlement payment of 30,000 at once settles everyone sq
 
 console.log(n + ' tests passed');
 
+
+t('smartSearch: hair/salon find salons, petrol finds filling stations, typos tolerated', () => {
+  const m = (q, d) => L.smartSearch(q).test(d);
+  assert.ok(m('hair', '💈 Naturals Unisex Salon'));
+  assert.ok(m('salon', 'Jawed Habib'));
+  assert.ok(m('hair', 'Barber shop'));
+  assert.ok(m('petrol', 'Indian Oil Filling Station'));
+  assert.ok(m('petrol', 'HP Pump Sector 4'));
+  assert.ok(m('petrol', 'Bharat Petroleum'));
+  assert.ok(m('fuel', 'Shell'));
+  assert.ok(!m('petrol', 'Lavish Kirana Store'));
+  assert.ok(!m('hair', 'Cola corner'));       // short term "ola" must not match inside a word
+  assert.ok(m('saloon', 'Style Salon'));       // typo/spelling variant
+  assert.ok(m('grocry', 'Lavish Kirana Store') === false); // unknown misspelling of concept stays strict
+  assert.ok(m('swigy', 'Swiggy order'));       // one typo
+  assert.ok(m('king', 'King Food'));           // plain substring still works
+  assert.ok(m('food king', 'King Food'));      // all words must match
+});

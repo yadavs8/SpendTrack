@@ -162,3 +162,6 @@ Checked on the live database: the phone sent payments until the evening of 11 Oc
 
 ## Trip friends' UPI IDs (v101)
 Friends joining a trip link can enter their UPI ID (optional) or add it later with "Add my UPI". It is saved with them on the trip and prefills "Pay via UPI" for everyone. Additive only: existing data and settings are untouched.
+
+## Smart search (v105)
+The search box understands related words: "hair" finds salon/barber/parlour spends, "petrol" finds filling stations and pumps (HP, Indian Oil, Shell...), and likewise food, grocery, medicine, travel, recharge, bills, shopping and more. Small typos are tolerated, several words narrow the result, and amounts still work (906, >1000). It searches all months, newest first.
