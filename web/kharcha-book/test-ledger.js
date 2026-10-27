@@ -623,7 +623,10 @@ t('categoryOf gives a picture per spend', () => {
   assert.strictEqual(c('Naturals Salon'), 'salon');
   assert.strictEqual(c('👤 Rishabh Shokeen'), 'person');
   assert.strictEqual(c('Cash', 'Rs 2000 withdrawn at ATM'), 'cash');
-  assert.strictEqual(c('🏠 Milk vendor'), 'grocery');
+  assert.strictEqual(c('🏠 Milk vendor'), 'milk');
+  assert.strictEqual(c('Amazon order'), 'online');
+  assert.strictEqual(c('Daily Vegetables'), 'veg');
+  assert.strictEqual(c('Lavish Kirana Store'), 'grocery');
   assert.strictEqual(c('King Food'), 'food');
   assert.strictEqual(c('Xyz Traders'), 'other');
 });

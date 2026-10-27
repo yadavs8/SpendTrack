@@ -226,3 +226,10 @@ Inside an older phone app, "Add from contacts" did nothing (the app's browser ha
 
 ## Install the app from the web page (v122)
 On an Android phone in Chrome, Kharcha Book shows a slim "📲 Get the Android app · Install" strip under the header (× hides it) and an "Install the app" entry in the ☰ sidebar. Both open a card with a one-tap Download button and the three install steps, including what to do if Google Play Protect blocks it. Hidden inside the app itself and on iPhone.
+
+## Everything closes the way it opened, estimates per category, trip calendar (v123)
+- **Tap again to close**: a trip closes by tapping its banner again, the Trips tab, or "All trips"; the + button closes the add form; More and the ☰ menu close on a second tap (☰ also has ×). Every card and sheet closes on ✕ or a tap outside.
+- **Phone back button** closes the newest thing that is open (a card, the menu, More, the add form, an open trip), and from any other page goes back Home.
+- **Where your money goes** (Home, under the calendar): every category with its own picture (Milk & dairy, Vegetables & fruits, Online shopping, Fuel, Food, Grocery, Subscription, Bills...), what it cost so far, the estimate by month end (dashed part of the bar), and how it compares with last month (red when it is over 20% up). Tap one to see each spend.
+- **Trip calendar**: each trip shows its days as boxes (Day 1, Day 2...) coloured by spend, with pictures of what it went on (tap a day for its spends), and bars for Stay, Fuel, Food and the rest. Day numbers match in the calendar and Day by day.
+- **Visual touches**: a light sheen across the top card and trip banners, calendar days pop in, the biggest day glows, bars grow in, cards glide up as you scroll. All of it turns off with your phone's "reduce motion" setting.
