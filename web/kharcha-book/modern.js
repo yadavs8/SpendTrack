@@ -1282,6 +1282,53 @@
     var sx = null; pane.addEventListener('touchstart', function (ev) { sx = ev.touches[0].clientX; }, { passive: true });
     pane.addEventListener('touchend', function (ev) { if (sx != null && ev.changedTouches[0].clientX - sx < -60) close(); sx = null; });
   })();
+
+  /* ---------- v122: install the Android app straight from the web page (Android browser only) ---------- */
+  var APK_URL = 'https://github.com/yadavs8/SpendTrack/releases/download/apk-latest/Kharcha-Book.apk';
+  function showsInstall() { return /android/i.test(navigator.userAgent || '') && !window.KharchaNative; }
+  function openInstallSheet() {
+    closeSheets();
+    var bd = el('div', 'hx-pop-bd'), pop = el('div', 'hx-pop');
+    var head = el('div', 'hx-pop-head'); head.appendChild(el('b', null, '\uD83D\uDCF2 Install the Kharcha Book app'));
+    var x = el('button', 'hx-pop-x', '\u00d7'); x.type = 'button'; x.setAttribute('aria-label', 'Close'); head.appendChild(x); pop.appendChild(head);
+    pop.appendChild(el('p', 'hx-pop-note', 'The phone app reads your bank SMS and logs spends by itself. Same account, same data.'));
+    var dl = el('a', 'ia-dl', '\u2B07\uFE0F Download the app'); dl.href = APK_URL; dl.setAttribute('download', 'Kharcha-Book.apk'); dl.rel = 'noopener';
+    pop.appendChild(dl);
+    pop.appendChild(el('div', 'hx-pop-k', 'THEN'));
+    [['1', 'Open the downloaded Kharcha-Book.apk and tap Install. If asked, allow Chrome to install apps.'],
+     ['2', 'If Google Play Protect blocks it: Play Store \u2192 your photo \u2192 Play Protect \u2192 \u2699\uFE0F \u2192 turn off \u201cScan apps\u201d, install, then turn it back on.'],
+     ['3', 'Open the app, sign in with the same email, allow SMS and notifications.']].forEach(function (s) {
+      var r = el('div', 'ia-step'); r.appendChild(el('span', 'ia-n', s[0])); r.appendChild(el('span', null, s[1])); pop.appendChild(r);
+    });
+    pop.appendChild(el('p', 'hx-pop-note', 'Already have the app? Updates install over it and keep your data.'));
+    showSheet(bd, pop, x);
+  }
+  (function installEntry() {
+    if (!showsInstall()) return;
+    // a slim, dismissible strip under the header
+    var dismissed = false; try { dismissed = localStorage.getItem('kharcha_install_strip') === 'no'; } catch (e) {}
+    var top = document.querySelector('header.top');
+    if (top && !dismissed) {
+      var strip = el('div', 'ia-strip');
+      var go = el('button', 'ia-go'); go.type = 'button';
+      go.appendChild(el('span', null, '\uD83D\uDCF2')); var tx = el('span', 'ia-tx'); tx.appendChild(el('b', null, 'Get the Android app')); tx.appendChild(el('small', null, 'Logs your bank SMS by itself'));
+      go.appendChild(tx); go.appendChild(el('span', 'ia-btn', 'Install'));
+      go.addEventListener('click', openInstallSheet);
+      var no = el('button', 'ia-no', '\u00d7'); no.type = 'button'; no.setAttribute('aria-label', 'Hide');
+      no.addEventListener('click', function () { strip.remove(); try { localStorage.setItem('kharcha_install_strip', 'no'); } catch (e) {} });
+      strip.appendChild(go); strip.appendChild(no);
+      top.parentNode.insertBefore(strip, top.nextSibling);
+    }
+    // always in the sidebar too
+    var tryAdd = function () {
+      var side = document.querySelector('.side'); if (!side) return setTimeout(tryAdd, 300);
+      var a = el('button', 'side-link'); a.type = 'button';
+      a.appendChild(el('span', 'side-ic', '\uD83D\uDCF2')); var t = el('span', 'side-t'); t.appendChild(el('b', null, 'Install the app')); t.appendChild(el('small', null, 'Android, reads bank SMS')); a.appendChild(t);
+      a.addEventListener('click', function () { var bdx = document.querySelector('.side-bd'); if (bdx) { bdx.classList.remove('open'); bdx.hidden = true; } openInstallSheet(); });
+      var brand = side.querySelector('.side-brand'); side.insertBefore(a, brand ? brand.nextSibling : side.firstChild);
+    };
+    tryAdd();
+  })();
   window.addEventListener('resize', fitTotal);
   refresh();
 })();
