@@ -186,3 +186,6 @@ When someone sends back money you paid them (you pay Rishabh ₹10,700, he retur
 
 ## Tap Today to jump to it (v113)
 Tapping Today, or any bar of the week chart, scrolls down to that day in "Day by day", opens it and highlights it. When the day is not in the list (another month open, or a filter hides it) the summary popup opens instead. The popup now draws above everything inside the phone app too.
+
+## Credit card on the home screen (v114)
+"Where your money went" is gone from the home screen. In its place: this month's credit card spends (total and number of swipes). Tap it to see every card spend date-wise, with each day's total, and a link to the full card screen (what the card owes). Categories still show in the week and day popups on the top card.
