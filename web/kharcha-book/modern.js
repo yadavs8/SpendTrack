@@ -1169,33 +1169,113 @@
     return null;
   }
   var dFmtS = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short', year: '2-digit' });
+  var saMonth = null, saOpen = {};
   function renderSearchAll() {
     var inp = $('search'); if (!inp) return;
     var box = $('search-all');
     if (!box) { box = el('div', 'search-all'); box.id = 'search-all'; var bar = inp.closest('.actions-bar'); bar.parentNode.insertBefore(box, bar.nextSibling); }
     var q = inp.value.trim().toLowerCase();
+    if (box.dataset.q !== q) { saMonth = null; saOpen = {}; box.dataset.q = q; }
     box.textContent = '';
     if (q.length < 2 && !/^[<>]/.test(q)) { box.hidden = true; return; }
-    var KLs = window.KharchaLedger, smart = !amountTest(q) && KLs && KLs.smartSearch ? KLs.smartSearch(q) : null;
-    var test = amountTest(q), rows = (K.getEntries ? K.getEntries() : []).filter(function (e) {
+    var KLs = window.KharchaLedger, test = amountTest(q), smart = !test && KLs && KLs.smartSearch ? KLs.smartSearch(q) : null;
+    var all = K.getEntries ? K.getEntries() : [];
+    var rows = all.filter(function (e) {
       if (!e || e.synthetic) return false;
       if (test) return test(e.amount);
       return smart ? smart.test(e.desc) : String(e.desc || '').toLowerCase().indexOf(q) >= 0;
     }).sort(function (a, b) { return b.ts - a.ts; });
     box.hidden = false;
-    var ask = !test && KLs && KLs.askQuery ? KLs.askQuery(K.getEntries ? K.getEntries() : [], q, Date.now(), function (e) { return K.isExpense(e); }) : null;
-    if (ask) { var ab = el('div', 'sa-head', '\uD83D\uDCAC ' + ask.text); ab.style.fontWeight = '700'; box.appendChild(ab); }
-    var total = rows.reduce(function (n, e) { return n + (K.isExpense(e) ? e.amount : 0); }, 0);
-    if (!(ask && !rows.length)) box.appendChild(el('div', 'sa-head', rows.length ? rows.length + ' found in all months' + (total ? ' · spent ' + K.money(Math.round(total * 100) / 100) : '') : 'Nothing found in any month.'));
-    rows.slice(0, 30).forEach(function (e) {
-      var r = el('div', 'sa-row'), isIn = K.isIncome && K.isIncome(e);
-      r.appendChild(el('span', 'sa-d', dFmtS.format(new Date(e.ts))));
-      r.appendChild(el('span', 'sa-t', String(e.desc || '').replace(/^[^\wऀ-ॿ]+/, '').slice(0, 34)));
-      r.appendChild(el('span', 'sa-a' + (isIn ? ' in' : ''), (isIn ? '+ ' : '') + K.money(e.amount)));
-      box.appendChild(r);
+    var isExp = function (e) { return K.isExpense(e); };
+    // a plain-words question ("milk last month") gets its one-line answer first
+    var ask = !test && KLs && KLs.askQuery ? KLs.askQuery(all, q, Date.now(), isExp) : null;
+    if (ask) box.appendChild(el('div', 'sa-ask', '💬 ' + ask.text));
+    if (!rows.length) { box.appendChild(el('div', 'sa-empty', ask ? '' : 'Nothing found in any month. Try another word, an amount like 906, or >1000.')); return; }
+    var ins = KLs && KLs.searchInsights ? KLs.searchInsights(rows, Date.now(), isExp) : null;
+    var title = q.replace(/\b[a-z]/g, function (c) { return c.toUpperCase(); });
+    var spendRows = rows.filter(isExp), dom = spendRows.length ? catOf(spendRows[0]) : { icon: '🔎', color: '#0284c7', label: '' };
+    // --- header
+    var head = el('div', 'sa-top');
+    var hic = el('span', 'sa-ic', test ? '🔢' : dom.icon); hic.style.background = (dom.color || '#0284c7') + '22'; head.appendChild(hic);
+    var ht = el('div', 'sa-ttl'); ht.appendChild(el('b', null, test ? 'Amount ' + q : title));
+    ht.appendChild(el('small', null, rows.length + (rows.length === 1 ? ' match' : ' matches') + (ins && ins.since ? ' since ' + dFmtS.format(new Date(ins.since)) : '') + (smart && smart.concepts.length ? ' · incl. ' + smart.concepts.join(', ') : '')));
+    head.appendChild(ht);
+    var clr = el('button', 'sa-x', '×'); clr.type = 'button'; clr.setAttribute('aria-label', 'Clear search');
+    clr.addEventListener('click', function () { inp.value = ''; inp.dispatchEvent(new Event('input', { bubbles: true })); renderSearchAll(); });
+    head.appendChild(clr);
+    box.appendChild(head);
+    if (ins && ins.count) {
+      // --- hero: this month, with the change against last month
+      var hero = el('div', 'sa-hero'); hero.style.setProperty('--sa-c', dom.color || '#0284c7');
+      var hl = el('div'); hl.appendChild(el('span', 'sa-k', 'THIS MONTH'));
+      hl.appendChild(el('b', 'sa-big', K.money(Math.round(ins.thisMonth.p))));
+      hl.appendChild(el('span', 'sa-k2', ins.thisMonth.n + (ins.thisMonth.n === 1 ? ' purchase' : ' purchases')));
+      hero.appendChild(hl);
+      if (ins.change != null) { var ch = el('span', 'sa-chg ' + (ins.change > 5 ? 'up' : ins.change < -5 ? 'down' : 'flat'), (ins.change > 0 ? '▲ ' : ins.change < 0 ? '▼ ' : '') + Math.abs(ins.change) + '%'); ch.title = 'Month-end pace vs last month'; hero.appendChild(ch); }
+      box.appendChild(hero);
+      // --- tiles
+      var tiles = el('div', 'sa-tiles');
+      [['Last month', K.money(Math.round(ins.lastMonth.p)), ins.lastMonth.n + ' buys'],
+       ['Monthly average', ins.avgMonth ? K.money(Math.round(ins.avgMonth)) : '—', 'last 5 months'],
+       ['Per purchase', K.money(Math.round(ins.perBuy)), 'on average'],
+       ['By month end', ins.estimate ? '≈ ' + K.money(Math.round(ins.estimate)) : '—', 'at this pace']].forEach(function (t) {
+        var c = el('div', 'sa-tile'); c.appendChild(el('span', 'sa-k', t[0])); c.appendChild(el('b', null, t[1])); c.appendChild(el('small', null, t[2])); tiles.appendChild(c);
+      });
+      box.appendChild(tiles);
+      // --- 6-month trend; tap a month to see just that month
+      var maxM = Math.max.apply(null, ins.months.map(function (x) { return x.p; })) || 1;
+      var trend = el('div', 'sa-trend');
+      ins.months.forEach(function (x, i) {
+        var col = el('button', 'sa-col' + (saMonth === x.key ? ' on' : '') + (i === 5 ? ' cur' : '')); col.type = 'button';
+        var bar = el('span', 'sa-bar'); bar.style.setProperty('--h', Math.max(4, Math.round(x.p / maxM * 100)) + '%'); bar.style.background = dom.color || '#0284c7';
+        col.appendChild(el('span', 'sa-bv', x.p ? (x.p >= 1000 ? (x.p / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : String(Math.round(x.p))) : ''));
+        col.appendChild(bar); col.appendChild(el('span', 'sa-bl', x.label));
+        col.addEventListener('click', function () { saMonth = saMonth === x.key ? null : x.key; renderSearchAll(); });
+        trend.appendChild(col);
+      });
+      box.appendChild(trend);
+      // --- habits in plain words
+      var facts = el('div', 'sa-facts');
+      function fact(icon, txt) { var f = el('div', 'sa-fact'); f.appendChild(el('span', null, icon)); f.appendChild(el('span', null, txt)); facts.appendChild(f); }
+      if (ins.everyDays) fact('🔁', 'You buy this about ' + (ins.everyDays === 1 ? 'every day' : 'every ' + ins.everyDays + ' days') + (ins.timeOfDay ? ', mostly in the ' + ins.timeOfDay : '') + '.');
+      else if (ins.timeOfDay) fact('⏰', 'Mostly in the ' + ins.timeOfDay + '.');
+      if (ins.topPayee) fact('🏪', 'Most often: ' + ins.topPayee.name + ' (' + ins.topPayee.n + ' times, ' + K.money(Math.round(ins.topPayee.p)) + ').');
+      if (ins.biggest) fact('💰', 'Biggest: ' + K.money(ins.biggest.amount) + ' on ' + dFmtS.format(new Date(ins.biggest.ts)) + ' · ' + String(ins.biggest.desc || '').replace(/^[^\wऀ-ॿ]+/, '').slice(0, 26) + '.');
+      fact('🧮', 'All time: ' + K.money(Math.round(ins.total)) + ' over ' + ins.count + (ins.count === 1 ? ' purchase.' : ' purchases.') + (ins.avgMonth ? ' About ' + K.money(Math.round(ins.avgMonth * 12)) + ' a year.' : ''));
+      box.appendChild(facts);
+    }
+    // --- the spends, month by month, each month with its own total (folds open and shut)
+    var mF = new Intl.DateTimeFormat('en-IN', { month: 'long', year: 'numeric' }), groups = [], byK = {};
+    rows.forEach(function (e) {
+      var d = new Date(e.ts), k = d.getFullYear() * 12 + d.getMonth();
+      if (saMonth != null && k !== saMonth) return;
+      if (!byK[k]) { byK[k] = { k: k, ts: e.ts, p: 0, n: 0, items: [] }; groups.push(byK[k]); }
+      if (isExp(e)) { byK[k].p += paise(e.amount); byK[k].n++; }
+      byK[k].items.push(e);
     });
-    if (smart && smart.concepts.length && rows.length) box.insertBefore(el('div', 'sa-more', 'Also matching related words for: ' + smart.concepts.join(', ')), box.children[1] || null);
-    if (rows.length > 30) box.appendChild(el('div', 'sa-more', '…and ' + (rows.length - 30) + ' more. Narrow the search.'));
+    var listBox = el('div', 'sa-list');
+    groups.forEach(function (g, gi) {
+      var open = saOpen[g.k] != null ? saOpen[g.k] : (gi === 0 || saMonth != null);
+      var gh = el('button', 'sa-gh' + (open ? ' open' : '')); gh.type = 'button';
+      gh.appendChild(el('b', null, mF.format(new Date(g.ts))));
+      gh.appendChild(el('span', null, g.n + (g.n === 1 ? ' spend' : ' spends')));
+      gh.appendChild(el('b', 'sa-gt', K.money(Math.round(g.p) / 100)));
+      gh.appendChild(el('span', 'cc-chev', '▾'));
+      gh.addEventListener('click', function () { saOpen[g.k] = !open; renderSearchAll(); });
+      listBox.appendChild(gh);
+      if (!open) return;
+      g.items.slice(0, 60).forEach(function (e) {
+        var isIn = K.isIncome && K.isIncome(e), ct = catOf(e), r = el('div', 'sa-row2');
+        var ic = el('span', 'sa-ric', ct.icon); ic.style.background = ct.color + '1f'; r.appendChild(ic);
+        var t = el('div', 'sa-rt'); t.appendChild(el('b', null, String(e.desc || '').replace(/^[^\wऀ-ॿ]+/, '').replace(/\s*\[.*$/, '').slice(0, 36)));
+        t.appendChild(el('span', null, dFmtS.format(new Date(e.ts)) + ' · ' + new Intl.DateTimeFormat('en-IN', { hour: 'numeric', minute: '2-digit' }).format(new Date(e.ts)) + ' · ' + ct.label)); r.appendChild(t);
+        r.appendChild(el('b', 'sa-a' + (isIn ? ' in' : ''), (isIn ? '+ ' : '') + K.money(e.amount)));
+        listBox.appendChild(r);
+      });
+      if (g.items.length > 60) listBox.appendChild(el('div', 'sa-more', '…and ' + (g.items.length - 60) + ' more this month.'));
+    });
+    if (saMonth != null) { var all2 = el('button', 'sa-allm', 'Show every month'); all2.type = 'button'; all2.addEventListener('click', function () { saMonth = null; renderSearchAll(); }); listBox.appendChild(all2); }
+    box.appendChild(listBox);
   }
   (function initSearchAll() {
     var inp = $('search'); if (!inp) return;

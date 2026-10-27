@@ -643,3 +643,20 @@ t('trip diary labels: petrol, meals by time, place', () => {
   assert.strictEqual(L.tripItemCategory('✈️ Manali Trip: Indian Oil MANALI').key, 'fuel');
   assert.strictEqual(L.tripDiaryLabel({ ts: at(10), desc: 'Starbucks' }, { kind: 'food', places: [] }).title, 'Coffee & snacks');
 });
+
+t('searchInsights: milk this month vs last, habits, estimate', () => {
+  const now = new Date(2026, 9, 15, 12).getTime(), D = 864e5;
+  const rows = [];
+  for (let i = 0; i < 14; i++) rows.push({ id: 'm' + i, amount: 60, desc: '🏠 Milk vendor', ts: now - i * D - 4 * 3600e3 });       // daily, mornings, this month
+  for (let i = 0; i < 20; i++) rows.push({ id: 'l' + i, amount: 55, desc: '🏠 Milk vendor', ts: new Date(2026, 8, 1 + i, 7).getTime() }); // last month
+  rows.push({ id: 'big', amount: 450, desc: 'Amul ghee', ts: now - 2 * D });
+  const r = L.searchInsights(rows, now, () => true);
+  assert.strictEqual(r.thisMonth.n, 15); assert.strictEqual(r.thisMonth.p, 14 * 60 + 450);
+  assert.strictEqual(r.lastMonth.p, 1100);
+  assert.ok(r.estimate > r.thisMonth.p);
+  assert.strictEqual(r.topPayee.name, 'Milk vendor');
+  assert.strictEqual(r.everyDays, 1);
+  assert.strictEqual(r.timeOfDay, 'mornings');
+  assert.strictEqual(r.biggest.id, 'big');
+  assert.strictEqual(r.months.length, 6); assert.strictEqual(r.months[5].label, 'Oct');
+});

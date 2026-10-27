@@ -892,6 +892,8 @@
     salon: ['salon', 'saloon', 'hair', 'haircut', 'hair cut', 'barber', 'beauty', 'parlour', 'parlor', 'spa', 'grooming', 'shave', 'trim', 'unisex', 'facial', 'waxing', 'manicure', 'pedicure', 'mehndi', 'naturals', 'jawed habib', 'lakme', 'green trends', 'toni', 'urban company', 'looks'],
     petrol: ['petrol', 'diesel', 'fuel', 'pump', 'petro', 'filling station', 'fuel station', 'gas station', 'cng', 'hpcl', 'bpcl', 'iocl', 'hp', 'indian oil', 'bharat petroleum', 'hindustan petroleum', 'shell', 'reliance bp', 'nayara', 'essar', 'service station', 'auto fuel', 'fastag'],
     food: ['food', 'restaurant', 'cafe', 'dining', 'dhaba', 'eatery', 'biryani', 'pizza', 'burger', 'dominos', 'mcdonald', 'kfc', 'subway', 'zomato', 'swiggy', 'bakery', 'sweets', 'mithai', 'chai', 'tea', 'coffee', 'starbucks', 'canteen', 'hotel', 'kitchen', 'tiffin', 'thali', 'dosa', 'juice', 'ice cream', 'haldiram'],
+    milk: ['milk', 'doodh', 'dairy', 'amul', 'mother dairy', 'paneer', 'curd', 'dahi', 'ghee', 'butter', 'milk vendor', 'doodhwala'],
+    veg: ['vegetable', 'vegetables', 'sabzi', 'sabji', 'subzi', 'fruit', 'fruits', 'mandi'],
     grocery: ['grocery', 'kirana', 'mart', 'supermarket', 'bigbasket', 'blinkit', 'zepto', 'instamart', 'dmart', 'vegetable', 'sabzi', 'fruit', 'milk', 'dairy', 'amul', 'mother dairy', 'provision', 'general store', 'ration', 'jiomart', 'more retail', 'reliance fresh'],
     medicine: ['medicine', 'medical', 'pharmacy', 'pharma', 'chemist', 'apollo', 'medplus', '1mg', 'pharmeasy', 'netmeds', 'hospital', 'clinic', 'doctor', 'dr', 'lab', 'diagnostic', 'pathology', 'dental', 'dentist', 'health', 'tablet', 'drug'],
     travel: ['travel', 'cab', 'taxi', 'uber', 'ola', 'rapido', 'auto', 'rickshaw', 'metro', 'irctc', 'railway', 'train', 'bus', 'redbus', 'flight', 'indigo', 'air india', 'makemytrip', 'goibibo', 'toll', 'parking', 'ride'],
@@ -904,7 +906,7 @@
     insurance: ['insurance', 'premium', 'lic', 'policy', 'hdfc life', 'sbi life', 'icici pru', 'star health', 'acko'],
     home: ['home', 'repair', 'plumber', 'electrician', 'carpenter', 'maid', 'servant', 'cook', 'laundry', 'dry clean', 'ironing', 'furniture', 'hardware', 'paint']
   };
-  var SEARCH_ALIASES = { hair: 'salon', haircut: 'salon', barber: 'salon', parlour: 'salon', parlor: 'salon', beauty: 'salon', fuel: 'petrol', diesel: 'petrol', cng: 'petrol', pump: 'petrol', gas: 'petrol', restaurant: 'food', eat: 'food', eating: 'food', lunch: 'food', dinner: 'food', breakfast: 'food', vegetables: 'grocery', veggies: 'grocery', kirana: 'grocery', medicines: 'medicine', pharmacy: 'medicine', doctor: 'medicine', cab: 'travel', taxi: 'travel', uber: 'travel', ola: 'travel', flight: 'travel', train: 'travel', phone: 'recharge', mobile: 'recharge', electricity: 'bills', light: 'bills', movie: 'entertainment', movies: 'entertainment', cinema: 'entertainment', gym: 'fitness', clothes: 'shopping', cloth: 'shopping', school: 'education', fees: 'education' };
+  var SEARCH_ALIASES = { doodh: 'milk', dairy: 'milk', curd: 'milk', dahi: 'milk', paneer: 'milk', vegetable: 'veg', vegetables: 'veg', sabzi: 'veg', fruit: 'veg', fruits: 'veg', hair: 'salon', haircut: 'salon', barber: 'salon', parlour: 'salon', parlor: 'salon', beauty: 'salon', fuel: 'petrol', diesel: 'petrol', cng: 'petrol', pump: 'petrol', gas: 'petrol', restaurant: 'food', eat: 'food', eating: 'food', lunch: 'food', dinner: 'food', breakfast: 'food', veggies: 'veg', kirana: 'grocery', medicines: 'medicine', pharmacy: 'medicine', doctor: 'medicine', cab: 'travel', taxi: 'travel', uber: 'travel', ola: 'travel', flight: 'travel', train: 'travel', phone: 'recharge', mobile: 'recharge', electricity: 'bills', light: 'bills', movie: 'entertainment', movies: 'entertainment', cinema: 'entertainment', gym: 'fitness', clothes: 'shopping', cloth: 'shopping', school: 'education', fees: 'education' };
   function searchHit(hay, term) {
     if (term.length <= 3) return new RegExp('(^|[^a-z0-9])' + term.replace(/[^a-z0-9 ]/g, '') + '([^a-z0-9]|$)').test(hay);
     return hay.indexOf(term) >= 0;
@@ -927,7 +929,9 @@
   // Which concept(s) does one typed word mean? Exact key/alias/term, or a 3+ letter prefix of a key ("saloo" -> salon).
   function searchConcepts(word) {
     var hits = [];
-    if (SEARCH_CONCEPTS[word]) hits.push(word);
+    // A word that is a concept of its own ("milk", "petrol") means just that, not every broader group it also sits in.
+    if (SEARCH_CONCEPTS[word]) return [word];
+    if (SEARCH_ALIASES[word]) return [SEARCH_ALIASES[word]];
     if (SEARCH_ALIASES[word] && hits.indexOf(SEARCH_ALIASES[word]) < 0) hits.push(SEARCH_ALIASES[word]);
     Object.keys(SEARCH_CONCEPTS).forEach(function (k) {
       if (hits.indexOf(k) >= 0) return;
@@ -1220,6 +1224,49 @@
     return { title: title, place: place };
   }
 
+
+  /* ---------- what a search says about your spending: "milk", "petrol", "swiggy" ----------
+     rows: the matching entries; isExpense decides what counts as spending. */
+  function payeeName(desc) {
+    var d = String(desc || '').replace(/\[[^\]]*\]/g, ' ').replace(/^[^A-Za-z0-9ऀ-ॿ]+/, '').replace(/^[^:]{0,30}:\s+/, '').replace(/\s*\(.*$/, '').trim();
+    return d.split(/\s+/).slice(0, 4).join(' ');
+  }
+  function searchInsights(rows, nowMs, isExpense) {
+    var now = new Date(nowMs), y = now.getFullYear(), m = now.getMonth(), DAY = 86400000;
+    var list = (rows || []).filter(function (e) { return e && !e.synthetic && isExpense(e); });
+    var out = { count: list.length, total: 0, months: [], thisMonth: { p: 0, n: 0 }, lastMonth: { p: 0, n: 0 }, change: null, avgMonth: 0, perBuy: 0,
+      estimate: 0, biggest: null, topPayee: null, everyDays: null, timeOfDay: '', since: null };
+    if (!list.length) return out;
+    var mkey = function (ts) { var d = new Date(ts); return d.getFullYear() * 12 + d.getMonth(); }, cur = y * 12 + m;
+    var byM = {}, payees = {}, hours = [0, 0, 0, 0], tot = 0;
+    list.forEach(function (e) {
+      var p = toPaise(e.amount), k = mkey(e.ts); tot += p;
+      byM[k] = byM[k] || { p: 0, n: 0 }; byM[k].p += p; byM[k].n++;
+      var pn = payeeName(e.desc); if (pn) { var pk = pn.toLowerCase(); payees[pk] = payees[pk] || { name: pn, n: 0, p: 0 }; payees[pk].n++; payees[pk].p += p; }
+      var h = new Date(e.ts).getHours(); hours[h < 12 ? 0 : h < 17 ? 1 : h < 21 ? 2 : 3]++;
+      if (!out.biggest || e.amount > out.biggest.amount) out.biggest = e;
+      if (!out.since || e.ts < out.since) out.since = e.ts;
+    });
+    out.total = tot / 100;
+    var names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    for (var i = 5; i >= 0; i--) { var k = cur - i, v = byM[k] || { p: 0, n: 0 }; out.months.push({ key: k, label: names[((k % 12) + 12) % 12], p: v.p / 100, n: v.n, year: Math.floor(k / 12), month: ((k % 12) + 12) % 12 }); }
+    var tm = byM[cur] || { p: 0, n: 0 }, lm = byM[cur - 1] || { p: 0, n: 0 };
+    out.thisMonth = { p: tm.p / 100, n: tm.n }; out.lastMonth = { p: lm.p / 100, n: lm.n };
+    var dim = new Date(y, m + 1, 0).getDate(), day = now.getDate();
+    out.estimate = tm.p ? Math.round(tm.p / day * dim) / 100 : 0;
+    if (lm.p) out.change = Math.round(((tm.p / day * dim) - lm.p) / lm.p * 100);
+    var full = out.months.slice(0, 5).filter(function (x) { return x.p > 0; });
+    out.avgMonth = full.length ? Math.round(full.reduce(function (n, x) { return n + x.p; }, 0) / full.length) : 0;
+    out.perBuy = Math.round(tot / list.length) / 100;
+    var tp = Object.keys(payees).map(function (k) { return payees[k]; }).sort(function (a, b) { return b.n - a.n || b.p - a.p; })[0];
+    if (tp && tp.n > 1) out.topPayee = { name: tp.name, n: tp.n, p: tp.p / 100 };
+    var recent = list.filter(function (e) { return e.ts >= nowMs - 60 * DAY; }).map(function (e) { return e.ts; }).sort(function (a, b) { return a - b; });
+    if (recent.length >= 3) out.everyDays = Math.max(1, Math.round((recent[recent.length - 1] - recent[0]) / DAY / (recent.length - 1)));
+    var hi = hours.indexOf(Math.max.apply(null, hours));
+    if (hours[hi] >= Math.max(2, list.length * 0.5)) out.timeOfDay = ['mornings', 'afternoons', 'evenings', 'nights'][hi];
+    return out;
+  }
+
   return {
     findDuplicates: findDuplicates, autoTransferPairs: autoTransferPairs, parseCardLimit: parseCardLimit, cardState: cardState, seedRules: seedRules,
     upcomingRules: upcomingRules, parseOwn: parseOwn, defaultOwn: defaultOwn, cardFor: cardFor, ownAccountFor: ownAccountFor, transferCandidates: transferCandidates, autoOwnTransfers: autoOwnTransfers, orphanTransfers: orphanTransfers, isOwnName: isOwnName, sourceAccountFromRaw: sourceAccountFromRaw,
@@ -1232,7 +1279,7 @@
     addPayment: addPayment, editLoan: editLoan, editPayment: editPayment, summarize: summarize,
     walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, parseWalletDesc: parseWalletDesc,
     parseWallets: parseWallets, walletState: walletState, walletReconcile: walletReconcile,
-    smartSearch: smartSearch, smsAccounts: smsAccounts, tripDiaryLabel: tripDiaryLabel, placeIn: placeIn, categoryOf: categoryOf, personOf: personOf, findPaybacks: findPaybacks, peopleLedger: peopleLedger, cleanBankAccounts: cleanBankAccounts, askQuery: askQuery, forecastMonth: forecastMonth, unusualSpends: unusualSpends,
+    smartSearch: smartSearch, smsAccounts: smsAccounts, searchInsights: searchInsights, payeeName: payeeName, tripDiaryLabel: tripDiaryLabel, placeIn: placeIn, categoryOf: categoryOf, personOf: personOf, findPaybacks: findPaybacks, peopleLedger: peopleLedger, cleanBankAccounts: cleanBankAccounts, askQuery: askQuery, forecastMonth: forecastMonth, unusualSpends: unusualSpends,
     payCycles: payCycles, lastWorkingDay: lastWorkingDay, nextPayday: nextPayday, parseBank: parseBank, parseAvlBalance: parseAvlBalance, balanceFromSms: balanceFromSms, bankEstimate: bankEstimate, parseTransfers: parseTransfers
   };
 });

@@ -239,3 +239,12 @@ On an Android phone in Chrome, Kharcha Book shows a slim "📲 Get the Android a
 - **Travel diary labels**: trip spends read like "Filled petrol in Gurgaon", "Breakfast in Gurgaon", "Lunch in Chandigarh", "Refilled petrol in Manali", "Stay in Manali". Meals follow the time (breakfast, lunch, evening snacks, dinner, late-night; cafés become "Coffee & snacks"); petrol after the first is "Refilled". The original merchant and time stay underneath.
 - **📍 Where are you**: tap it on the trip page (also offered when trip mode starts) to set your town, from the phone's location when allowed or typed in. Spends after that are labelled with that town; a town in the merchant name ("Indian Oil MANALI") wins.
 - Settle-up amounts are shown in whole rupees.
+
+## Search tells you everything about a spend (v125)
+Search "milk", "petrol", "swiggy" (or an amount) and you get a full panel, not just a list:
+- **This month** in big numbers with the number of purchases, and ▲/▼ % against last month (at this month's pace).
+- **Last month**, **monthly average** (last 5 months), **per purchase**, and **by month end** (estimate at this pace).
+- **6-month bar chart**; tap a month to see only that month (tap again for all).
+- **Habits in plain words**: how often you buy it and when ("about every day, mostly in the mornings"), where most often ("Milk vendor, 70 times"), the biggest purchase, and the all-time and yearly cost.
+- **Every spend grouped by month**, each month with its own total; months fold open and shut.
+- A specific word stays specific: "milk" means milk and dairy (Amul, paneer, curd, ghee...), not all groceries. × clears the search.
