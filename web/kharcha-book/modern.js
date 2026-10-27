@@ -487,6 +487,49 @@
     document.addEventListener('keydown', onKey);
   }
 
+
+  /* ---------- home: credit card spends this month, tap for a date-wise list (replaces "Where your money went") ---------- */
+  var ccOpen = false;
+  function renderCardHome() {
+    var anchor = $('category-sec'); if (!anchor || !K.getEntries || !K.isCardEntry) return;
+    var box = $('cc-home');
+    if (!box) { box = el('section', 'cc-home'); box.id = 'cc-home'; anchor.parentNode.insertBefore(box, anchor); }
+    var now = new Date(), from = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    var list = K.getEntries().filter(function (e) {
+      return e && !e.synthetic && e.ts >= from && K.isCardEntry(e) && K.isExpense(e) && !(K.isCardBillEntry && K.isCardBillEntry(e));
+    }).sort(function (a, b) { return b.ts - a.ts; });
+    box.textContent = '';
+    var total = list.reduce(function (n, e) { return n + paise(e.amount); }, 0) / 100;
+    var head = el('button', 'cc-head' + (ccOpen ? ' open' : '')); head.type = 'button'; head.setAttribute('aria-expanded', ccOpen ? 'true' : 'false');
+    var l = el('div', 'cc-l');
+    l.appendChild(el('span', 'cc-k', '\uD83D\uDCB3 Credit card \u00b7 ' + new Intl.DateTimeFormat('en-IN', { month: 'long' }).format(now)));
+    l.appendChild(el('span', 'cc-sub', list.length ? list.length + (list.length === 1 ? ' swipe' : ' swipes') + ' \u00b7 tap to see them date-wise' : 'No card spends yet this month'));
+    head.appendChild(l);
+    var r = el('div', 'cc-r'); r.appendChild(el('b', 'cc-amt', K.money(total))); r.appendChild(el('span', 'chevron', '\u25BE')); head.appendChild(r);
+    box.appendChild(head);
+    var body = el('div', 'cc-body'); body.hidden = !ccOpen;
+    var dayF = new Intl.DateTimeFormat('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }), groups = [], byKey = {};
+    list.forEach(function (e) {
+      var d = new Date(e.ts), k = d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate();
+      if (!byKey[k]) { byKey[k] = { ts: e.ts, p: 0, items: [] }; groups.push(byKey[k]); }
+      byKey[k].p += paise(e.amount); byKey[k].items.push(e);
+    });
+    groups.forEach(function (g) {
+      var gh = el('div', 'cc-day'); gh.appendChild(el('span', null, dayF.format(new Date(g.ts)))); gh.appendChild(el('b', null, K.money(g.p / 100))); body.appendChild(gh);
+      g.items.forEach(function (e) {
+        var row = el('div', 'cc-item');
+        row.appendChild(el('span', 'cc-d', String(e.desc || '').replace(/^[^\wऀ-ॿ]+/, '').slice(0, 34)));
+        row.appendChild(el('span', 'cc-a', K.money(e.amount)));
+        body.appendChild(row);
+      });
+    });
+    var more = el('button', 'linkbtn cc-more', 'Open the card screen (what it owes) \u203A'); more.type = 'button';
+    more.addEventListener('click', function () { goStream('card'); });
+    body.appendChild(more);
+    box.appendChild(body);
+    head.addEventListener('click', function () { ccOpen = !ccOpen; body.hidden = !ccOpen; head.classList.toggle('open', ccOpen); head.setAttribute('aria-expanded', ccOpen ? 'true' : 'false'); });
+  }
+
   var lastTotal = null, animToken = 0;
   function fitTotal() {
     var t = $('mtotal'); if (!t) return;
@@ -991,7 +1034,7 @@
   attachSuggest($('desc'), $('amt'));
   attachSuggest($('trip-exp-desc'), $('trip-exp-amt'));
   document.addEventListener('kharcha:render', function () {
-    pool = null; countUpTotal(); renderHeroExtras(); decorateRows(); syncNav(); renderAnswerCard(); watchNewEntries(); decorateEmpty();
+    pool = null; countUpTotal(); renderHeroExtras(); renderCardHome(); decorateRows(); syncNav(); renderAnswerCard(); watchNewEntries(); decorateEmpty();
     var m0 = $('main'); if (m0 && !m0.hidden) setTimeout(function () { showTour(false); }, 900);
   });
   var main = $('main');
