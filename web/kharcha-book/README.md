@@ -214,3 +214,7 @@ Calendar amounts sit in a solid pill (dark text on light, light on dark) so they
 
 ## Add from contacts fixed (v119)
 Inside an older phone app, "Add from contacts" did nothing (the app's browser has a contacts feature that cannot open anything, and the error was silent). Now: in the latest phone app it opens your contacts; in an older app it explains and offers the update (installs over, keeps your data); in Chrome it opens Chrome's contact picker; if anything fails you see a message and can type the name. The phone app also always reports back to the page, even if the picker cannot open.
+
+## Safer phone updates (v120)
+- Per-person UPI IDs and trip links now back up to your Kharcha Book account like your other settings, so a reinstall does not lose them.
+- The app's signing key is refreshed daily in the build system (it used to be weekly, right at the 7-day point where GitHub drops it), and a build on main now stops instead of quietly making a new key, so an update always installs over the app you have.
