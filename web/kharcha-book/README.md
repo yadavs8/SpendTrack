@@ -200,3 +200,6 @@ Tapping Today, or any bar of the week chart, scrolls down to that day in "Day by
 
 ## Day card always on screen (v116)
 Tapping a calendar date, a week bar or a top-card box opens a solid card near the top of what you are looking at (no longer pinned to the bottom edge, where the phone's navigation bar could hide it). Its amounts show even when "hide amounts" is on, since you opened it on purpose. Tap ✕ or outside to close.
+
+## Clear calendar amounts, card dropdown (v117)
+Calendar amounts sit in a solid pill (dark text on light, light on dark) so they read clearly on every colour, and stay visible in hide-amounts mode. The credit card box is a dropdown: tap it, pick the month (this month or any earlier month with card spends), and each date is its own dropdown showing that day's swipes with pictures, category and time; the newest date opens first. The repeated "By payment method" box is gone from Home.

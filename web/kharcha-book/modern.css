@@ -463,7 +463,7 @@ body.privacy .cat-chip { filter: none; }
 .cal-cat { flex: none; display: flex; align-items: center; gap: 8px; padding: 8px 12px 8px 8px; border-radius: 14px; border: 1px solid var(--line); background: var(--bg); font: inherit; color: var(--ink); cursor: pointer; }
 .cal-cat-ic { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px; font-size: 1.05rem; background: color-mix(in srgb, var(--cc) 14%, transparent); }
 .cal-cat-t { display: grid; text-align: left; } .cal-cat-t b { font-size: 0.8rem; } .cal-cat-t span { font-size: 0.72rem; color: var(--muted); font-variant-numeric: tabular-nums; }
-body.privacy .cal-amt, body.privacy .cal-cat-t span, body.privacy .ds-a { filter: blur(6px); }
+body.privacy .cal-cat-t span { filter: blur(6px); }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .cal-day.lvl1 { background: #0c4a6e55; } :root:not([data-theme="light"]) .cal-day.lvl2 { background: #0c4a6e99; } :root:not([data-theme="light"]) .cal-day.lvl3 { background: #0369a1; color: #fff; } :root:not([data-theme="light"]) .cal-day.lvl4 { background: #0284c7; color: #fff; } }
 :root[data-theme="dark"] .cal-day.lvl1 { background: #0c4a6e55; } :root[data-theme="dark"] .cal-day.lvl2 { background: #0c4a6e99; } :root[data-theme="dark"] .cal-day.lvl3 { background: #0369a1; color: #fff; } :root[data-theme="dark"] .cal-day.lvl4 { background: #0284c7; color: #fff; }
 
@@ -516,3 +516,39 @@ body.privacy .cal-amt, body.privacy .cal-cat-t span, body.privacy .ds-a { filter
 /* You opened the card on purpose: show its amounts even when "hide amounts" is on. */
 body.privacy .hx-pop-amt, body.privacy .hx-cat-top b, body.privacy .hx-big b, body.privacy .hx-pop-note, body.privacy .ds-a { filter: none !important; }
 .hx-pop .ds-t b, .hx-pop .hx-pop-head b { color: var(--ink, #0f172a); }
+
+/* ---------- v117: readable calendar amounts ---------- */
+.cal-day { min-height: 64px; gap: 2px; padding: 4px 2px 5px; }
+.cal-ic { font-size: 0.78rem; }
+.cal-amt { display: inline-block; max-width: 100%; box-sizing: border-box; padding: 1px 5px; border-radius: 7px; font-size: 0.74rem; font-weight: 800; line-height: 1.25; letter-spacing: -0.01em; color: #0f172a; background: rgba(255, 255, 255, 0.95); box-shadow: 0 1px 2px rgba(15, 23, 42, 0.15); white-space: nowrap; overflow: hidden; text-overflow: clip; }
+.cal-day.hot .cal-amt { color: #7f1d1d; }
+.cal-n { font-size: 0.76rem; }
+body.privacy .cal-amt { filter: none !important; }
+:root[data-theme="dark"] .cal-amt { color: #f8fafc; background: rgba(2, 6, 23, 0.82); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .cal-amt { color: #f8fafc; background: rgba(2, 6, 23, 0.82); } }
+@media (max-width: 360px) { .cal-amt { font-size: 0.66rem; padding: 1px 3px; } .cal-ic { display: none; } }
+
+/* ---------- v117: credit card dropdown ---------- */
+.cc-home { box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 8px 24px rgba(15, 23, 42, 0.05); }
+.cc-head { gap: 12px; }
+.cc-ic { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; font-size: 1.2rem; background: linear-gradient(135deg, #312e81, #7c3aed); }
+.cc-l { flex: 1; }
+.cc-chev { display: inline-block; color: var(--muted); transition: transform 0.2s ease; }
+.cc-head.open > .cc-r .cc-chev, .cc-dd.open .cc-dh .cc-chev { transform: rotate(180deg); }
+.cc-body { padding: 4px 12px 12px; }
+.cc-pick { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 4px; }
+.cc-sel { font: inherit; font-weight: 700; font-size: 0.86rem; padding: 8px 30px 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--ink); max-width: 100%; }
+.cc-avg { font-size: 0.76rem; color: var(--muted); }
+.cc-empty { color: var(--muted); font-size: 0.86rem; padding: 6px 4px; }
+.cc-dd { border: 1px solid var(--line); border-radius: 14px; margin-top: 8px; overflow: hidden; background: var(--bg); }
+.cc-dd.open { background: var(--surface); }
+.cc-dh { display: grid; grid-template-columns: 1fr auto auto auto; align-items: center; gap: 10px; width: 100%; padding: 11px 12px; border: 0; background: none; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.cc-dd-date { font-weight: 700; font-size: 0.9rem; } .cc-dd-n { font-size: 0.74rem; color: var(--muted); } .cc-dd-amt { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cc-dd-items { padding: 0 12px 6px; border-top: 1px solid var(--line); }
+.cc-dd-items .cc-item { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.cc-dd-items .cc-item:last-child { border-bottom: 0; }
+.cc-dd-items .cc-a { font-variant-numeric: tabular-nums; font-weight: 700; white-space: nowrap; }
+body.privacy .cc-dd-amt { filter: blur(8px); }
+:root[data-theme="dark"] .cal-day.hot { background: linear-gradient(160deg, #fde047, #fb923c 55%, #ef4444); color: #fff; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .cal-day.hot { background: linear-gradient(160deg, #fde047, #fb923c 55%, #ef4444); color: #fff; } }
+body.calm #method-sec { display: none !important; }
