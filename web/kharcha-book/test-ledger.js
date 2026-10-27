@@ -630,3 +630,16 @@ t('categoryOf gives a picture per spend', () => {
   assert.strictEqual(c('King Food'), 'food');
   assert.strictEqual(c('Xyz Traders'), 'other');
 });
+
+t('trip diary labels: petrol, meals by time, place', () => {
+  const at = (h) => new Date(2026, 10, 20, h, 15).getTime();
+  const places = [{ ts: at(6), place: 'Gurgaon' }, { ts: at(13), place: 'Chandigarh' }];
+  assert.strictEqual(L.tripDiaryLabel({ ts: at(7), desc: 'HP Petrol Pump' }, { kind: 'fuel', fuelBefore: 0, places }).title, 'Filled petrol in Gurgaon');
+  assert.strictEqual(L.tripDiaryLabel({ ts: at(9), desc: 'Sukhdev Dhaba' }, { kind: 'food', places }).title, 'Breakfast in Gurgaon');
+  assert.strictEqual(L.tripDiaryLabel({ ts: at(14), desc: 'Haveli restaurant' }, { kind: 'food', places }).title, 'Lunch in Chandigarh');
+  assert.strictEqual(L.tripDiaryLabel({ ts: at(17), desc: 'Indian Oil MANALI' }, { kind: 'fuel', fuelBefore: 1, places }).title, 'Refilled petrol in Manali');
+  assert.strictEqual(L.tripDiaryLabel({ ts: at(20), desc: 'Cafe 1947' }, { kind: 'food', places: [] }).title, 'Dinner');
+  assert.strictEqual(L.tripDiaryLabel({ ts: at(7), desc: '✈️ Manali Trip: HP Petrol Pump' }, { kind: 'fuel', fuelBefore: 0, places }).title, 'Filled petrol in Gurgaon');
+  assert.strictEqual(L.tripItemCategory('✈️ Manali Trip: Indian Oil MANALI').key, 'fuel');
+  assert.strictEqual(L.tripDiaryLabel({ ts: at(10), desc: 'Starbucks' }, { kind: 'food', places: [] }).title, 'Coffee & snacks');
+});

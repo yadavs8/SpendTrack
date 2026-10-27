@@ -1,8 +1,8 @@
 // Caches the app shell so it opens offline. Supabase calls are never cached.
 // Network first, revalidating with the server (no browser HTTP-cache shortcut), so a new deploy is what
 // opens next time -- on the main app and on installed trip apps alike, with nothing to reinstall.
-var CACHE = 'kharcha-shell-v123';
-var SHELL = ['./', './index.html', './styles.css?v=123', './modern.css?v=123', './modern.js?v=123', './insights.js?v=123', './card.js?v=123', './trips-home.js?v=123', './phone.js?v=123', './ledger-logic.js?v=123', './app.js?v=123', './config.js?v=123', './manifest.webmanifest', './icon-192.png?v=123', './logo-mark.png?v=123', './icon-512.png?v=123', './trip.html', './trip.js?v=123'];
+var CACHE = 'kharcha-shell-v124';
+var SHELL = ['./', './index.html', './styles.css?v=124', './modern.css?v=124', './modern.js?v=124', './insights.js?v=124', './card.js?v=124', './trips-home.js?v=124', './phone.js?v=124', './ledger-logic.js?v=124', './app.js?v=124', './config.js?v=124', './manifest.webmanifest', './icon-192.png?v=124', './logo-mark.png?v=124', './icon-512.png?v=124', './trip.html', './trip.js?v=124'];
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(SHELL); }).then(function () { return self.skipWaiting(); }));
 });

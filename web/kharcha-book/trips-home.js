@@ -163,6 +163,67 @@
   }
 
 
+
+  /* ---------- trip mode: on / paused / ended, in plain words ---------- */
+  function modeCard(trip, n) {
+    var api = K.tripsApi, md = api.mode(), card = el('section', 'th-mode');
+    var on = md.name === trip && !md.paused, paused = md.name === trip && md.paused, other = md.name && md.name !== trip;
+    card.classList.add(on ? 'on' : paused ? 'paused' : 'off');
+    var t = el('div', 'th-mode-t');
+    t.appendChild(el('b', null, on ? '🟢 Trip mode is ON' : paused ? '⏸️ Trip mode is paused' : '⚪ Trip mode is off'));
+    t.appendChild(el('span', null, on ? 'Every payment is logged to ' + trip + (n > 1 ? ' and split equally between ' + n + ' people.' : '.')
+      : paused ? 'Payments go to Personal or Family as usual until you resume.'
+      : other ? 'Trip mode is on for ' + md.name + '. Switch it here to log payments to ' + trip + ' instead.'
+      : 'Turn it on when you set off: every payment is then logged to this trip by itself.'));
+    card.appendChild(t);
+    var acts = el('div', 'th-mode-acts');
+    function btn(txt, cls, fn) { var b = el('button', 'th-act ' + cls, txt); b.type = 'button'; b.addEventListener('click', fn); acts.appendChild(b); }
+    if (on) { btn('⏸️ Pause', '', function () { api.pause(true); }); btn('■ End trip', 'danger', function () { endTrip(trip); }); }
+    else if (paused) { btn('▶️ Resume', 'primary', function () { api.pause(false); }); btn('■ End trip', 'danger', function () { endTrip(trip); }); }
+    else btn(other ? '▶️ Switch trip mode here' : '▶️ Start trip mode', 'primary', function () { api.start(trip); checkIn(trip, true); });
+    card.appendChild(acts);
+    // where you are now, for "Filled petrol in Gurgaon" style labels
+    var pl = api.places(trip), last = pl.length ? pl[pl.length - 1] : null;
+    var where = el('button', 'th-where'); where.type = 'button';
+    where.appendChild(el('span', null, last ? '📍 Now in ' + last.place : '📍 Where are you? Add your town'));
+    where.appendChild(el('small', null, last ? 'Update' : 'Labels spends with the place'));
+    where.addEventListener('click', function () { checkIn(trip, false); });
+    card.appendChild(where);
+    return card;
+  }
+  function endTrip(trip) {
+    K.confirmBox({ title: 'End ' + trip + '?', message: 'New payments will go to Personal or Family again. Everything already on the trip stays, and you can still see and settle it here.', confirmText: 'End trip',
+      onConfirm: function () { K.tripsApi.end(); } });
+  }
+  // Your town: from the phone's location when allowed (looked up on OpenStreetMap), else typed in.
+  function checkIn(trip, quiet) {
+    var api = K.tripsApi;
+    function ask() {
+      var v = window.prompt('Which town are you in? (for example Gurgaon, Chandigarh, Manali)');
+      if (v && v.trim()) api.addPlace(trip, v.trim());
+    }
+    if (!navigator.geolocation) { if (!quiet) ask(); return; }
+    navigator.geolocation.getCurrentPosition(function (pos) {
+      var u = 'https://nominatim.openstreetmap.org/reverse?format=json&zoom=10&lat=' + pos.coords.latitude.toFixed(3) + '&lon=' + pos.coords.longitude.toFixed(3);
+      fetch(u, { headers: { 'Accept-Language': 'en' } }).then(function (r) { return r.json(); }).then(function (j) {
+        var a = (j && j.address) || {}, town = a.city || a.town || a.village || a.suburb || a.county || a.state_district || '';
+        if (town) { api.addPlace(trip, town); K.toast('📍 ' + town); } else if (!quiet) ask();
+      }).catch(function () { if (!quiet) ask(); });
+    }, function () { if (!quiet) ask(); }, { timeout: 8000, maximumAge: 600000 });
+  }
+  // The diary title for one trip spend (Filled petrol in Gurgaon, Breakfast in Chandigarh ...), or '' to keep its own name.
+  function diaryTitles(items, trip) {
+    var KL = window.KharchaLedger, out = {}, fuel = 0, places = K.tripsApi.places ? K.tripsApi.places(trip) : [];
+    if (!KL || !KL.tripDiaryLabel) return out;
+    items.slice().sort(function (a, b) { return a.ts - b.ts; }).forEach(function (e) {
+      var tc = KL.tripItemCategory ? KL.tripItemCategory(e.desc) : { key: 'other' };
+      var r = KL.tripDiaryLabel(e, { kind: tc.key, fuelBefore: fuel, places: places });
+      if (tc.key === 'fuel') fuel++;
+      out[e.id] = r.title;
+    });
+    return out;
+  }
+
   /* ---------- screens ---------- */
   function tripStats(name) {
     var s = K.tripsApi.summary(name);
@@ -175,6 +236,8 @@
     b.style.background = th.bg;
     b.appendChild(el('span', 'th-art', th.icon));
     var tx = el('div', 'th-tx');
+    var md = K.tripsApi.mode ? K.tripsApi.mode() : {};
+    if (md.name === name) tx.appendChild(el('span', 'th-live' + (md.paused ? ' paused' : ''), md.paused ? '⏸ PAUSED' : '● LIVE'));
     tx.appendChild(el('b', 'th-name', name));
     var days = st.first && st.last ? Math.round((new Date(new Date(st.last).toDateString()).getTime() - new Date(new Date(st.first).toDateString()).getTime()) / 86400000) + 1 : (st.s.daysCount || 0);
     tx.appendChild(el('span', 'th-meta', st.items.length ? (st.first ? shortF.format(new Date(st.first)) + (st.last && shortF.format(new Date(st.last)) !== shortF.format(new Date(st.first)) ? ' – ' + shortF.format(new Date(st.last)) : '') + ' · ' : '') + days + (days === 1 ? ' day' : ' days') : 'No spends yet'));
@@ -218,6 +281,7 @@
     var people = s.participants || ['Me'];
     if (people.length > 1 && s.totalSpent) hb.appendChild(el('span', 'th-share', money(s.perPersonShare || s.totalSpent / people.length) + ' each'));
     root.appendChild(hb);
+    root.appendChild(modeCard(trip, people.length));
 
     // actions
     var acts = el('div', 'th-acts');
@@ -282,7 +346,7 @@
     pc.appendChild(addRow);
     if ((s.transfers || []).length) {
       var tr = el('div', 'th-settle'); tr.appendChild(el('span', 'th-k', 'TO SETTLE UP'));
-      s.transfers.slice(0, 6).forEach(function (x) { tr.appendChild(el('div', 'th-tr', (x.from === 'Me' ? 'You' : x.from) + ' → ' + (x.to === 'Me' ? 'you' : x.to) + '  ' + money(x.amount))); });
+      s.transfers.slice(0, 6).forEach(function (x) { tr.appendChild(el('div', 'th-tr', (x.from === 'Me' ? 'You' : x.from) + ' → ' + (x.to === 'Me' ? 'you' : x.to) + '  ' + money(Math.round(x.amount)))); });
       pc.appendChild(tr);
     }
     root.appendChild(pc);
@@ -294,6 +358,7 @@
     var fh = el('div', 'th-card-h'); fh.appendChild(el('span', null, '🗓️ Day by day')); if (st.items.length) fh.appendChild(el('small', 'th-muted', 'Tap a spend to delete it')); fc.appendChild(fh);
     if (!st.items.length) fc.appendChild(el('p', 'th-muted', 'No spends yet. Tap “Add spend”, or friends can add from the trip link.'));
     var byDay = {}, order = [];
+    var diary = diaryTitles(st.items, trip);
     st.items.slice().sort(function (a, b) { return a.ts - b.ts; }).forEach(function (e) {
       var d = new Date(e.ts), k = d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate();
       if (!byDay[k]) { byDay[k] = { ts: e.ts, p: 0, items: [] }; order.push(k); }
@@ -311,8 +376,9 @@
       g.items.forEach(function (e) {
         var c = catOf(e.desc), r = el('div', 'th-item');
         var ic = el('span', 'th-ic', c.icon); ic.style.background = c.color + '1f'; r.appendChild(ic);
-        var t = el('div', 'th-it-t'); t.appendChild(el('b', null, label(e.desc).slice(0, 40) || 'Spend'));
-        var who = api.payer(e.desc); t.appendChild(el('span', null, (who === 'Me' ? 'You paid' : who + ' paid') + ' · ' + c.label));
+        var own = label(e.desc).slice(0, 40) || 'Spend', nice = diary[e.id];
+        var t = el('div', 'th-it-t'); t.appendChild(el('b', null, nice || own));
+        var who = api.payer(e.desc); t.appendChild(el('span', null, (who === 'Me' ? 'You paid' : who + ' paid') + ' · ' + (nice ? own : c.label) + ' · ' + new Intl.DateTimeFormat('en-IN', { hour: 'numeric', minute: '2-digit' }).format(new Date(e.ts))));
         r.appendChild(t); r.appendChild(el('b', 'th-it-a', money(e.amount)));
         r.setAttribute('role', 'button'); r.tabIndex = 0; r.classList.add('tap');
         r.addEventListener('click', function () {
