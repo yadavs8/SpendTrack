@@ -932,6 +932,55 @@
     if (main) mo.observe(main, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'class'] });
     var sw = $('stream-switcher'); if (sw) mo.observe(sw, { attributes: true, subtree: true, attributeFilter: ['class'] });
   }
+
+  /* ---------- calm home (v110): only what matters on the dashboard; everything else one tap away ---------- */
+  (function calmHome() {
+    var form = $('add'); if (!form) return;
+    document.body.classList.add('calm');
+    // 1. The add form folds into one bar; the + button and the bar open it, it folds again after saving.
+    var bar = el('button', 'quick-add-bar'); bar.type = 'button';
+    bar.innerHTML = '<span>\uFF0B</span> Add a spend <em>amount and what it was for</em>';
+    form.parentNode.insertBefore(bar, form);
+    function setOpen(on) {
+      form.classList.toggle('open', on); bar.hidden = on;
+      if (on) { var amt = $('amt'); if (amt) setTimeout(function () { try { amt.focus(); } catch (e) {} }, 60); }
+    }
+    bar.addEventListener('click', function () { setOpen(true); });
+    form.addEventListener('submit', function () { setTimeout(function () { setOpen(false); }, 700); });
+    var cancel = el('button', 'ghost quick-add-close', 'Close'); cancel.type = 'button'; cancel.addEventListener('click', function () { setOpen(false); });
+    form.insertBefore(cancel, form.firstChild);
+    var fab = document.querySelector('.bnav-add');
+    if (fab) fab.addEventListener('click', function () { setOpen(true); });
+    // 2. Several payments due: one summary line that opens the list.
+    var due = $('due-box');
+    if (due) {
+      var busy = false, openDue = false;
+      var tidy = function () {
+        if (busy) return; busy = true;
+        var cards = due.querySelectorAll('.due-card');
+        var old = due.querySelector('.due-sum'); if (old) old.remove();
+        due.classList.toggle('due-fold', cards.length > 1 && !openDue);
+        if (cards.length > 1) {
+          var s = el('button', 'due-sum'); s.type = 'button';
+          s.textContent = '\uD83D\uDCC5 ' + cards.length + ' payments due this month ' + (openDue ? '\u25B4' : '\u25BE');
+          s.addEventListener('click', function () { openDue = !openDue; tidy(); });
+          due.insertBefore(s, due.firstChild);
+        }
+        busy = false;
+      };
+      new MutationObserver(function () { if (!busy) setTimeout(tidy, 0); }).observe(due, { childList: true });
+      tidy();
+    }
+    // 3. Past months fold away (the arrows at the top already move between months).
+    var ms = $('months-sec');
+    if (ms) { var t = ms.querySelector('.sec-title'); if (t) { t.classList.add('fold-title'); t.addEventListener('click', function () { ms.classList.toggle('open'); }); } }
+    // 4. No budget set: hide the budget strip (Set one from Insights & Stats).
+    var bs = $('budget-status'), bw = $('budget-wrap');
+    if (bs && bw) {
+      var upd = function () { bw.classList.toggle('calm-hide', /not set/i.test(bs.textContent || '')); };
+      new MutationObserver(upd).observe(bs, { childList: true, characterData: true, subtree: true }); upd();
+    }
+  })();
   window.addEventListener('resize', fitTotal);
   refresh();
 })();
