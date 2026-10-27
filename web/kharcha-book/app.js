@@ -3248,18 +3248,18 @@
   function applyBalanceFromSms() {
     var KL = window.KharchaLedger, accts = loadBank();
     if (!KL) return;
-    // Banks seen in your SMS that you do not track yet are added by themselves (balance from the SMS, number added to
-    // "my accounts" so their messages file under the right bank). Nothing existing is changed or removed.
-    var seen = KL.smsAccounts ? KL.smsAccounts(state.entries) : [], added = false;
-    if (seen.length) {
-      var own = loadOwn(), ownObj = own ? JSON.parse(JSON.stringify(own)) : { names: [], banks: [], cards: [] };
-      seen.forEach(function (s) {
-        if (accts.length >= 6 || accts.some(function (x) { return KL.nameKey(x.name).indexOf(s.key) >= 0; })) return;
-        accts = accts.concat([{ id: newLoanId(), name: s.name, held: [], deposits: [], snapshots: [{ ts: s.ts, balance: s.balance, src: 'sms' }] }]);
-        if (!ownObj.banks.some(function (b) { return b.key === s.key; })) ownObj.banks.push({ key: s.key, last4: s.last4, upi: [] });
-        added = true;
-      });
-      if (added) { saveBank(accts); kv.set(OWN_KEY, JSON.stringify(ownObj)); accts = loadBank(); }
+    // Repair once per run: an account that was only ever built from SMS of another bank, and balances taken from the wrong bank.
+    var added = false;
+    if (KL.cleanBankAccounts && accts.length) {
+      var cl = KL.cleanBankAccounts(accts, state.entries, ['icici', 'hdfc']);
+      if (cl.changed && cl.accts.length) {
+        saveBank(cl.accts); accts = loadBank(); added = true;
+        var o = loadOwn();
+        if (o && o.banks.some(function (b) { return b.key === 'pnb'; })) {
+          var oo = JSON.parse(JSON.stringify(o)); oo.banks = oo.banks.filter(function (b) { return b.key !== 'pnb'; });
+          kv.set(OWN_KEY, JSON.stringify(oo));
+        }
+      }
     }
     if (!accts.length) return;
     var map = loadJsonObj(ACCTMAP_KEY), rules = loadRules(), pid = primaryAcctId(accts), own2 = loadOwn(), updates = {}, any = added;

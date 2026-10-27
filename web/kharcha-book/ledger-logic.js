@@ -470,11 +470,39 @@
     });
     return kept;
   }
+  // A bank SMS only belongs to an account when it is from that account's bank (a PNB SMS never sets an ICICI balance).
+  function bankKeyOfEntry(e) {
+    var b = smsBankOf(String(e && e.bank || '') + ' ' + String(e && e.raw || '').slice(0, 60)) || smsBankOf(String(e && e.raw || ''));
+    return b ? b[0] : '';
+  }
+  function smsMatchesAccount(e, acct) {
+    var k = bankKeyOfEntry(e);
+    return !k || nameKey(acct.name).indexOf(k) >= 0;
+  }
+  // Repairs earlier mistakes: balances taken from another bank's SMS, and accounts that were only ever created from SMS.
+  function cleanBankAccounts(accts, entries, keepKeys) {
+    var byTs = {}, changed = false;
+    (entries || []).forEach(function (e) { if (e && e.raw) byTs[e.ts] = e; });
+    var out = [];
+    (accts || []).forEach(function (a) {
+      var autoOnly = a.snapshots.length && a.snapshots.every(function (x) { return x.src === 'sms'; });
+      var k = nameKey(a.name);
+      if (autoOnly && (keepKeys || []).every(function (kk) { return k.indexOf(kk) < 0; })) { changed = true; return; }
+      var snaps = a.snapshots.filter(function (x) {
+        if (x.src !== 'sms') return true;
+        var e = byTs[x.ts]; return !e || smsMatchesAccount(e, a);
+      });
+      if (snaps.length !== a.snapshots.length) { changed = true; if (!snaps.length) return; a = Object.assign({}, a, { snapshots: snaps }); }
+      out.push(a);
+    });
+    return { accts: out, changed: changed };
+  }
   // Newest balance printed in an SMS for this account that is newer than the account's latest balance; null if none.
   function balanceFromSms(entries, acct, routedTo, isCard) {
     var snap = acct.snapshots[acct.snapshots.length - 1], best = null;
     (entries || []).forEach(function (e) {
       if (!e || e.synthetic || !(e.ts > snap.ts) || !e.raw || isCard(e) || routedTo(e) !== acct.id) return;
+      if (!smsMatchesAccount(e, acct)) return;
       var v = parseAvlBalance(e.raw);
       if (v != null && (!best || e.ts > best.ts)) best = { ts: e.ts, balance: v };
     });
@@ -745,6 +773,8 @@
       var key = nameKey(r.acct), hit = accts.filter(function (a) { return nameKey(a.name).indexOf(key) >= 0; })[0];
       return hit ? hit.id : null;
     }
+    var ek = bankKeyOfEntry(entry);
+    if (ek && !accts.some(function (a) { return nameKey(a.name).indexOf(ek) >= 0; })) return null; // another bank (e.g. a family member's account): not yours to count
     return ids.indexOf(primaryId) >= 0 ? primaryId : (ids[0] || null);
   }
 
@@ -1052,7 +1082,7 @@
     addPayment: addPayment, editLoan: editLoan, editPayment: editPayment, summarize: summarize,
     walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, parseWalletDesc: parseWalletDesc,
     parseWallets: parseWallets, walletState: walletState, walletReconcile: walletReconcile,
-    smartSearch: smartSearch, smsAccounts: smsAccounts, askQuery: askQuery, forecastMonth: forecastMonth, unusualSpends: unusualSpends,
+    smartSearch: smartSearch, smsAccounts: smsAccounts, cleanBankAccounts: cleanBankAccounts, askQuery: askQuery, forecastMonth: forecastMonth, unusualSpends: unusualSpends,
     payCycles: payCycles, lastWorkingDay: lastWorkingDay, nextPayday: nextPayday, parseBank: parseBank, parseAvlBalance: parseAvlBalance, balanceFromSms: balanceFromSms, bankEstimate: bankEstimate, parseTransfers: parseTransfers
   };
 });
