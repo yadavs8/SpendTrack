@@ -5890,7 +5890,38 @@
     selected: function () { return getSelectedViewTripName(); },
     payer: function (desc) { return parseTripPayer(desc); },
     link: getTripLink,
-    isSettlement: function (e) { return isTripSettlementEntry(e); }
+    isSettlement: function (e) { return isTripSettlementEntry(e); },
+    // Take someone off a trip (their spends stay; the equal split is worked out again). Undo puts them back.
+    removeFriend: function (name, person) {
+      var before = getTripFriends(name);
+      setTripFriends(name, before.filter(function (f) { return f !== person; }));
+      render();
+      toast(person + ' removed from ' + name, function () { setTripFriends(name, before); render(); toast(person + ' is back on the trip'); });
+    },
+    // Delete one of your own trip spends, with Undo (a friend's spend from the trip link is deleted for everyone).
+    deleteSpend: function (e) {
+      if (!e) return;
+      if (e.isGuestEntry && e.tripExpenseId) {
+        if (!sb) { toast('Sign in to delete a friend\'s spend.'); return; }
+        sb.from('trip_expenses').delete().eq('id', e.tripExpenseId).then(function (res) {
+          if (res.error) { toast('Could not delete it. Try again.'); return; }
+          var tn = extractTripNameFromDesc(e.desc); if (tn) delete tripGuestEntriesCache[tn];
+          render(); toast('Deleted ' + money(e.amount) + ' for everyone on the trip');
+        });
+        return;
+      }
+      var wasTrip = isTripEntry(e);
+      store.remove(e.id).then(function () {
+        if (wasTrip) deleteTripMirrorIfAny(e.id);
+        render();
+        toast('Deleted ' + money(e.amount), function () {
+          store.add({ amount: e.amount, desc: e.desc, spent_at: new Date(e.ts).toISOString(), method: e.method || undefined, kind: e.kind || undefined })
+            .then(function (ne) { if (wasTrip && ne) mirrorOwnerTripExpense(extractTripNameFromDesc(e.desc), e.amount, cleanScopePrefix(e.desc), new Date(e.ts).toISOString(), ne.id); render(); toast('Restored'); })
+            .catch(function () { toast('Could not undo. Try again.'); });
+        });
+      }).catch(function () { toast('Could not delete. Try again.'); });
+    },
+    rename: function (name) { tripsApi.select(name); var b = $('trip-rename-btn'); if (b) b.click(); }
   };
   if (window.__kharcha) window.__kharcha.tripsApi = tripsApi;
 

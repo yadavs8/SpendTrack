@@ -218,3 +218,8 @@ Inside an older phone app, "Add from contacts" did nothing (the app's browser ha
 ## Safer phone updates (v120)
 - Per-person UPI IDs and trip links now back up to your Kharcha Book account like your other settings, so a reinstall does not lose them.
 - The app's signing key is refreshed daily in the build system (it used to be weekly, right at the 7-day point where GitHub drops it), and a build on main now stops instead of quietly making a new key, so an update always installs over the app you have.
+
+## Fix mistakes on a trip (v121)
+- **Remove someone**: the × next to each friend on the trip (asks first, says if they had paid for anything, and Undo puts them back). Their spends stay; the split is worked out again.
+- **Delete a spend**: tap any spend in the trip's Day by day list (Undo restores it). A spend a friend added from the trip link is deleted for everyone.
+- **Rename** the trip from the trip page.
