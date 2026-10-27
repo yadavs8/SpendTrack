@@ -45,12 +45,22 @@
   function phoneDigits(tel) { var d = String(tel || '').replace(/\D/g, ''); if (d.length === 10) d = '91' + d; if (d.length === 11 && d[0] === '0') d = '91' + d.slice(1); return d.length >= 11 ? d : ''; }
 
   /* ---------- contacts: the phone app's picker, Chrome's picker, or typing a name ---------- */
-  function canPick() { return !!((window.KharchaNative && window.KharchaNative.pickContact) || (navigator.contacts && navigator.contacts.select)); }
+  var APK_URL = 'https://github.com/yadavs8/SpendTrack/releases/download/apk-latest/Kharcha-Book.apk';
+  function inApp() { return !!window.KharchaNative; }
+  function nativePick() { return !!(window.KharchaNative && typeof window.KharchaNative.pickContact === 'function'); }
+  // Inside the phone app only the app's own picker works (the WebView has a contacts object that cannot open anything).
+  function contactMode() {
+    if (nativePick()) return 'native';
+    if (inApp()) return 'update';
+    if (navigator.contacts && typeof navigator.contacts.select === 'function') return 'web';
+    return '';
+  }
+  function canPick() { return contactMode() !== ''; }
   function pickContacts() {
-    if (window.KharchaNative && window.KharchaNative.pickContact) {
-      return new Promise(function (resolve) {
+    if (nativePick()) {
+      return new Promise(function (resolve, reject) {
         window.__kharchaContactPicked = function (c) { window.__kharchaContactPicked = null; resolve(c && c.name ? [{ name: c.name, tel: c.tel || '' }] : []); };
-        try { window.KharchaNative.pickContact(); } catch (e) { resolve([]); }
+        try { window.KharchaNative.pickContact(); } catch (e) { reject(e); }
       });
     }
     return navigator.contacts.select(['name', 'tel'], { multiple: true }).then(function (list) {
@@ -172,12 +182,23 @@
     });
     pc.appendChild(plist);
     var addRow = el('div', 'th-add-people');
-    if (canPick()) {
+    var nameIn = el('input', 'input th-name-in'); nameIn.placeholder = canPick() ? 'or type a name' : 'Friend\'s name'; nameIn.maxLength = 40;
+    var mode = contactMode();
+    if (mode) {
       var pick = el('button', 'th-act', '📇 Add from contacts'); pick.type = 'button';
-      pick.addEventListener('click', function () { pickContacts().then(function (list) { if (list.length) addPeople(trip, list); }).catch(function () {}); });
+      pick.addEventListener('click', function () {
+        if (mode === 'update') {
+          K.confirmBox({ title: 'Update the phone app', message: 'Picking friends from contacts needs the latest Kharcha Book app. It installs over this one and keeps all your data. You can type a name for now.', confirmText: 'Download update',
+            onConfirm: function () { window.open(APK_URL, '_blank'); } });
+          return;
+        }
+        pick.disabled = true;
+        pickContacts().then(function (list) { if (list.length) addPeople(trip, list); })
+          .catch(function () { K.toast('Could not open contacts. Type the name instead.'); try { nameIn.focus(); } catch (e) {} })
+          .then(function () { pick.disabled = false; });
+      });
       addRow.appendChild(pick);
     }
-    var nameIn = el('input', 'input th-name-in'); nameIn.placeholder = canPick() ? 'or type a name' : 'Friend\'s name'; nameIn.maxLength = 40;
     var addB = el('button', 'th-act', 'Add'); addB.type = 'button';
     var doAdd = function () { var v = nameIn.value.trim(); if (v) { addPeople(trip, [{ name: v }]); nameIn.value = ''; } };
     addB.addEventListener('click', doAdd); nameIn.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') doAdd(); });

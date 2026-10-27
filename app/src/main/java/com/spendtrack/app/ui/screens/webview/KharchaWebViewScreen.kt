@@ -254,8 +254,13 @@ fun KharchaWebViewScreen(
                     @JavascriptInterface
                     fun pickContact() {
                         main.post {
+                            val none = "window.__kharchaContactPicked && window.__kharchaContactPicked(null)"
                             if (!fromKharcha()) return@post
-                            val activity = view.context as? androidx.activity.ComponentActivity ?: return@post
+                            // Compose can hand the WebView a wrapped context; walk down to the Activity.
+                            var ctx: android.content.Context? = view.context
+                            while (ctx is android.content.ContextWrapper && ctx !is androidx.activity.ComponentActivity) ctx = ctx.baseContext
+                            val activity = ctx as? androidx.activity.ComponentActivity
+                            if (activity == null) { view.evaluateJavascript(none, null); return@post }
                             val launcher = arrayOfNulls<androidx.activity.result.ActivityResultLauncher<Intent>>(1)
                             launcher[0] = activity.activityResultRegistry.register(
                                 "kharcha_contact_" + System.nanoTime(),
@@ -286,8 +291,9 @@ fun KharchaWebViewScreen(
                             }
                             val intent = Intent(Intent.ACTION_PICK, android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI)
                             runCatching { launcher[0]!!.launch(intent) }.onFailure {
+                                SafeLogger.e("Contact picker could not open", it as? Exception)
                                 launcher[0]?.unregister()
-                                view.evaluateJavascript("window.__kharchaContactPicked && window.__kharchaContactPicked(null)", null)
+                                view.evaluateJavascript(none, null)
                             }
                         }
                     }
