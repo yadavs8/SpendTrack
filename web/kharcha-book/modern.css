@@ -680,3 +680,16 @@ body.privacy .th-cd-amt, body.privacy .th-cat-top b { filter: blur(7px); }
   .reveal { opacity: 1; transform: none; transition: none; }
 }
 .th-banner > .th-share { position: absolute; top: 12px; right: 14px; z-index: 2; }
+/* v124: trip mode card */
+.th-mode { display: grid; gap: 10px; padding: 14px; border-radius: 20px; border: 1px solid var(--line); background: var(--surface); }
+.th-mode.on { border-color: #22c55e66; background: linear-gradient(135deg, color-mix(in srgb, #22c55e 12%, var(--surface)), var(--surface)); }
+.th-mode.paused { border-color: #f59e0b66; background: linear-gradient(135deg, color-mix(in srgb, #f59e0b 12%, var(--surface)), var(--surface)); }
+.th-mode-t { display: grid; gap: 3px; } .th-mode-t b { font-size: 1rem; } .th-mode-t span { font-size: 0.84rem; color: var(--muted); line-height: 1.4; }
+.th-mode-acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.th-act.danger { color: #dc2626; border-color: #fecaca; }
+.th-where { display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 14px; background: transparent; color: var(--ink); font: inherit; font-weight: 700; font-size: 0.88rem; text-align: left; cursor: pointer; }
+.th-where small { color: var(--accent, #0284c7); font-weight: 700; }
+.th-live { justify-self: start; padding: 2px 8px; border-radius: 999px; background: #22c55e; color: #fff; font-size: 0.64rem; font-weight: 800; letter-spacing: .08em; animation: livePulse 1.6s ease-in-out infinite; }
+.th-live.paused { background: #f59e0b; animation: none; }
+@keyframes livePulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,.6); } 50% { box-shadow: 0 0 0 6px rgba(34,197,94,0); } }
+@media (prefers-reduced-motion: reduce) { .th-live { animation: none; } }

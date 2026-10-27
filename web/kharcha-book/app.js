@@ -1437,7 +1437,7 @@
     'kharcha_is_trip_paused', 'kharcha_all_projects_list', 'kharcha_is_project_paused', 'kharcha_legacy_project_name',
     'kharcha_active_trip_name', 'kharcha_all_trips_list', 'kharcha_category_budgets', 'kharcha_merchant_memory',
     'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers', 'kharcha_loans', 'kharcha_wallets', 'kharcha_bank', 'kharcha_cycle', 'kharcha_rules', 'kharcha_acctmap', 'kharcha_primary_acct', 'kharcha_rule_skips', 'kharcha_transfers', 'kharcha_own', 'kharcha_xfer_dismissed', 'kharcha_goal', 'kharcha_receipts', 'kharcha_rules_seeded', 'kharcha_card', 'kharcha_dup_dismissed'];
-  var SHARED_PREFIXES = ['kharcha_trip_friends_', 'kharcha_trip_budget_', 'kharcha_vpa_'];
+  var SHARED_PREFIXES = ['kharcha_trip_friends_', 'kharcha_trip_budget_', 'kharcha_vpa_', 'kharcha_trip_places_'];
   function isSharedKey(k) {
     return SHARED_KEYS.indexOf(k) >= 0 || SHARED_PREFIXES.some(function (p) { return k.indexOf(p) === 0; });
   }
@@ -5921,7 +5921,15 @@
         });
       }).catch(function () { toast('Could not delete. Try again.'); });
     },
-    rename: function (name) { tripsApi.select(name); var b = $('trip-rename-btn'); if (b) b.click(); }
+    rename: function (name) { tripsApi.select(name); var b = $('trip-rename-btn'); if (b) b.click(); },
+    // Trip mode: while on (and not paused) every payment the phone sees is filed to this trip and split equally.
+    mode: function () { return { name: getActiveTripName(), paused: isTripPaused() }; },
+    start: function (name) { setActiveTripName(name); render(); toast('🟢 Trip mode on: ' + name); offerTripBackfill(name); },
+    pause: function (on) { setTripPaused(!!on); render(); toast(on ? '⏸️ Trip paused: payments go to Personal / Family' : '▶️ Trip resumed: payments go to the trip'); },
+    end: function () { var cur = getActiveTripName(); setActiveTripName(''); setTripPaused(false); render(); toast('Trip mode ended' + (cur ? ' for ' + cur : '')); },
+    // Where you were during the trip: [{ ts, place }], newest last (shared, so friends' phones and yours agree).
+    places: function (name) { try { var v = JSON.parse(kv.get('kharcha_trip_places_' + name) || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; } },
+    addPlace: function (name, place) { var v = tripsApi.places(name).concat([{ ts: Date.now(), place: String(place).trim().slice(0, 40) }]).slice(-60); kv.set('kharcha_trip_places_' + name, JSON.stringify(v)); render(); }
   };
   if (window.__kharcha) window.__kharcha.tripsApi = tripsApi;
 

@@ -39,7 +39,7 @@
      - other: Activities & Other (🎟️) */
   var TRIP_CATEGORY_DEFS = [
     { key: 'stay', name: 'Stay Expenses', emoji: '🏨', re: /\b(?:airbnb|hotel|resort|homestay|oyo|booking(?:\.com)?|agoda|villa|hostel|stay|lodge|lodging|guest\s*house|inn|cottage|treebo|fabhotel|chalet|campsite|camp|tent)\b/i },
-    { key: 'fuel', name: 'Fuel Expenses', emoji: '⛽', re: /\b(?:fuel|petrol|diesel|hpcl|iocl|bpcl|shell|cng|gas\s*station|petroleum)\b/i },
+    { key: 'fuel', name: 'Fuel Expenses', emoji: '⛽', re: /\b(?:fuel|petrol|diesel|hpcl|iocl|bpcl|shell|cng|gas\s*station|petroleum|indian\s*oil|petrol\s*pump|filling\s*station|fuel\s*station|nayara|reliance\s*bp|service\s*station)\b/i },
     { key: 'food', name: 'Food Expenses', emoji: '🍔', re: /\b(?:restaurant|cafe|dhaba|dining|food|swiggy|zomato|eats|breakfast|lunch|dinner|meal|snacks|pizza|burger|bakery|sweet|mithai|mcdonald|domino|kfc|subway|biryani|roti|chai|coffee|starbucks)\b/i },
     { key: 'beverages', name: 'Beverages', emoji: '🍻', re: /\b(?:liquor|alcohol|wine|beer|beverage|beverages|drinks|drink|theka|bar|pub|brewery|whiskey|whisky|scotch|vodka|rum|gin|cocktail|cocktails|spirits|wine\s*(?:and|&)?\s*beer)\b/i }
   ];
@@ -1178,6 +1178,48 @@
     return CATEGORY_BY_KEY.other;
   }
 
+
+  /* ---------- trip labels that read like a travel diary ----------
+     "Filled petrol in Gurgaon", "Breakfast in Chandigarh", "Refilled petrol in Manali". The place comes from the
+     payment text (merchant names often carry the town), else from where you last said you were on the trip. */
+  var PLACES = ['gurgaon', 'gurugram', 'delhi', 'new delhi', 'noida', 'ghaziabad', 'faridabad', 'chandigarh', 'mohali', 'panchkula', 'zirakpur', 'ambala',
+    'karnal', 'panipat', 'sonipat', 'kurukshetra', 'ludhiana', 'jalandhar', 'amritsar', 'pathankot', 'shimla', 'solan', 'kasauli', 'manali', 'kullu', 'mandi',
+    'bilaspur', 'sundernagar', 'kasol', 'manikaran', 'dharamshala', 'mcleodganj', 'dalhousie', 'keylong', 'leh', 'kaza', 'spiti', 'srinagar', 'jammu', 'katra',
+    'dehradun', 'mussoorie', 'rishikesh', 'haridwar', 'nainital', 'jaipur', 'udaipur', 'jodhpur', 'jaisalmer', 'ajmer', 'pushkar', 'agra', 'mathura', 'vrindavan',
+    'lucknow', 'varanasi', 'goa', 'panaji', 'mumbai', 'pune', 'lonavala', 'bangalore', 'bengaluru', 'mysore', 'hyderabad', 'chennai', 'kochi', 'munnar', 'kolkata'];
+  function placeIn(text) {
+    var t = ' ' + String(text || '').toLowerCase().replace(/[^a-z ]/g, ' ') + ' ';
+    for (var i = 0; i < PLACES.length; i++) if (t.indexOf(' ' + PLACES[i] + ' ') >= 0) return PLACES[i].replace(/\b[a-z]/g, function (c) { return c.toUpperCase(); }).replace('Gurugram', 'Gurgaon');
+    return '';
+  }
+  function placeAt(places, ts) {
+    var best = null;
+    (places || []).forEach(function (p) { if (p && p.ts <= ts + 60000 && (!best || p.ts > best.ts)) best = p; });
+    return best ? best.place : '';
+  }
+  function mealAt(ts, text) {
+    var h = new Date(ts).getHours(), t = String(text || '').toLowerCase();
+    if (/coffee|cafe|café|starbucks|chai|tea\b|barista|ccd/.test(t) && !(h >= 12 && h < 15) && !(h >= 19 && h < 23)) return 'Coffee & snacks';
+    if (h >= 5 && h < 11) return 'Breakfast';
+    if (h >= 11 && h < 16) return 'Lunch';
+    if (h >= 16 && h < 19) return 'Evening snacks';
+    if (h >= 19 && h < 23) return 'Dinner';
+    return 'Late-night snack';
+  }
+  // entry: { ts, desc, raw }; ctx: { kind: 'fuel'|'food'|'stay'|..., fuelBefore: n, places: [...] }
+  function tripDiaryLabel(entry, ctx) {
+    // The trip's own name ("✈️ Manali Trip: ...") is not where the payment happened.
+    var text = tripItemLabel(entry.desc) + ' ' + String(entry.raw || '');
+    var place = placeIn(text) || placeAt(ctx && ctx.places, entry.ts);
+    var at = place ? ' in ' + place : '';
+    var k = ctx && ctx.kind, title = '';
+    if (k === 'fuel') title = (ctx.fuelBefore ? 'Refilled petrol' : 'Filled petrol') + at;
+    else if (k === 'food') title = mealAt(entry.ts, text) + at;
+    else if (k === 'beverages') title = 'Drinks' + at;
+    else if (k === 'stay') title = 'Stay' + at;
+    return { title: title, place: place };
+  }
+
   return {
     findDuplicates: findDuplicates, autoTransferPairs: autoTransferPairs, parseCardLimit: parseCardLimit, cardState: cardState, seedRules: seedRules,
     upcomingRules: upcomingRules, parseOwn: parseOwn, defaultOwn: defaultOwn, cardFor: cardFor, ownAccountFor: ownAccountFor, transferCandidates: transferCandidates, autoOwnTransfers: autoOwnTransfers, orphanTransfers: orphanTransfers, isOwnName: isOwnName, sourceAccountFromRaw: sourceAccountFromRaw,
@@ -1190,7 +1232,7 @@
     addPayment: addPayment, editLoan: editLoan, editPayment: editPayment, summarize: summarize,
     walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, parseWalletDesc: parseWalletDesc,
     parseWallets: parseWallets, walletState: walletState, walletReconcile: walletReconcile,
-    smartSearch: smartSearch, smsAccounts: smsAccounts, categoryOf: categoryOf, personOf: personOf, findPaybacks: findPaybacks, peopleLedger: peopleLedger, cleanBankAccounts: cleanBankAccounts, askQuery: askQuery, forecastMonth: forecastMonth, unusualSpends: unusualSpends,
+    smartSearch: smartSearch, smsAccounts: smsAccounts, tripDiaryLabel: tripDiaryLabel, placeIn: placeIn, categoryOf: categoryOf, personOf: personOf, findPaybacks: findPaybacks, peopleLedger: peopleLedger, cleanBankAccounts: cleanBankAccounts, askQuery: askQuery, forecastMonth: forecastMonth, unusualSpends: unusualSpends,
     payCycles: payCycles, lastWorkingDay: lastWorkingDay, nextPayday: nextPayday, parseBank: parseBank, parseAvlBalance: parseAvlBalance, balanceFromSms: balanceFromSms, bankEstimate: bankEstimate, parseTransfers: parseTransfers
   };
 });
