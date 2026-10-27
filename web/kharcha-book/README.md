@@ -211,3 +211,6 @@ Calendar amounts sit in a solid pill (dark text on light, light on dark) so they
 - **Share link / Copy link**: every trip has its own link. "Send link" next to a friend opens WhatsApp straight to that friend when their number came from contacts.
 - The full trip tools (budget, categories, add spend, settle-up) are under "More trip tools".
 - Home: the "Show all days" button is a solid button and never hides behind the bottom bar.
+
+## Add from contacts fixed (v119)
+Inside an older phone app, "Add from contacts" did nothing (the app's browser has a contacts feature that cannot open anything, and the error was silent). Now: in the latest phone app it opens your contacts; in an older app it explains and offers the update (installs over, keeps your data); in Chrome it opens Chrome's contact picker; if anything fails you see a message and can type the name. The phone app also always reports back to the page, even if the picker cannot open.
