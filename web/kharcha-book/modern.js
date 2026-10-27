@@ -392,21 +392,39 @@
       var d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
       days.push({ start: d.getTime(), end: d.getTime() + 86400000, p: 0, letter: DAY_LETTERS[d.getDay()] });
     }
+    days.forEach(function (d) { d.items = []; });
     list.forEach(function (e) {
-      for (var j = 0; j < 7; j++) if (e.ts >= days[j].start && e.ts < days[j].end) { days[j].p += paise(e.amount); break; }
+      for (var j = 0; j < 7; j++) if (e.ts >= days[j].start && e.ts < days[j].end) { days[j].p += paise(e.amount); days[j].items.push(e); break; }
     });
     var week = days.reduce(function (s, d) { return s + d.p; }, 0), today = days[6].p, max = Math.max.apply(null, days.map(function (d) { return d.p; })) || 1;
+    var hotIdx = -1; days.forEach(function (d, i) { if (d.p > 0 && d.p === max && hotIdx < 0) hotIdx = i; });
+    var weekItems = [].concat.apply([], days.map(function (d) { return d.items; }));
+    var dayName = new Intl.DateTimeFormat('en-IN', { weekday: 'long', day: 'numeric', month: 'short' });
     box.textContent = '';
     var chips = el('div', 'hx-chips');
-    [['Today', today], ['7 days', week], ['Avg / day', Math.round(week / 7)]].forEach(function (c) {
-      var chip = el('div', 'hx-chip'); chip.appendChild(el('span', null, c[0])); chip.appendChild(el('b', null, K.money(Math.round(c[1] / 100)))); chips.appendChild(chip);
+    var chipDefs = [
+      ['Today', today, function () { openPop('Today', days[6].items, 'Spent so far today'); }],
+      ['7 days', week, function () { openPop('Last 7 days', weekItems, hotIdx >= 0 ? 'Biggest day: ' + dayName.format(new Date(days[hotIdx].start)) + ' \u00b7 ' + K.money(Math.round(max / 100)) : 'Nothing spent yet'); }],
+      ['Avg / day', Math.round(week / 7), function () {
+        var avg = Math.round(week / 7), diff = today - avg;
+        openPop('Daily average', weekItems, 'About ' + K.money(Math.round(avg / 100)) + ' a day. Today is ' + (diff > 0 ? K.money(Math.round(diff / 100)) + ' above' : diff < 0 ? K.money(Math.round(-diff / 100)) + ' below' : 'right on') + ' your average.', Math.round(avg / 100));
+      }]
+    ];
+    chipDefs.forEach(function (c) {
+      var chip = el('button', 'hx-chip'); chip.type = 'button'; chip.appendChild(el('span', null, c[0])); chip.appendChild(el('b', null, K.money(Math.round(c[1] / 100))));
+      chip.addEventListener('click', c[2]); chips.appendChild(chip);
     });
     box.appendChild(chips);
-    var bars = el('div', 'hx-bars'); bars.setAttribute('role', 'img'); bars.setAttribute('aria-label', 'Spending over the last 7 days');
+    var bars = el('div', 'hx-bars'); bars.setAttribute('aria-label', 'Spending over the last 7 days. Tap a day for details.');
     days.forEach(function (d, idx) {
-      var col = el('div', 'hx-col' + (idx === 6 ? ' today' : '')); var bar = el('div', 'hx-bar');
+      var col = el('button', 'hx-col' + (idx === 6 ? ' today' : '') + (idx === hotIdx ? ' hot' : ' cool') + (!d.p ? ' zero' : '')); col.type = 'button';
+      col.setAttribute('aria-label', dayName.format(new Date(d.start)) + ', ' + K.money(d.p / 100));
+      var bar = el('div', 'hx-bar');
       bar.style.height = Math.max(6, Math.round((d.p / max) * 100)) + '%';
-      col.title = K.money(d.p / 100); col.appendChild(bar); col.appendChild(el('i', null, d.letter)); bars.appendChild(col);
+      if (idx === hotIdx) col.appendChild(el('span', 'hx-flame', '\uD83D\uDD25'));
+      col.appendChild(bar); col.appendChild(el('i', null, d.letter));
+      col.addEventListener('click', function () { openPop(dayName.format(new Date(d.start)), d.items, d.p ? (idx === hotIdx ? 'Your biggest spending day this week' : 'Spent this day') : 'Nothing spent this day'); });
+      bars.appendChild(col);
     });
     box.appendChild(bars);
     var bank = K.getTopBank ? K.getTopBank() : null;
@@ -417,6 +435,39 @@
       chip.addEventListener('click', function () { goStream('bank'); });
       box.appendChild(chip);
     }
+  }
+
+
+  /* ---------- tap a bar or box on the top card: how much, and on what ---------- */
+  function openPop(title, items, note, avgFor) {
+    var old = document.querySelector('.hx-pop-bd'); if (old) old.remove();
+    var total = items.reduce(function (n, e) { return n + paise(e.amount); }, 0) / 100;
+    var bd = el('div', 'hx-pop-bd'), pop = el('div', 'hx-pop'); pop.setAttribute('role', 'dialog'); pop.setAttribute('aria-label', title);
+    var head = el('div', 'hx-pop-head'); head.appendChild(el('b', null, title));
+    var x = el('button', 'hx-pop-x', '\u00d7'); x.type = 'button'; x.setAttribute('aria-label', 'Close'); head.appendChild(x); pop.appendChild(head);
+    pop.appendChild(el('div', 'hx-pop-amt', K.money(avgFor != null ? avgFor : Math.round(total * 100) / 100)));
+    if (note) pop.appendChild(el('p', 'hx-pop-note', note));
+    if (items.length && K.categoryBreakdown) {
+      var cats = K.categoryBreakdown(items).categories.slice(0, 5);
+      pop.appendChild(el('div', 'hx-pop-k', 'WHAT IT WENT ON'));
+      cats.forEach(function (c) {
+        var row = el('div', 'hx-cat'), top = el('div', 'hx-cat-top');
+        top.appendChild(el('span', null, c.name)); top.appendChild(el('b', null, K.money(Math.round(c.total))));
+        var tr = el('div', 'hx-cat-track'), f = el('div', 'hx-cat-fill'); f.style.width = Math.max(4, c.pct) + '%'; tr.appendChild(f);
+        row.appendChild(top); row.appendChild(tr); pop.appendChild(row);
+      });
+      var big = items.slice().sort(function (a, b) { return b.amount - a.amount; }).slice(0, 3);
+      pop.appendChild(el('div', 'hx-pop-k', 'BIGGEST PAYMENTS'));
+      big.forEach(function (e) {
+        var r = el('div', 'hx-big'); r.appendChild(el('span', null, String(e.desc || '').replace(/^[^\wऀ-ॿ]+/, '').slice(0, 30)));
+        r.appendChild(el('b', null, K.money(e.amount))); pop.appendChild(r);
+      });
+    } else pop.appendChild(el('p', 'hx-pop-note', 'Nothing to show.'));
+    bd.appendChild(pop); document.body.appendChild(bd);
+    function close() { bd.remove(); document.removeEventListener('keydown', onKey); }
+    function onKey(ev) { if (ev.key === 'Escape') close(); }
+    x.addEventListener('click', close); bd.addEventListener('click', function (ev) { if (ev.target === bd) close(); });
+    document.addEventListener('keydown', onKey);
   }
 
   var lastTotal = null, animToken = 0;
