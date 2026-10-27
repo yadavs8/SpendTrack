@@ -501,41 +501,67 @@
 
 
   /* ---------- home: credit card spends this month, tap for a date-wise list (replaces "Where your money went") ---------- */
-  var ccOpen = false;
+  var ccOpen = false, ccMonth = 0, ccDays = {};
   function renderCardHome() {
     var anchor = $('category-sec'); if (!anchor || !K.getEntries || !K.isCardEntry) return;
     var box = $('cc-home');
     if (!box) { box = el('section', 'cc-home'); box.id = 'cc-home'; anchor.parentNode.insertBefore(box, anchor); }
-    var now = new Date(), from = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
-    var list = K.getEntries().filter(function (e) {
-      return e && !e.synthetic && e.ts >= from && K.isCardEntry(e) && K.isExpense(e) && !(K.isCardBillEntry && K.isCardBillEntry(e));
-    }).sort(function (a, b) { return b.ts - a.ts; });
-    box.textContent = '';
+    var now = new Date(), monF = new Intl.DateTimeFormat('en-IN', { month: 'long', year: 'numeric' });
+    function range(off) { return { from: new Date(now.getFullYear(), now.getMonth() - off, 1).getTime(), to: new Date(now.getFullYear(), now.getMonth() - off + 1, 1).getTime(), label: monF.format(new Date(now.getFullYear(), now.getMonth() - off, 1)) }; }
+    var all = K.getEntries().filter(function (e) { return e && !e.synthetic && K.isCardEntry(e) && K.isExpense(e) && !(K.isCardBillEntry && K.isCardBillEntry(e)); });
+    var rg = range(ccMonth);
+    var list = all.filter(function (e) { return e.ts >= rg.from && e.ts < rg.to; }).sort(function (a, b) { return b.ts - a.ts; });
     var total = list.reduce(function (n, e) { return n + paise(e.amount); }, 0) / 100;
+    box.textContent = '';
+    // header (always visible): the dropdown toggle
     var head = el('button', 'cc-head' + (ccOpen ? ' open' : '')); head.type = 'button'; head.setAttribute('aria-expanded', ccOpen ? 'true' : 'false');
+    var ic = el('span', 'cc-ic', '\uD83D\uDCB3'); head.appendChild(ic);
     var l = el('div', 'cc-l');
-    l.appendChild(el('span', 'cc-k', '\uD83D\uDCB3 Credit card \u00b7 ' + new Intl.DateTimeFormat('en-IN', { month: 'long' }).format(now)));
-    l.appendChild(el('span', 'cc-sub', list.length ? list.length + (list.length === 1 ? ' swipe' : ' swipes') + ' \u00b7 tap to see them date-wise' : 'No card spends yet this month'));
+    l.appendChild(el('span', 'cc-k', 'Credit card spends'));
+    l.appendChild(el('span', 'cc-sub', rg.label + ' \u00b7 ' + (list.length ? list.length + (list.length === 1 ? ' swipe' : ' swipes') : 'no swipes')));
     head.appendChild(l);
-    var r = el('div', 'cc-r'); r.appendChild(el('b', 'cc-amt', K.money(total))); r.appendChild(el('span', 'chevron', '\u25BE')); head.appendChild(r);
+    var r = el('div', 'cc-r'); r.appendChild(el('b', 'cc-amt', K.money(total))); r.appendChild(el('span', 'cc-chev', '\u25BE')); head.appendChild(r);
     box.appendChild(head);
     var body = el('div', 'cc-body'); body.hidden = !ccOpen;
-    var dayF = new Intl.DateTimeFormat('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }), groups = [], byKey = {};
+    // month picker
+    var pick = el('div', 'cc-pick');
+    var sel = el('select', 'cc-sel'); sel.setAttribute('aria-label', 'Month');
+    for (var o = 0; o < 6; o++) { var rr = range(o), has = all.some(function (e) { return e.ts >= rr.from && e.ts < rr.to; }); if (!has && o > 0) continue; var op = el('option', null, rr.label + (o === 0 ? ' (this month)' : '')); op.value = String(o); if (o === ccMonth) op.selected = true; sel.appendChild(op); }
+    sel.addEventListener('change', function () { ccMonth = +sel.value; ccDays = {}; renderCardHome(); });
+    pick.appendChild(sel);
+    var avg = list.length ? total / new Set(list.map(function (e) { return new Date(e.ts).toDateString(); })).size : 0;
+    if (list.length) pick.appendChild(el('span', 'cc-avg', 'Biggest ' + K.money(Math.max.apply(null, list.map(function (e) { return e.amount; }))) + ' \u00b7 ' + K.money(Math.round(avg)) + ' per card day'));
+    body.appendChild(pick);
+    // one dropdown per date
+    var dayF = new Intl.DateTimeFormat('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }), tF = new Intl.DateTimeFormat('en-IN', { hour: 'numeric', minute: '2-digit' });
+    var groups = [], byKey = {};
     list.forEach(function (e) {
-      var d = new Date(e.ts), k = d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate();
-      if (!byKey[k]) { byKey[k] = { ts: e.ts, p: 0, items: [] }; groups.push(byKey[k]); }
+      var d = new Date(e.ts), k = d.toDateString();
+      if (!byKey[k]) { byKey[k] = { k: k, ts: e.ts, p: 0, items: [] }; groups.push(byKey[k]); }
       byKey[k].p += paise(e.amount); byKey[k].items.push(e);
     });
-    groups.forEach(function (g) {
-      var gh = el('div', 'cc-day'); gh.appendChild(el('span', null, dayF.format(new Date(g.ts)))); gh.appendChild(el('b', null, K.money(g.p / 100))); body.appendChild(gh);
+    if (!groups.length) body.appendChild(el('p', 'cc-empty', 'No credit card spends in ' + rg.label + '.'));
+    groups.forEach(function (g, gi) {
+      var open = ccDays[g.k] != null ? ccDays[g.k] : gi === 0;
+      var dWrap = el('div', 'cc-dd' + (open ? ' open' : ''));
+      var dh = el('button', 'cc-dh'); dh.type = 'button'; dh.setAttribute('aria-expanded', open ? 'true' : 'false');
+      dh.appendChild(el('span', 'cc-dd-date', dayF.format(new Date(g.ts))));
+      dh.appendChild(el('span', 'cc-dd-n', g.items.length + (g.items.length === 1 ? ' swipe' : ' swipes')));
+      dh.appendChild(el('b', 'cc-dd-amt', K.money(g.p / 100)));
+      dh.appendChild(el('span', 'cc-chev', '\u25BE'));
+      var items = el('div', 'cc-dd-items'); items.hidden = !open;
       g.items.forEach(function (e) {
-        var row = el('div', 'cc-item');
-        row.appendChild(el('span', 'cc-d', String(e.desc || '').replace(/^[^\wऀ-ॿ]+/, '').slice(0, 34)));
-        row.appendChild(el('span', 'cc-a', K.money(e.amount)));
-        body.appendChild(row);
+        var ct = catOf(e), row = el('div', 'cc-item');
+        var ci = el('span', 'ds-ic', ct.icon); ci.style.background = ct.color + '1f'; row.appendChild(ci);
+        var t = el('div', 'ds-t'); t.appendChild(el('b', null, String(e.desc || '').replace(/^[^\wऀ-ॿ]+/, '').replace(/\s*\[.*$/, '').slice(0, 36)));
+        t.appendChild(el('span', null, ct.label + ' \u00b7 ' + tF.format(new Date(e.ts)))); row.appendChild(t);
+        row.appendChild(el('b', 'cc-a', K.money(e.amount)));
+        items.appendChild(row);
       });
+      dh.addEventListener('click', function () { var on = items.hidden; items.hidden = !on; ccDays[g.k] = on; dWrap.classList.toggle('open', on); dh.setAttribute('aria-expanded', on ? 'true' : 'false'); });
+      dWrap.appendChild(dh); dWrap.appendChild(items); body.appendChild(dWrap);
     });
-    var more = el('button', 'linkbtn cc-more', 'Open the card screen (what it owes) \u203A'); more.type = 'button';
+    var more = el('button', 'linkbtn cc-more', 'What the card owes \u203A'); more.type = 'button';
     more.addEventListener('click', function () { goStream('card'); });
     body.appendChild(more);
     box.appendChild(body);
