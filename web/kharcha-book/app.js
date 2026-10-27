@@ -42,7 +42,24 @@
   // ...and not read like a payment of it ("Income tax", "LIC pension premium", "Salary to maid").
   var PAID_OUT_WORDS = /\b(?:tax|premium|policy|plan|fund|contribution|emi|paid|to|maid)\b/;
 
-  function isIncome(e) {
+  // Money a person sent back for something you paid them (see applyPaybacks): neither income nor spending.
+  var PAYBACK_KEY = 'kharcha_paybacks', PAYBACK_NO_KEY = 'kharcha_payback_no', pbMemo = { raw: undefined, list: [], inSet: {}, outSet: {} };
+  function loadPaybacks() {
+    var raw = kv.get(PAYBACK_KEY);
+    if (pbMemo.raw !== raw) {
+      var list = []; try { list = JSON.parse(raw || '[]'); } catch (e) {} if (!Array.isArray(list)) list = [];
+      list = list.filter(function (p) { return p && typeof p.inId === 'string' && Array.isArray(p.outIds); });
+      var inSet = {}, outSet = {};
+      list.forEach(function (p) { inSet[p.inId] = p; if (!p.partial) p.outIds.forEach(function (id) { outSet[id] = p; }); });
+      pbMemo = { raw: raw, list: list, inSet: inSet, outSet: outSet };
+    }
+    return pbMemo;
+  }
+  function savePaybacks(list) { kv.set(PAYBACK_KEY, JSON.stringify(list)); }
+  function isPaybackIn(e) { return !!e && !!loadPaybacks().inSet[e.id]; }
+  function isPaidBack(e) { return !!e && (!!loadPaybacks().outSet[e.id] || isPaybackIn(e)); }
+  function isIncome(e) { return isIncomeRaw(e) && !isPaybackIn(e); }
+  function isIncomeRaw(e) {
     if (!e || !e.desc) return false;
     // Rows from the phone carry an explicit kind (v5 column); typed-in rows are read from the text.
     if (e.kind === 'income') return true;
@@ -108,7 +125,7 @@
 
   function isTransferEntry(e) { return !!e && /^\s*\u{1F501}/u.test(e.desc || ''); }
   function isExpense(e) {
-    return !isIncome(e) && !isTransferEntry(e) && !isInvestment(e) && !isTripEntry(e) && !isCashWithdrawal(e) && !isWalletTopup(e) && !(e && e.kind === 'transfer');
+    return !isIncome(e) && !isPaidBack(e) && !isTransferEntry(e) && !isInvestment(e) && !isTripEntry(e) && !isCashWithdrawal(e) && !isWalletTopup(e) && !(e && e.kind === 'transfer');
   }
 
   /* ---------- Cash wallet ---------- */
@@ -1416,7 +1433,7 @@
   /* ---------- Shared settings: one row in Supabase kharcha_settings, used by web + phone ----------
      Same keys and string values as localStorage, so feature code just swaps localStorage for kv.
      localStorage stays as the offline cache, and is all there is until the v4 SQL has been run. */
-  var SHARED_KEYS = ['kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
+  var SHARED_KEYS = ['kharcha_paybacks', 'kharcha_payback_no', 'kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
     'kharcha_is_trip_paused', 'kharcha_all_projects_list', 'kharcha_is_project_paused', 'kharcha_legacy_project_name',
     'kharcha_active_trip_name', 'kharcha_all_trips_list', 'kharcha_category_budgets', 'kharcha_merchant_memory',
     'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers', 'kharcha_loans', 'kharcha_wallets', 'kharcha_bank', 'kharcha_cycle', 'kharcha_rules', 'kharcha_acctmap', 'kharcha_primary_acct', 'kharcha_rule_skips', 'kharcha_transfers', 'kharcha_own', 'kharcha_xfer_dismissed', 'kharcha_goal', 'kharcha_receipts', 'kharcha_rules_seeded', 'kharcha_card', 'kharcha_dup_dismissed'];
@@ -2569,6 +2586,43 @@
     return isNaN(d.getTime()) ? Date.now() : d.getTime();
   }
 
+  // Sent to and got back from each person (bank SMS), with the pairs Kharcha Book matched.
+  function paybackPeopleCard() {
+    var KL = window.KharchaLedger; if (!KL || !KL.peopleLedger) return null;
+    var pb = loadPaybacks();
+    var rows = KL.peopleLedger(state.entries, {
+      isSent: function (e) { return !isIncomeRaw(e) && !isTransferEntry(e) && !isTripEntry(e) && e.kind !== 'transfer'; },
+      isGot: function (e) { return isIncomeRaw(e); }
+    }, Date.now(), 180, ownNameList());
+    if (!rows.length) return null;
+    var card = el('div', 'wal-card');
+    card.appendChild(el('div', 'wal-name', '\u21C4 Sent and got back'));
+    card.appendChild(el('p', 'wal-hint', 'Money that went to a person and came back from the same person. When it comes back, it is not counted as spending or income.'));
+    rows.slice(0, 12).forEach(function (r) {
+      var line = el('div', 'pb-row'), top = el('div', 'pb-top');
+      top.appendChild(el('b', null, r.name));
+      top.appendChild(el('span', 'pb-net' + (r.net > 0 ? ' out' : r.net < 0 ? ' in' : ''), r.net === 0 ? 'Settled \u2713' : r.net > 0 ? 'You are ' + money(r.net) + ' down' : 'You got ' + money(-r.net) + ' more'));
+      line.appendChild(top);
+      line.appendChild(el('span', 'pb-sub', 'Sent ' + money(r.sent) + ' \u00b7 got back ' + money(r.back)));
+      var open = false, list = el('div', 'pb-items'); list.hidden = true;
+      r.items.slice(0, 8).forEach(function (it) {
+        var paired = pb.inSet[it.id] || pb.outSet[it.id];
+        var li = el('div', 'pb-item');
+        li.appendChild(el('span', null, (it.out ? '\u2197 Sent ' : '\u2199 Got ') + dFmt.format(new Date(it.ts)) + (paired ? ' \u00b7 matched' : '')));
+        li.appendChild(el('b', null, money(it.amount)));
+        if (!it.out && pb.inSet[it.id]) {
+          var u = el('button', 'linkbtn', 'It was income'); u.type = 'button';
+          u.addEventListener('click', function () { undoPayback(it.id).then(function () { renderUdhaar(); }); });
+          li.appendChild(u);
+        }
+        list.appendChild(li);
+      });
+      line.addEventListener('click', function (ev) { if (ev.target.tagName === 'BUTTON') return; open = !open; list.hidden = !open; });
+      line.appendChild(list);
+      card.appendChild(line);
+    });
+    return card;
+  }
   function renderUdhaar() {
     var root = $('udhaar-root');
     if (!root) return;
@@ -2577,6 +2631,8 @@
     if (!KL) { root.appendChild(el('p', 'err', 'Udhaar could not load. Refresh the page.')); return; }
     var loans = loadLoans();
     var sum = KL.summarize(loans);
+    var peopleCard = paybackPeopleCard();
+    if (peopleCard) root.appendChild(peopleCard);
 
     var card = el('div', 'udh-summary');
     var a = el('div', 'udh-fig');
@@ -3203,8 +3259,10 @@
     var accts = loadBank(), sugg = [];
     if (accts.length > 1) sugg = KL.transferCandidates(state.entries, accts, loadOwn(), Date.now(), loadJsonObj('kharcha_xfer_dismissed'), transferPred(accts)).slice(0, 3);
     var dups = (state.dupMaybe || []).filter(function (m) { return state.entries.indexOf(m.drop) >= 0 && state.entries.indexOf(m.keep) >= 0; }).slice(0, 2);
-    if ((!due.length && !sugg.length && !dups.length) || (state.activeStream || 'spends') !== 'spends') { box.hidden = true; return; }
+    var asks = (state.paybackAsk || []).slice(0, 2);
+    if ((!due.length && !sugg.length && !dups.length && !asks.length) || (state.activeStream || 'spends') !== 'spends') { box.hidden = true; return; }
     box.hidden = false;
+    asks.forEach(function (p) { var c = paybackSuggestion(p); if (c) box.appendChild(c); });
     dups.forEach(function (m) { box.appendChild(dupSuggestion(m)); });
     sugg.forEach(function (c) { box.appendChild(transferSuggestion(c, accts)); });
     due.slice(0, 3).forEach(function (d) {
@@ -3311,7 +3369,59 @@
     } catch (err) { console.warn('Kharcha: duplicate check failed', err); }
     finally { dupBusy = false; }
   }
-  function tidyUp() { return applyOwnTransfers().then(applyBalanceFromSms, applyBalanceFromSms).then(applyDuplicateCheck, applyDuplicateCheck); }
+  /* ---------- money back from the same person ---------- */
+  function ownNameList() { var o = loadOwn(); return (o && o.names) || []; }
+  function paybackPred() { return { isOut: function (e) { return isExpense(e) && !isTripEntry(e); }, isIn: function (e) { return isIncome(e); } }; }
+  function personTitle(e) { var KL = window.KharchaLedger, n = KL ? KL.personOf(e) : ''; return n.replace(/\b[a-z]/g, function (c) { return c.toUpperCase(); }) || 'Someone'; }
+  function applyPaybacks() {
+    var KL = window.KharchaLedger;
+    if (!KL || !KL.findPaybacks || state.mode !== 'db') return;
+    var pb = loadPaybacks(), res = KL.findPaybacks(state.entries, pb.list, loadJsonObj(PAYBACK_NO_KEY), Date.now(), paybackPred(), ownNameList());
+    state.paybackAsk = res.ask;
+    if (!res.auto.length) return;
+    var before = pb.list.slice(), now = Date.now();
+    savePaybacks(before.concat(res.auto.map(function (p) { return Object.assign({ ts: now }, p); })));
+    render();
+    var first = res.auto[0], inE = state.entries.filter(function (x) { return x.id === first.inId; })[0];
+    toast((inE ? personTitle(inE) : 'A friend') + ' sent ' + money(first.amount) + ' back. Not counted as spending or income' + (res.auto.length > 1 ? ' (+' + (res.auto.length - 1) + ' more)' : '') + '.', function () { savePaybacks(before); render(); });
+  }
+  function paybackSuggestion(p) {
+    var inE = state.entries.filter(function (x) { return x.id === p.inId; })[0], outE = state.entries.filter(function (x) { return x.id === p.outIds[0]; })[0];
+    if (!inE || !outE) return null;
+    var row = el('div', 'due-card'), txt = el('div', 'due-txt');
+    txt.appendChild(el('b', null, '\u21A9\uFE0F ' + personTitle(inE) + ' sent ' + money(inE.amount) + ' back?'));
+    txt.appendChild(el('span', null, 'For the ' + money(outE.amount) + ' you paid on ' + dFmt.format(new Date(outE.ts)) + '. Your spend becomes ' + money(Math.round((outE.amount - inE.amount) * 100) / 100) + '.'));
+    row.appendChild(txt);
+    var yes = el('button', 'primary small', 'Yes, money back'); yes.type = 'button';
+    yes.addEventListener('click', function () {
+      yes.disabled = true;
+      var left = Math.round((outE.amount - inE.amount) * 100) / 100, oldDesc = outE.desc, oldAmt = outE.amount;
+      var note = String(oldDesc).replace(/\s*\(\u21A9[^)]*\)\s*$/, '') + ' (\u21A9 ' + money(inE.amount) + ' back)';
+      store.update(outE.id, { amount: left, desc: note.slice(0, 120), spent_at: new Date(outE.ts).toISOString(), method: outE.method || null }).then(function () {
+        var list = loadPaybacks().list.concat([{ inId: inE.id, outIds: [outE.id], amount: inE.amount, partial: true, origAmount: oldAmt, origDesc: oldDesc, ts: Date.now() }]);
+        savePaybacks(list); state.paybackAsk = (state.paybackAsk || []).filter(function (x) { return x !== p; }); render();
+        toast('Got it: ' + money(inE.amount) + ' back, spend now ' + money(left), function () { undoPayback(inE.id); });
+      }).catch(function () { yes.disabled = false; toast('Could not save. Try again.'); });
+    });
+    var no = el('button', 'ghost', 'No, it\'s income'); no.type = 'button';
+    no.addEventListener('click', function () {
+      var d = loadJsonObj(PAYBACK_NO_KEY); d[inE.id] = 1; kv.set(PAYBACK_NO_KEY, JSON.stringify(d));
+      state.paybackAsk = (state.paybackAsk || []).filter(function (x) { return x !== p; }); renderDue();
+    });
+    row.appendChild(yes); row.appendChild(no);
+    return row;
+  }
+  function undoPayback(inId) {
+    var pb = loadPaybacks(), p = pb.inSet[inId]; if (!p) return Promise.resolve();
+    var done = function () { savePaybacks(pb.list.filter(function (x) { return x.inId !== inId; })); var d = loadJsonObj(PAYBACK_NO_KEY); d[inId] = 1; kv.set(PAYBACK_NO_KEY, JSON.stringify(d)); render(); toast('Counted as income again'); };
+    if (p.partial && p.origAmount) {
+      var o = state.entries.filter(function (x) { return x.id === p.outIds[0]; })[0];
+      if (o) return store.update(o.id, { amount: p.origAmount, desc: p.origDesc || o.desc, spent_at: new Date(o.ts).toISOString(), method: o.method || null }).then(done, function () { toast('Could not undo. Try again.'); });
+    }
+    done(); return Promise.resolve();
+  }
+
+  function tidyUp() { return applyOwnTransfers().then(applyBalanceFromSms, applyBalanceFromSms).then(applyDuplicateCheck, applyDuplicateCheck).then(applyPaybacks, applyPaybacks); }
   function dupSuggestion(m) {
     var row = el('div', 'due-card'), txt = el('div', 'due-txt');
     txt.appendChild(el('b', null, '👯 ' + money(m.drop.amount) + ' may be entered twice'));

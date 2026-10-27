@@ -588,3 +588,27 @@ t('another bank SMS never sets an ICICI balance, and old mistakes are repaired',
   assert.strictEqual(got, null);
   assert.strictEqual(L.routeAccount(pnb, [{ id: 'a1', name: 'ICICI' }], {}, [], 'a1', null), null);
 });
+
+t('money back from the same person: Rishabh 10,700 out and back', () => {
+  const D = 86400000, now = Date.UTC(2026, 9, 27);
+  const out = { id: 'o1', ts: now - 17 * D, amount: 10700, desc: '👤 Rishabh Shokeen', raw: 'ICICI Bank Acct XX602 debited for Rs 10700.00 on 10-Oct-26; RISHABH SHOKEEN credited. UPI:664919325392.', kind: 'expense' };
+  const small = { id: 'o2', ts: now - 14 * D, amount: 5, desc: '🔨 Family function: Rishabh Shokeen', raw: 'Acct XX602 debited for Rs 5.00 on 13-Oct-26; RISHABH SHOKEEN credited. UPI:665219955363.', kind: 'expense' };
+  const back = { id: 'i1', ts: now - 1 * D, amount: 10700, desc: '💰 Received · Rishabh Shokeen', raw: 'Dear Customer, Acct XX602 is credited with Rs 10700.00 on 26-Oct-26 from RISHABH SHOKEEN. UPI:666530867505-ICICI Bank.', kind: 'income' };
+  assert.strictEqual(L.personOf(out), 'rishabh shokeen');
+  assert.strictEqual(L.personOf(back), 'rishabh shokeen');
+  const pred = { isOut: e => e.kind === 'expense', isIn: e => e.kind === 'income' };
+  const r = L.findPaybacks([out, small, back], [], {}, now, pred, ['sanjeev yadav']);
+  assert.strictEqual(r.auto.length, 1); assert.deepStrictEqual(r.auto[0].outIds, ['o1']);
+  // Already paired: not offered again
+  assert.strictEqual(L.findPaybacks([out, small, back], r.auto, {}, now, pred, []).auto.length, 0);
+  // Partial: 4,000 back of 10,700 is asked, not done
+  const part = Object.assign({}, back, { id: 'i2', amount: 4000 });
+  const r2 = L.findPaybacks([out, part], [], {}, now, pred, []);
+  assert.strictEqual(r2.auto.length, 0); assert.strictEqual(r2.ask.length, 1);
+  // Never by amount alone: someone else sending 10,700 does not match
+  const other = Object.assign({}, back, { id: 'i3', desc: '💰 Received · Amit Kumar', raw: 'Acct XX602 is credited with Rs 10700.00 on 26-Oct-26 from AMIT KUMAR. UPI:1.' });
+  assert.strictEqual(L.findPaybacks([out, other], [], {}, now, pred, []).auto.length, 0);
+  // People ledger
+  const pl = L.peopleLedger([out, small, back], { isSent: e => e.kind === 'expense', isGot: e => e.kind === 'income' }, now, 180, []);
+  assert.strictEqual(pl.length, 1); assert.strictEqual(pl[0].name, 'Rishabh Shokeen'); assert.strictEqual(pl[0].net, 5);
+});

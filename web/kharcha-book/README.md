@@ -180,3 +180,6 @@ The dashboard shows only the month total, the 7-day bars, today / 7 days / avera
 
 ## Tappable top card (v111)
 Tap any bar of the 7-day chart, or the Today / 7 days / Avg per day boxes, to see how much was spent and what it went on (categories and the biggest payments). The day you spent the most blazes with a flame; the other days are cool ice-blue, and today has an outline.
+
+## Money back from the same person (v112)
+When someone sends back money you paid them (you pay Rishabh ₹10,700, he returns ₹10,700), Kharcha Book matches the two by the person's name from the bank SMS and counts neither as spending nor income (with Undo). It also matches when the return adds up to two or three recent payments to that person. A partial return asks first ("Rishabh sent ₹4,000 back?") and then lowers the original spend, noting "(↩ ₹4,000 back)". More > Udhaar shows "Sent and got back" for every person: sent, got back, and who is down; tap a person for the payments, and "It was income" undoes a match.
