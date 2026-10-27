@@ -157,7 +157,8 @@
     add.addEventListener('click', function () { ui.tools = true; render(); setTimeout(function () { var f = $('trip-exp-amt') || document.querySelector('#trips-sec input'); if (f) { f.scrollIntoView({ block: 'center' }); f.focus(); } }, 60); });
     var sh = el('button', 'th-act', '🔗 Share link'); sh.type = 'button'; sh.addEventListener('click', function () { shareLink(trip); });
     var cp = el('button', 'th-act', '📋 Copy link'); cp.type = 'button'; cp.addEventListener('click', function () { copyLink(trip); });
-    acts.appendChild(add); acts.appendChild(sh); acts.appendChild(cp);
+    var rn = el('button', 'th-act', '✏️ Rename'); rn.type = 'button'; rn.addEventListener('click', function () { ui.trip = null; api.rename(trip); });
+    acts.appendChild(add); acts.appendChild(sh); acts.appendChild(cp); acts.appendChild(rn);
     root.appendChild(acts);
 
     // people
@@ -177,6 +178,13 @@
         var send = el('button', 'th-mini', phoneDigits(phones[p]) ? '💬 Send link' : '🔗 Link'); send.type = 'button';
         send.addEventListener('click', function () { shareLink(trip, p); });
         row.appendChild(send);
+        var rm = el('button', 'th-x', '×'); rm.type = 'button'; rm.setAttribute('aria-label', 'Remove ' + p + ' from this trip');
+        rm.addEventListener('click', function () {
+          var paid = b && b.paid > 0;
+          K.confirmBox({ title: 'Remove ' + p + ' from ' + trip + '?', message: paid ? p + ' paid ' + money(b.paid) + ' on this trip. Those spends stay; the split is worked out again without ' + p + '.' : 'The split is worked out again without ' + p + '. You can undo this.', confirmText: 'Remove',
+            onConfirm: function () { api.removeFriend(trip, p); } });
+        });
+        row.appendChild(rm);
       }
       plist.appendChild(row);
     });
@@ -213,7 +221,7 @@
 
     // day-by-day flow
     var fc = el('section', 'th-card');
-    fc.appendChild(el('div', 'th-card-h', '🗓️ Day by day'));
+    var fh = el('div', 'th-card-h'); fh.appendChild(el('span', null, '🗓️ Day by day')); if (st.items.length) fh.appendChild(el('small', 'th-muted', 'Tap a spend to delete it')); fc.appendChild(fh);
     if (!st.items.length) fc.appendChild(el('p', 'th-muted', 'No spends yet. Tap “Add spend”, or friends can add from the trip link.'));
     var byDay = {}, order = [];
     st.items.slice().sort(function (a, b) { return a.ts - b.ts; }).forEach(function (e) {
@@ -234,6 +242,11 @@
         var t = el('div', 'th-it-t'); t.appendChild(el('b', null, label(e.desc).slice(0, 40) || 'Spend'));
         var who = api.payer(e.desc); t.appendChild(el('span', null, (who === 'Me' ? 'You paid' : who + ' paid') + ' · ' + c.label));
         r.appendChild(t); r.appendChild(el('b', 'th-it-a', money(e.amount)));
+        r.setAttribute('role', 'button'); r.tabIndex = 0; r.classList.add('tap');
+        r.addEventListener('click', function () {
+          K.confirmBox({ title: (label(e.desc) || 'Spend') + ' · ' + money(e.amount), message: (who === 'Me' ? 'You paid' : who + ' paid') + ' on ' + dayF.format(new Date(e.ts)) + '. Delete it? You can undo.' + (e.isGuestEntry ? ' It was added from the trip link, so it goes for everyone.' : ''), confirmText: 'Delete spend',
+            onConfirm: function () { api.deleteSpend(e); } });
+        });
         day.appendChild(r);
       });
       fc.appendChild(day);
