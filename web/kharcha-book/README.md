@@ -174,3 +174,6 @@ The search box understands related words: "hair" finds salon/barber/parlour spen
 
 ## Only your own banks (v107)
 A bank SMS only updates the balance of that same bank. SMS from other banks (for example a family member's account) no longer touch your ICICI balance or count as bank money, and the top of the app shows ICICI only. Earlier wrong balances are repaired automatically.
+
+## Calm home (v110)
+The dashboard shows only the month total, the 7-day bars, today / 7 days / average, the safe-to-spend line, one "Add a spend" bar (the + button opens the full form, which folds away after saving), search, and the day-by-day list. Several due payments fold into one line, past months fold away, and the budget strip is hidden until a budget is set.
