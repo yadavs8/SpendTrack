@@ -11,6 +11,20 @@
   }
   function raf(fn) { return (window.requestAnimationFrame || function (f) { return setTimeout(f, 16); })(fn); }
   var reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  /* Whatever opens can be closed again: by tapping the same thing, tapping outside, or the phone's back button.
+     Each open sheet/page pushes one history entry; the back button pops it and closes the newest thing. */
+  var backStack = [], skipPop = 0;
+  function backOpen(closeFn) { backStack.push(closeFn); try { history.pushState({ kb: backStack.length }, ''); } catch (e) {} }
+  function backDone(closeFn) {
+    var i = backStack.indexOf(closeFn); if (i < 0) return;
+    backStack.splice(i, 1); skipPop++;
+    try { history.back(); } catch (e) { skipPop--; }
+  }
+  window.addEventListener('popstate', function () {
+    if (skipPop > 0) { skipPop--; return; }
+    var c = backStack.pop(); if (c) c(true);
+  });
+  window.KharchaBack = { open: backOpen, done: backDone };
 
   /* ---------- night mode ---------- */
   var MOON = svg('<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>');
@@ -71,17 +85,26 @@
   var isDragging = false, startY = 0, startX = 0, currentY = 0, startTime = 0;
   var isFromHandle = false, didDrag = false, isClosing = false;
 
-  function goStream(stream) {
+  // Leaving Home for another page adds one back step, so the phone's back button returns Home.
+  var streamBack = null;
+  function curStream() { var a = document.querySelector('.streambtn.active'); return a ? a.dataset.stream : 'spends'; }
+  function goStream(stream, fromBack) {
     var old = document.querySelector('.streambtn[data-stream="' + stream + '"]');
     if (old) old.click();
     closeSheet(true);
     window.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' });
+    if (stream !== 'spends' && !streamBack) { streamBack = function (fb) { streamBack = null; if (fb === true) goStream('spends', true); }; backOpen(streamBack); }
+    else if (stream === 'spends' && streamBack && fromBack !== true) { var f = streamBack; streamBack = null; backDone(f); }
   }
 
+  var moreBack = null;
+  function releaseMoreBack() { if (moreBack) { var f = moreBack; moreBack = null; backDone(f); } }
   function openSheet() {
     if (!sheet) return;
     if (isClosing) return;
+    if (!sheet.hidden) { closeWithSlide(); return; }   // More tapped again: close it
     sheet.hidden = false;
+    if (!moreBack) { moreBack = function (fb) { moreBack = null; if (fb === true) closeWithSlide(); }; backOpen(moreBack); }
     if (card) {
       card.scrollTop = 0;
       if (!reduceMotion) {
@@ -123,6 +146,7 @@
   function closeWithSlide(onDone) {
     if (!sheet || sheet.hidden) return;
     if (isClosing) return;
+    releaseMoreBack();
     isClosing = true;
     if (reduceMotion || !card) {
       sheet.hidden = true;
@@ -156,6 +180,7 @@
   function closeSheet(immediate) {
     if (immediate) {
       if (!sheet) return;
+      if (!sheet.hidden) releaseMoreBack();
       sheet.hidden = true;
       if (card) {
         card.style.transition = '';
@@ -177,7 +202,7 @@
       var ic = el('span', cls === 'bnav-add' ? 'fab' : 'ic'); ic.innerHTML = ICONS[key];
       b.appendChild(ic); b.appendChild(el('span', null, label)); bar.appendChild(b); return b;
     }
-    item('home', 'Home').addEventListener('click', function () { goStream('spends'); });
+    item('home', 'Home').addEventListener('click', function () { goStream('spends'); });   // on Home already: back to the top
     item('income', 'Income').addEventListener('click', function () { goStream('incomings'); });
     item('add', 'Add', 'bnav-add').addEventListener('click', function () {
       goStream('spends');
@@ -185,7 +210,11 @@
       if (form && form.scrollIntoView) form.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' });
       if (amt) setTimeout(function () { try { amt.focus({ preventScroll: true }); } catch (e) { amt.focus(); } }, 250);
     });
-    item('trips', 'Trips').addEventListener('click', function () { goStream('trips'); });
+    item('trips', 'Trips').addEventListener('click', function () {
+      // Tapping Trips while a trip is open folds it back to the list of trips.
+      if (curStream() === 'trips' && window.__tripsHome && window.__tripsHome.inTrip()) { window.__tripsHome.back(); window.scrollTo({ top: 0 }); return; }
+      goStream('trips');
+    });
     item('more', 'More').addEventListener('click', openSheet);
     bnav.appendChild(bar); document.body.appendChild(bnav);
 
@@ -458,16 +487,22 @@
 
   /* A card that opens where you are looking: placed at the top of the part of the page on screen (works the same in
      Chrome and inside the phone app, where a sheet pinned to the bottom edge can end up under the navigation bar). */
-  function closeSheets() { document.querySelectorAll('.hx-pop-bd, .hx-pop').forEach(function (n) { n.remove(); }); }
+  function closeSheets() { var x = document.querySelector('.hx-pop .hx-pop-x'); if (x) x.click(); document.querySelectorAll('.hx-pop-bd, .hx-pop').forEach(function (n) { n.remove(); }); }
   function showSheet(bd, pop, x) {
     document.body.appendChild(bd); document.body.appendChild(pop);
     var vh = Math.min(window.innerHeight || 700, (window.screen && window.screen.height) || 900);
     pop.style.top = (window.pageYOffset + Math.max(56, Math.round(vh * 0.1))) + 'px';
     pop.style.maxHeight = Math.round(vh * 0.78) + 'px';
-    function close() { bd.remove(); pop.remove(); document.removeEventListener('keydown', onKey); }
+    var closed = false;
+    function close(fromBack) {
+      if (closed) return; closed = true;
+      bd.remove(); pop.remove(); document.removeEventListener('keydown', onKey);
+      if (fromBack !== true) backDone(close);
+    }
     function onKey(ev) { if (ev.key === 'Escape') close(); }
-    x.addEventListener('click', close); bd.addEventListener('click', close);
+    x.addEventListener('click', function () { close(); }); bd.addEventListener('click', function () { close(); });
     document.addEventListener('keydown', onKey);
+    backOpen(close);
     return close;
   }
 
@@ -610,23 +645,52 @@
     var cats = {}, all = [].concat.apply([], days.map(function (d) { return d.items; })), tot = 0;
     all.forEach(function (e) { var ct = catOf(e); var k = ct.key; cats[k] = cats[k] || { c: ct, p: 0, n: 0 }; cats[k].p += paise(e.amount); cats[k].n++; tot += paise(e.amount); });
     var list = Object.keys(cats).map(function (k) { return cats[k]; }).sort(function (a, b2) { return b2.p - a.p; });
-    if (list.length) {
-      var strip = el('div', 'cal-cats');
-      list.slice(0, 8).forEach(function (x) {
-        var chip = el('button', 'cal-cat'); chip.type = 'button';
-        chip.appendChild(el('span', 'cal-cat-ic', x.c.icon)); chip.style.setProperty('--cc', x.c.color);
-        var t = el('span', 'cal-cat-t'); t.appendChild(el('b', null, x.c.label)); t.appendChild(el('span', null, K.money(Math.round(x.p / 100)) + ' \u00b7 ' + Math.round((x.p / tot) * 100) + '%'));
-        chip.appendChild(t);
-        chip.addEventListener('click', function () {
-          var its = all.filter(function (e) { return catOf(e).key === x.c.key; });
-          openDaySheet(null, its, x.c.icon + ' ' + x.c.label + ' this month');
-        });
-        strip.appendChild(chip);
-      });
-      box.appendChild(strip);
-    }
+    renderCatEstimates(box.parentNode, box, list, all, tot, y, mo, dim);
   }
-  function openDaySheet(dayTs, items, title) {
+  // "Where your money goes": every category with what it cost, the month-end estimate and last month for comparison.
+  var catOpen = true, catAll = false;
+  var FIXED = { bills: 1, subscription: 1, insurance: 1, recharge: 1 };   // paid once a month: the estimate is what is already paid
+  function renderCatEstimates(parent, after, list, all, tot, y, mo, dim) {
+    var old = $('cat-est'); if (old) old.remove();
+    if (!list.length) return;
+    var now = new Date(), isCur = now.getFullYear() === y && now.getMonth() === mo, dayN = isCur ? now.getDate() : dim;
+    // last month's spend per category, from the same visible list rules
+    var prevFrom = new Date(y, mo - 1, 1).getTime(), prevTo = new Date(y, mo, 1).getTime(), prev = {};
+    (K.getEntries ? K.getEntries() : []).forEach(function (e) { if (!e || e.synthetic || !K.isExpense(e) || e.ts < prevFrom || e.ts >= prevTo) return; var k = catOf(e).key; prev[k] = (prev[k] || 0) + paise(e.amount); });
+    var sec = el('section', 'cat-est'); sec.id = 'cat-est';
+    var head = el('button', 'ce-head' + (catOpen ? ' open' : '')); head.type = 'button';
+    var hl = el('div'); hl.appendChild(el('b', null, '\uD83D\uDCCA Where your money goes'));
+    var estTot = list.reduce(function (n, x) { return n + (isCur && !FIXED[x.c.key] ? Math.round(x.p / dayN * dim) : x.p); }, 0);
+    hl.appendChild(el('small', null, isCur ? 'So far ' + K.money(Math.round(tot / 100)) + ' \u00b7 heading for \u2248 ' + K.money(Math.round(estTot / 100)) + ' by month end' : 'Total ' + K.money(Math.round(tot / 100))));
+    head.appendChild(hl); head.appendChild(el('span', 'cc-chev', '\u25BE'));
+    head.addEventListener('click', function () { catOpen = !catOpen; renderCatEstimates(parent, after, list, all, tot, y, mo, dim); });
+    sec.appendChild(head);
+    if (catOpen) {
+      var body = el('div', 'ce-body'), max = list[0].p || 1;
+      list.slice(0, catAll ? 40 : 6).forEach(function (x, i) {
+        var est = isCur && !FIXED[x.c.key] ? Math.round(x.p / dayN * dim) : x.p, pv = prev[x.c.key] || 0;
+        var r = el('button', 'ce-row'); r.type = 'button'; r.style.animationDelay = (i * 60) + 'ms';
+        var ic = el('span', 'ce-ic', x.c.icon); ic.style.background = x.c.color + '22'; r.appendChild(ic);
+        var mid = el('div', 'ce-mid');
+        var t1 = el('div', 'ce-t1'); t1.appendChild(el('b', null, x.c.label)); t1.appendChild(el('b', 'ce-amt', K.money(Math.round(x.p / 100)))); mid.appendChild(t1);
+        var tr = el('div', 'ce-track'), fl = el('div', 'ce-fill'); fl.style.setProperty('--w', Math.max(3, Math.round((x.p / max) * 100)) + '%'); fl.style.background = 'linear-gradient(90deg,' + x.c.color + 'aa,' + x.c.color + ')';
+        if (isCur && est > x.p) { var gh = el('div', 'ce-ghost'); gh.style.setProperty('--w', Math.min(100, Math.round((est / max) * 100)) + '%'); gh.style.borderColor = x.c.color; tr.appendChild(gh); }
+        tr.appendChild(fl); mid.appendChild(tr);
+        var bits = [x.n + (x.n === 1 ? ' spend' : ' spends')];
+        if (isCur && est > x.p) bits.push('\u2248 ' + K.money(Math.round(est / 100)) + ' by month end');
+        if (pv) { var ch = Math.round(((isCur ? est : x.p) - pv) / pv * 100); bits.push((ch > 0 ? '\u2191 ' : ch < 0 ? '\u2193 ' : '') + Math.abs(ch) + '% vs last month'); }
+        mid.appendChild(el('span', 'ce-sub' + (pv && (isCur ? est : x.p) > pv * 1.2 ? ' up' : ''), bits.join(' \u00b7 ')));
+        r.appendChild(mid);
+        r.addEventListener('click', function () { openDaySheet(null, all.filter(function (e) { return catOf(e).key === x.c.key; }), x.c.icon + ' ' + x.c.label); });
+        body.appendChild(r);
+      });
+      if (list.length > 6) { var more = el('button', 'ce-more', catAll ? 'Show fewer \u25B4' : 'Show all ' + list.length + ' categories \u25BE'); more.type = 'button'; more.addEventListener('click', function () { catAll = !catAll; renderCatEstimates(parent, after, list, all, tot, y, mo, dim); }); body.appendChild(more); }
+      sec.appendChild(body);
+    }
+    parent.insertBefore(sec, after.nextSibling);
+  }
+  window.KharchaDaySheet = function (ts, items, title) { openDaySheet(ts, items, title, true); };
+  function openDaySheet(dayTs, items, title, noJump) {
     closeSheets();
     var dayName = new Intl.DateTimeFormat('en-IN', { weekday: 'long', day: 'numeric', month: 'short' }), tF = new Intl.DateTimeFormat('en-IN', { hour: 'numeric', minute: '2-digit' });
     var dF = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short' });
@@ -644,7 +708,7 @@
       r.appendChild(t); r.appendChild(el('b', 'ds-a', K.money(e.amount)));
       pop.appendChild(r);
     });
-    if (dayTs && items.length) {
+    if (dayTs && items.length && !noJump) {
       var go = el('button', 'linkbtn', 'Edit these in the list \u203A'); go.type = 'button';
       go.addEventListener('click', function () { close(); goToDay(dayTs); });
       pop.appendChild(go);
@@ -1198,8 +1262,13 @@
     var bar = el('button', 'quick-add-bar'); bar.type = 'button';
     bar.innerHTML = '<span>\uFF0B</span> Add a spend <em>amount and what it was for</em>';
     form.parentNode.insertBefore(bar, form);
-    function setOpen(on) {
+    function backClose(fromBack) { if (fromBack === true) { formBack = null; setOpen(false, true); } }
+    var formBack = null;
+    function setOpen(on, fromBack) {
+      var was = form.classList.contains('open');
       form.classList.toggle('open', on); bar.hidden = on;
+      if (on && !was) { formBack = backClose; backOpen(formBack); }
+      if (!on && was && formBack && fromBack !== true) { var f = formBack; formBack = null; backDone(f); }
       if (on) { var amt = $('amt'); if (amt) setTimeout(function () { try { amt.focus(); } catch (e) {} }, 60); }
     }
     bar.addEventListener('click', function () { setOpen(true); });
@@ -1207,7 +1276,8 @@
     var cancel = el('button', 'ghost quick-add-close', 'Close'); cancel.type = 'button'; cancel.addEventListener('click', function () { setOpen(false); });
     form.insertBefore(cancel, form.firstChild);
     var fab = document.querySelector('.bnav-add');
-    if (fab) fab.addEventListener('click', function () { setOpen(true); });
+    // + opens the form; tapping + again while it is open closes it.
+    if (fab) fab.addEventListener('click', function () { var on = form.classList.contains('open'); setOpen(!on); });
     // 2. Several payments due: one summary line that opens the list.
     var due = $('due-box');
     if (due) {
@@ -1269,13 +1339,23 @@
     });
     bd.appendChild(pane); document.body.appendChild(bd);
     function current() { var a = document.querySelector('.streambtn.active'); return a ? a.dataset.stream : 'spends'; }
+    var isOpen = false;
     function open() {
+      if (isOpen) { close(); return; }
+      isOpen = true;
       var cur = current(); links.forEach(function (l) { l.classList.toggle('active', l.dataset.stream === cur); });
       bd.hidden = false; requestAnimationFrame(function () { bd.classList.add('open'); });
       document.addEventListener('keydown', onKey);
+      backOpen(close);
     }
-    function close() { bd.classList.remove('open'); setTimeout(function () { bd.hidden = true; }, reduceMotion ? 0 : 220); document.removeEventListener('keydown', onKey); }
+    function close(fromBack) {
+      if (!isOpen) return; isOpen = false;
+      bd.classList.remove('open'); setTimeout(function () { bd.hidden = true; }, reduceMotion ? 0 : 220); document.removeEventListener('keydown', onKey);
+      if (fromBack !== true) backDone(close);
+    }
     function onKey(ev) { if (ev.key === 'Escape') close(); }
+    var sx0 = el('button', 'side-close', '\u00d7'); sx0.type = 'button'; sx0.setAttribute('aria-label', 'Close menu'); sx0.addEventListener('click', function () { close(); });
+    brand.appendChild(sx0);
     btn.addEventListener('click', open);
     bd.addEventListener('click', function (ev) { if (ev.target === bd) close(); });
     // swipe left on the pane closes it
@@ -1328,6 +1408,16 @@
       var brand = side.querySelector('.side-brand'); side.insertBefore(a, brand ? brand.nextSibling : side.firstChild);
     };
     tryAdd();
+  })();
+
+  /* ---------- v123: cards glide in as they scroll into view ---------- */
+  (function reveal() {
+    if (reduceMotion || !('IntersectionObserver' in window)) return;
+    var io = new IntersectionObserver(function (es) { es.forEach(function (x) { if (x.isIntersecting) { x.target.classList.add('in'); io.unobserve(x.target); } }); }, { rootMargin: '0px 0px -40px 0px' });
+    var seen = new WeakSet();
+    function scan() { document.querySelectorAll('#cal-sec, #cc-home, #days-sec').forEach(function (n) { if (seen.has(n)) return; seen.add(n); n.classList.add('reveal'); io.observe(n); }); }
+    document.addEventListener('kharcha:render', function () { setTimeout(scan, 30); });
+    scan();
   })();
   window.addEventListener('resize', fitTotal);
   refresh();

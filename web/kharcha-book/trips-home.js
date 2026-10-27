@@ -97,6 +97,72 @@
     }).catch(function (err) { K.toast((err && err.message) || 'Could not make the trip link.'); });
   }
 
+
+  // Opening a trip adds one back step: the phone's back button, the banner, "All trips" or the Trips tab close it.
+  var tripBack = null;
+  function openTrip(name) {
+    ui.trip = name; ui.tools = false; K.tripsApi.select(name); window.scrollTo({ top: 0 });
+    if (!tripBack && window.KharchaBack) { tripBack = function (fromBack) { tripBack = null; if (fromBack === true) { ui.trip = null; ui.tools = false; render(); } }; window.KharchaBack.open(tripBack); }
+    render();
+  }
+  function closeTrip() {
+    ui.trip = null; ui.tools = false;
+    if (tripBack && window.KharchaBack) { var f = tripBack; tripBack = null; window.KharchaBack.done(f); }
+    render(); window.scrollTo({ top: 0 });
+  }
+  window.__tripsHome = { inTrip: function () { return !!ui.trip; }, back: closeTrip };
+
+  /* ---------- the trip as a calendar: every trip day a box, coloured by spend, pictures of what it went on ---------- */
+  function tripCalendar(items) {
+    if (!items.length) return null;
+    var DAY = 86400000, first = Infinity, last = 0;
+    items.forEach(function (e) { first = Math.min(first, e.ts); last = Math.max(last, e.ts); });
+    var f0 = new Date(first), l0 = new Date(last);
+    var start = new Date(f0.getFullYear(), f0.getMonth(), f0.getDate()).getTime(), end = new Date(l0.getFullYear(), l0.getMonth(), l0.getDate()).getTime();
+    var days = [], byKey = {};
+    for (var t = start, i = 0; t <= end && i < 62; t += DAY, i++) { var d = new Date(t); var k = d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate(); var o = { ts: t, n: i + 1, p: 0, items: [] }; days.push(o); byKey[k] = o; }
+    items.forEach(function (e) { var d = new Date(e.ts); var o = byKey[d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate()]; if (o) { o.p += Math.round(e.amount * 100); o.items.push(e); } });
+    var max = Math.max.apply(null, days.map(function (d) { return d.p; })) || 1, hot = days.filter(function (d) { return d.p === max && d.p > 0; })[0];
+    var card = el('section', 'th-card');
+    var h = el('div', 'th-card-h'); h.appendChild(el('span', null, '📅 Trip calendar')); h.appendChild(el('small', 'th-muted', 'Tap a day')); card.appendChild(h);
+    var grid = el('div', 'th-cal');
+    var wd = new Intl.DateTimeFormat('en-IN', { weekday: 'short' }), dn = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short' });
+    days.forEach(function (d, idx) {
+      var lvl = d.p ? Math.min(4, 1 + Math.floor((d.p / max) * 4 - 0.0001)) : 0;
+      var c = el('button', 'th-cd lvl' + lvl + (d === hot ? ' hot' : '')); c.type = 'button';
+      c.style.animationDelay = Math.min(idx * 40, 600) + 'ms';
+      c.appendChild(el('span', 'th-cd-day', 'Day ' + d.n));
+      c.appendChild(el('span', 'th-cd-date', wd.format(new Date(d.ts)) + ' ' + dn.format(new Date(d.ts))));
+      if (d.p) {
+        var seen = {}, icons = '';
+        d.items.slice().sort(function (a, b) { return b.amount - a.amount; }).forEach(function (e) { var ct = catOf(e.desc); if (!seen[ct.label] && Object.keys(seen).length < 3) { seen[ct.label] = 1; icons += ct.icon; } });
+        c.appendChild(el('span', 'th-cd-ic', icons));
+        c.appendChild(el('b', 'th-cd-amt', money(d.p / 100)));
+      } else c.appendChild(el('span', 'th-cd-none', 'No spends'));
+      c.addEventListener('click', function () { dayCard(d); });
+      grid.appendChild(c);
+    });
+    card.appendChild(grid);
+    // what the trip went on
+    var cats = {}, tot = 0;
+    items.forEach(function (e) { var ct = catOf(e.desc); var k = ct.label; cats[k] = cats[k] || { c: ct, p: 0, n: 0 }; cats[k].p += Math.round(e.amount * 100); cats[k].n++; tot += Math.round(e.amount * 100); });
+    var list = Object.keys(cats).map(function (k) { return cats[k]; }).sort(function (a, b) { return b.p - a.p; });
+    var bars = el('div', 'th-cats');
+    list.forEach(function (x) {
+      var r = el('div', 'th-cat'); var top = el('div', 'th-cat-top');
+      top.appendChild(el('span', null, x.c.icon + ' ' + x.c.label + ' · ' + x.n)); top.appendChild(el('b', null, money(x.p / 100)));
+      var tr = el('div', 'th-cat-track'), fl = el('div', 'th-cat-fill'); fl.style.setProperty('--w', Math.max(4, Math.round((x.p / tot) * 100)) + '%'); fl.style.background = x.c.color; tr.appendChild(fl);
+      r.appendChild(top); r.appendChild(tr); bars.appendChild(r);
+    });
+    card.appendChild(bars);
+    return card;
+  }
+  function dayCard(d) {
+    var title = 'Day ' + d.n + ' · ' + dayF.format(new Date(d.ts));
+    if (window.KharchaDaySheet) window.KharchaDaySheet(d.ts, d.items, title);
+  }
+
+
   /* ---------- screens ---------- */
   function tripStats(name) {
     var s = K.tripsApi.summary(name);
@@ -110,7 +176,7 @@
     b.appendChild(el('span', 'th-art', th.icon));
     var tx = el('div', 'th-tx');
     tx.appendChild(el('b', 'th-name', name));
-    var days = st.s.daysCount || 0;
+    var days = st.first && st.last ? Math.round((new Date(new Date(st.last).toDateString()).getTime() - new Date(new Date(st.first).toDateString()).getTime()) / 86400000) + 1 : (st.s.daysCount || 0);
     tx.appendChild(el('span', 'th-meta', st.items.length ? (st.first ? shortF.format(new Date(st.first)) + (st.last && shortF.format(new Date(st.last)) !== shortF.format(new Date(st.first)) ? ' – ' + shortF.format(new Date(st.last)) : '') + ' · ' : '') + days + (days === 1 ? ' day' : ' days') : 'No spends yet'));
     b.appendChild(tx);
     var r = el('div', 'th-r');
@@ -136,7 +202,7 @@
     }
     trips.map(function (t) { return { t: t, st: tripStats(t) }; }).sort(function (a, b) { return (b.st.last || 0) - (a.st.last || 0); }).forEach(function (x) {
       var b = banner(x.t, x.st, false);
-      b.addEventListener('click', function () { ui.trip = x.t; ui.tools = false; api.select(x.t); window.scrollTo({ top: 0 }); render(); });
+      b.addEventListener('click', function () { openTrip(x.t); });
       root.appendChild(b);
     });
   }
@@ -144,9 +210,11 @@
   function renderTrip(root, trip) {
     var api = K.tripsApi, st = tripStats(trip), s = st.s;
     var back = el('button', 'th-back', '‹ All trips'); back.type = 'button';
-    back.addEventListener('click', function () { ui.trip = null; ui.tools = false; render(); });
+    back.addEventListener('click', function () { closeTrip(); });
     root.appendChild(back);
     var hb = banner(trip, st, true);
+    hb.classList.add('tap'); hb.title = 'Tap to close this trip';
+    hb.addEventListener('click', function (ev) { if (ev.target.closest('button')) return; closeTrip(); });   // tap the banner again: back to all trips
     var people = s.participants || ['Me'];
     if (people.length > 1 && s.totalSpent) hb.appendChild(el('span', 'th-share', money(s.perPersonShare || s.totalSpent / people.length) + ' each'));
     root.appendChild(hb);
@@ -219,6 +287,8 @@
     }
     root.appendChild(pc);
 
+    var tc = tripCalendar(st.items); if (tc) root.appendChild(tc);
+
     // day-by-day flow
     var fc = el('section', 'th-card');
     var fh = el('div', 'th-card-h'); fh.appendChild(el('span', null, '🗓️ Day by day')); if (st.items.length) fh.appendChild(el('small', 'th-muted', 'Tap a spend to delete it')); fc.appendChild(fh);
@@ -229,11 +299,13 @@
       if (!byDay[k]) { byDay[k] = { ts: e.ts, p: 0, items: [] }; order.push(k); }
       byDay[k].p += Math.round(e.amount * 100); byDay[k].items.push(e);
     });
+    var t0 = st.first ? new Date(new Date(st.first).getFullYear(), new Date(st.first).getMonth(), new Date(st.first).getDate()).getTime() : 0;
     order.forEach(function (k, i) {
       var g = byDay[k], day = el('div', 'th-day');
+      var gd = new Date(g.ts), dnum = t0 ? Math.round((new Date(gd.getFullYear(), gd.getMonth(), gd.getDate()).getTime() - t0) / 86400000) + 1 : i + 1;   // same Day numbers as the trip calendar
       var dh = el('div', 'th-day-h');
-      dh.appendChild(el('span', 'th-dot', String(i + 1)));
-      var dt = el('div', 'th-day-t'); dt.appendChild(el('b', null, 'Day ' + (i + 1))); dt.appendChild(el('span', null, dayF.format(new Date(g.ts))));
+      dh.appendChild(el('span', 'th-dot', String(dnum)));
+      var dt = el('div', 'th-day-t'); dt.appendChild(el('b', null, 'Day ' + dnum)); dt.appendChild(el('span', null, dayF.format(new Date(g.ts))));
       dh.appendChild(dt); dh.appendChild(el('b', 'th-day-amt', money(g.p / 100)));
       day.appendChild(dh);
       g.items.forEach(function (e) {
