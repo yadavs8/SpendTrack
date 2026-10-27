@@ -398,9 +398,9 @@ body.calm #add:not(.open) { display: none; }
 @keyframes hxBlaze { from { filter: brightness(1); box-shadow: 0 0 10px 1px rgba(255, 110, 0, 0.6), 0 0 22px 4px rgba(255, 60, 0, 0.25); } to { filter: brightness(1.18); box-shadow: 0 0 18px 4px rgba(255, 140, 0, 0.9), 0 0 34px 10px rgba(255, 60, 0, 0.45); } }
 @keyframes hxFlame { from { transform: translateX(-50%) scale(0.9) rotate(-6deg); } to { transform: translateX(-50%) scale(1.15) rotate(6deg); } }
 @media (prefers-reduced-motion: reduce) { .hx-col.hot .hx-bar, .hx-flame { animation: none; } }
-.hx-pop-bd { position: fixed; inset: 0; z-index: 400; background: rgba(8, 20, 40, 0.5); backdrop-filter: blur(3px); display: flex; align-items: flex-end; justify-content: center; animation: hxFade 0.18s ease; }
+.hx-pop-bd { position: fixed; top: 0; right: 0; bottom: 0; left: 0; z-index: 9000; background: rgba(8, 20, 40, 0.55); animation: hxFade 0.18s ease; }
 @keyframes hxFade { from { opacity: 0; } to { opacity: 1; } }
-.hx-pop { width: min(480px, 100%); max-height: 82vh; overflow: auto; background: var(--surface, #fff); color: var(--ink, #0f172a); border-radius: 22px 22px 0 0; padding: 16px 18px 28px; box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.25); animation: hxUp 0.22s ease; }
+.hx-pop { position: fixed; left: 0; right: 0; bottom: 0; margin: 0 auto; box-sizing: border-box; padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px)) !important; width: min(480px, 100%); max-height: 80vh; overflow: auto; background: var(--surface, #fff); color: var(--ink, #0f172a); border-radius: 22px 22px 0 0; padding: 16px 18px 28px; box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.25); animation: hxUp 0.22s ease; }
 @keyframes hxUp { from { transform: translateY(24px); opacity: 0.6; } to { transform: none; opacity: 1; } }
 .hx-pop-head { display: flex; justify-content: space-between; align-items: center; } .hx-pop-head b { font-size: 1rem; }
 .hx-pop-x { border: 0; background: var(--bg, #eef2f7); width: 32px; height: 32px; border-radius: 50%; font-size: 1.2rem; line-height: 1; color: inherit; cursor: pointer; }
@@ -420,3 +420,7 @@ body.privacy .hx-pop-amt, body.privacy .hx-cat-top b, body.privacy .hx-big b, bo
 .pb-items { display: grid; gap: 4px; margin-top: 6px; }
 .pb-item { display: flex; gap: 8px; align-items: center; font-size: 0.82rem; } .pb-item span { flex: 1; } .pb-item b { font-variant-numeric: tabular-nums; }
 body.privacy .pb-net, body.privacy .pb-sub, body.privacy .pb-item b { filter: blur(8px); }
+
+/* jump to a day from the top card (v113) */
+#days section.day.day-flash { animation: dayFlash 1.6s ease; border-radius: 16px; }
+@keyframes dayFlash { 0%, 40% { box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.65); } 100% { box-shadow: 0 0 0 0 rgba(2, 132, 199, 0); } }

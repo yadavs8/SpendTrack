@@ -403,7 +403,7 @@
     box.textContent = '';
     var chips = el('div', 'hx-chips');
     var chipDefs = [
-      ['Today', today, function () { openPop('Today', days[6].items, 'Spent so far today'); }],
+      ['Today', today, function () { if (!days[6].items.length || !goToDay(days[6].start)) openPop('Today', days[6].items, days[6].items.length ? 'Spent so far today' : 'Nothing spent yet today'); }],
       ['7 days', week, function () { openPop('Last 7 days', weekItems, hotIdx >= 0 ? 'Biggest day: ' + dayName.format(new Date(days[hotIdx].start)) + ' \u00b7 ' + K.money(Math.round(max / 100)) : 'Nothing spent yet'); }],
       ['Avg / day', Math.round(week / 7), function () {
         var avg = Math.round(week / 7), diff = today - avg;
@@ -423,7 +423,7 @@
       bar.style.height = Math.max(6, Math.round((d.p / max) * 100)) + '%';
       if (idx === hotIdx) col.appendChild(el('span', 'hx-flame', '\uD83D\uDD25'));
       col.appendChild(bar); col.appendChild(el('i', null, d.letter));
-      col.addEventListener('click', function () { openPop(dayName.format(new Date(d.start)), d.items, d.p ? (idx === hotIdx ? 'Your biggest spending day this week' : 'Spent this day') : 'Nothing spent this day'); });
+      col.addEventListener('click', function () { if (d.items.length && goToDay(d.start)) return; openPop(dayName.format(new Date(d.start)), d.items, d.p ? (idx === hotIdx ? 'Your biggest spending day this week' : 'Spent this day') : 'Nothing spent this day'); });
       bars.appendChild(col);
     });
     box.appendChild(bars);
@@ -437,6 +437,23 @@
     }
   }
 
+
+
+  // Scroll to that day in "Day by day", open it and flash it. Returns false when the day is not in the list
+  // (another month is open, or a filter hides it), so the caller can show the popup instead.
+  function goToDay(ts) {
+    if (!K.dayKey) return false;
+    var sec = document.querySelector('#days section.day[data-day="' + K.dayKey(ts) + '"]');
+    if (!sec) return false;
+    var head = sec.querySelector('.day-head');
+    if (head && !head.classList.contains('expanded')) head.click();
+    sec = document.querySelector('#days section.day[data-day="' + K.dayKey(ts) + '"]') || sec;
+    var y = sec.getBoundingClientRect().top + window.pageYOffset - 70;
+    window.scrollTo({ top: Math.max(0, y), behavior: reduceMotion ? 'auto' : 'smooth' });
+    sec.classList.remove('day-flash'); void sec.offsetWidth; sec.classList.add('day-flash');
+    setTimeout(function () { sec.classList.remove('day-flash'); }, 1800);
+    return true;
+  }
 
   /* ---------- tap a bar or box on the top card: how much, and on what ---------- */
   function openPop(title, items, note, avgFor) {
