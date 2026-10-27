@@ -1433,7 +1433,7 @@
   /* ---------- Shared settings: one row in Supabase kharcha_settings, used by web + phone ----------
      Same keys and string values as localStorage, so feature code just swaps localStorage for kv.
      localStorage stays as the offline cache, and is all there is until the v4 SQL has been run. */
-  var SHARED_KEYS = ['kharcha_paybacks', 'kharcha_payback_no', 'kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
+  var SHARED_KEYS = ['kharcha_trip_phones', 'kharcha_paybacks', 'kharcha_payback_no', 'kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
     'kharcha_is_trip_paused', 'kharcha_all_projects_list', 'kharcha_is_project_paused', 'kharcha_legacy_project_name',
     'kharcha_active_trip_name', 'kharcha_all_trips_list', 'kharcha_category_budgets', 'kharcha_merchant_memory',
     'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers', 'kharcha_loans', 'kharcha_wallets', 'kharcha_bank', 'kharcha_cycle', 'kharcha_rules', 'kharcha_acctmap', 'kharcha_primary_acct', 'kharcha_rule_skips', 'kharcha_transfers', 'kharcha_own', 'kharcha_xfer_dismissed', 'kharcha_goal', 'kharcha_receipts', 'kharcha_rules_seeded', 'kharcha_card', 'kharcha_dup_dismissed'];
@@ -5860,6 +5860,40 @@
   // First tap: creates the trip's shared row (if it doesn't have one yet), turns the invite link
   // on, and opens WhatsApp to send it. Later taps: just re-opens WhatsApp with the same link
   // (turning it back on first, if it had been paused).
+
+  /* ---------- trips API for the Trips home (trips-home.js) ---------- */
+  var TRIP_PHONES_KEY = 'kharcha_trip_phones';
+  function getTripLink(tripName) {
+    if (!tripName) return Promise.reject(new Error('Pick a trip first.'));
+    if (!sb) return Promise.reject(new Error('Sign in to Cloud Sync first to share a trip.'));
+    var cached = tripInviteCache[tripName];
+    var p = cached && cached.invite_token && cached.invite_enabled ? Promise.resolve({ data: cached }) :
+      ensureTripRow(tripName).then(function (trip) {
+        if (!trip) throw new Error('Could not reach Kharcha Book.');
+        return sb.rpc('trip_set_invite', { p_trip_id: trip.id, p_enabled: true, p_regenerate: !trip.invite_token });
+      });
+    return p.then(function (res) {
+      if (res.error || !res.data) throw res.error || new Error('Could not create the link.');
+      tripInviteCache[tripName] = res.data;
+      backfillTripExpensesToShared(tripName);
+      return tripShareLink(res.data.invite_token, tripName);
+    });
+  }
+  var tripsApi = {
+    list: function () { return getAllTrips(); },
+    summary: function (name) { fetchGuestTripEntries(name); return getTripSummary(state.entries.concat(getGuestTripEntries(name)), name, getTripFriends(name)); },
+    friends: function (name) { return getTripFriends(name); },
+    setFriends: function (name, list) { setTripFriends(name, list); render(); },
+    phones: function () { return loadJsonObj(TRIP_PHONES_KEY); },
+    setPhone: function (person, tel) { var o = loadJsonObj(TRIP_PHONES_KEY); o[person] = tel; kv.set(TRIP_PHONES_KEY, JSON.stringify(o)); },
+    select: function (name) { setSelectedViewTripName(name); var s = $('trip-select'); if (s) s.value = name; render(); },
+    selected: function () { return getSelectedViewTripName(); },
+    payer: function (desc) { return parseTripPayer(desc); },
+    link: getTripLink,
+    isSettlement: function (e) { return isTripSettlementEntry(e); }
+  };
+  if (window.__kharcha) window.__kharcha.tripsApi = tripsApi;
+
   var tripInviteBtn = $('trip-invite-btn');
   if (tripInviteBtn) {
     tripInviteBtn.addEventListener('click', function () {

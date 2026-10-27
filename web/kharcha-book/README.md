@@ -203,3 +203,11 @@ Tapping a calendar date, a week bar or a top-card box opens a solid card near th
 
 ## Clear calendar amounts, card dropdown (v117)
 Calendar amounts sit in a solid pill (dark text on light, light on dark) so they read clearly on every colour, and stay visible in hide-amounts mode. The credit card box is a dropdown: tap it, pick the month (this month or any earlier month with card spends), and each date is its own dropdown showing that day's swipes with pictures, category and time; the newest date opens first. The repeated "By payment method" box is gone from Home.
+
+## Trips home: banners, day-by-day flow, friends from contacts, one link per trip (v118)
+- Trips opens on "Your trips": one colourful banner per trip (🏔️ Manali, 🏖️ Goa, 🏜️ Jaipur...) with dates, total and who is on it.
+- Tap a banner: the trip's total and per-person share, then **People** (each with what they paid and what they owe or get back, and a "Send link" button), **To settle up**, and a **Day by day** timeline (Day 1, Day 2...) of every spend with a picture, who paid and the category.
+- **Add from contacts**: pick a friend from your phone's contacts (inside the Kharcha Book phone app after installing the new APK, or in Chrome on Android); or type a name. Spends split equally between everyone on the trip.
+- **Share link / Copy link**: every trip has its own link. "Send link" next to a friend opens WhatsApp straight to that friend when their number came from contacts.
+- The full trip tools (budget, categories, add spend, settle-up) are under "More trip tools".
+- Home: the "Show all days" button is a solid button and never hides behind the bottom bar.
