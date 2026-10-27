@@ -1070,6 +1070,73 @@
   }
   function smartKey(desc) { return String(desc || '').toLowerCase().replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim().split(' ').slice(0, 3).join(' '); }
 
+
+  /* ---------- money back from the same person ----------
+     You pay Rishabh 10,700, he sends 10,700 back: neither is spending nor income. A pair is stored as
+     { inId, outIds: [...], amount, partial: bool, ts }. Matching is by the person's name, never by amount alone. */
+  function personOf(e) {
+    var raw = String(e && e.raw || ''), m;
+    if ((m = /\bfrom\s+([A-Za-z][A-Za-z .]{2,40}?)\s*(?:\.|,|;|\s+UPI|\s+on\s|\s+Ref|$)/i.exec(raw)) && /credit/i.test(raw)) return normName(m[1]);
+    if ((m = /;\s*([A-Za-z][A-Za-z .]{2,40}?)\s+credited/i.exec(raw))) return normName(m[1]);
+    var d = String(e && e.desc || '').replace(/^[^A-Za-z]+/, '');
+    d = d.replace(/^received\s*[·:-]\s*/i, '').replace(/^[^:]{0,30}:\s*/, '').replace(/\s*\(.*$/, '').replace(/\s*\[.*$/, '');
+    var n = normName(d);
+    return n.indexOf(' ') > 0 && n.length <= 40 ? n : '';
+  }
+  // pred: { isOut(e) money you sent that counts as spending, isIn(e) money received that counts as income }
+  function findPaybacks(entries, pairs, dismissed, nowMs, pred, ownNames) {
+    var usedIn = {}, usedOut = {}, auto = [], ask = [];
+    (pairs || []).forEach(function (p) { usedIn[p.inId] = 1; (p.outIds || []).forEach(function (id) { usedOut[id] = 1; }); });
+    var own = ownNames || [];
+    var ins = [], outsBy = {};
+    (entries || []).forEach(function (e) {
+      if (!e || e.synthetic || !(e.amount > 0)) return;
+      var who = personOf(e); if (!who || own.indexOf(who) >= 0) return;
+      if (/refund|cashback|reversal|↩/i.test(String(e.desc || '') + ' ' + String(e.raw || ''))) return;
+      if (pred.isIn(e) && !usedIn[e.id] && e.ts > nowMs - 45 * 86400000) ins.push({ e: e, who: who });
+      else if (pred.isOut(e) && !usedOut[e.id]) (outsBy[who] = outsBy[who] || []).push(e);
+    });
+    ins.sort(function (a, b) { return a.e.ts - b.e.ts; });
+    ins.forEach(function (x) {
+      if (dismissed && dismissed[x.e.id]) return;
+      var outs = (outsBy[x.who] || []).filter(function (o) { return !usedOut[o.id] && o.ts < x.e.ts && o.ts > x.e.ts - 120 * 86400000; })
+        .sort(function (a, b) { return b.ts - a.ts; });
+      if (!outs.length) return;
+      var amt = toPaise(x.e.amount);
+      var exact = outs.filter(function (o) { return toPaise(o.amount) === amt; })[0];
+      if (exact) { usedOut[exact.id] = 1; auto.push({ inId: x.e.id, outIds: [exact.id], amount: x.e.amount, partial: false }); return; }
+      // Two or three recent payments to the same person that add up exactly
+      var recent = outs.slice(0, 6), found = null;
+      for (var i = 0; i < recent.length && !found; i++) for (var j = i + 1; j < recent.length && !found; j++) {
+        if (toPaise(recent[i].amount) + toPaise(recent[j].amount) === amt) found = [recent[i], recent[j]];
+        for (var k = j + 1; k < recent.length && !found; k++) if (toPaise(recent[i].amount) + toPaise(recent[j].amount) + toPaise(recent[k].amount) === amt) found = [recent[i], recent[j], recent[k]];
+      }
+      if (found) { found.forEach(function (o) { usedOut[o.id] = 1; }); auto.push({ inId: x.e.id, outIds: found.map(function (o) { return o.id; }), amount: x.e.amount, partial: false }); return; }
+      var bigger = outs.filter(function (o) { return toPaise(o.amount) > amt; })[0];
+      if (bigger) ask.push({ inId: x.e.id, outIds: [bigger.id], amount: x.e.amount, partial: true, who: x.who });
+    });
+    return { auto: auto, ask: ask };
+  }
+  // Everything sent to and received from each person (last `days` days).
+  function peopleLedger(entries, pred, nowMs, days, ownNames) {
+    var by = {}, since = nowMs - (days || 180) * 86400000, own = ownNames || [];
+    (entries || []).forEach(function (e) {
+      if (!e || e.synthetic || e.ts < since || !(e.amount > 0)) return;
+      var who = personOf(e); if (!who || own.indexOf(who) >= 0) return;
+      var out = pred.isSent(e), inn = pred.isGot(e); if (!out && !inn) return;
+      var r = by[who] = by[who] || { key: who, name: '', sent: 0, back: 0, last: 0, items: [] };
+      if (out) r.sent += toPaise(e.amount); else r.back += toPaise(e.amount);
+      r.last = Math.max(r.last, e.ts); r.items.push({ id: e.id, ts: e.ts, amount: e.amount, out: !!out });
+    });
+    return Object.keys(by).map(function (k) {
+      var r = by[k];
+      r.name = k.replace(/\b[a-z]/g, function (c) { return c.toUpperCase(); });
+      r.sent /= 100; r.back /= 100; r.net = Math.round((r.sent - r.back) * 100) / 100;
+      r.items.sort(function (a, b) { return b.ts - a.ts; });
+      return r;
+    }).filter(function (r) { return r.sent > 0 && r.back > 0; }).sort(function (a, b) { return b.last - a.last; });
+  }
+
   return {
     findDuplicates: findDuplicates, autoTransferPairs: autoTransferPairs, parseCardLimit: parseCardLimit, cardState: cardState, seedRules: seedRules,
     upcomingRules: upcomingRules, parseOwn: parseOwn, defaultOwn: defaultOwn, cardFor: cardFor, ownAccountFor: ownAccountFor, transferCandidates: transferCandidates, autoOwnTransfers: autoOwnTransfers, orphanTransfers: orphanTransfers, isOwnName: isOwnName, sourceAccountFromRaw: sourceAccountFromRaw,
@@ -1082,7 +1149,7 @@
     addPayment: addPayment, editLoan: editLoan, editPayment: editPayment, summarize: summarize,
     walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, parseWalletDesc: parseWalletDesc,
     parseWallets: parseWallets, walletState: walletState, walletReconcile: walletReconcile,
-    smartSearch: smartSearch, smsAccounts: smsAccounts, cleanBankAccounts: cleanBankAccounts, askQuery: askQuery, forecastMonth: forecastMonth, unusualSpends: unusualSpends,
+    smartSearch: smartSearch, smsAccounts: smsAccounts, personOf: personOf, findPaybacks: findPaybacks, peopleLedger: peopleLedger, cleanBankAccounts: cleanBankAccounts, askQuery: askQuery, forecastMonth: forecastMonth, unusualSpends: unusualSpends,
     payCycles: payCycles, lastWorkingDay: lastWorkingDay, nextPayday: nextPayday, parseBank: parseBank, parseAvlBalance: parseAvlBalance, balanceFromSms: balanceFromSms, bankEstimate: bankEstimate, parseTransfers: parseTransfers
   };
 });

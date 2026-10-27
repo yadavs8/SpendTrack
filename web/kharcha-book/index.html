@@ -17,7 +17,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Kharcha">
 <link rel="apple-touch-icon" href="apple-touch-icon.png?v=99">
-<link rel="icon" href="icon-192.png?v=111" type="image/png">
+<link rel="icon" href="icon-192.png?v=112" type="image/png">
 <script>
   (function() {
     var V = '107';
@@ -42,10 +42,10 @@
 <script>try{if(sessionStorage.getItem("kharcha_splash")){var __s=document.getElementById("splash");if(__s)__s.remove();}}catch(e){}</script>
 <main class="app">
   <header class="top">
-    <h1><img class="logo" src="logo-mark.png?v=111" width="36" height="36" alt="">Kharcha Book</h1>
+    <h1><img class="logo" src="logo-mark.png?v=112" width="36" height="36" alt="">Kharcha Book</h1>
     <div class="top-r">
       <span class="sync" id="sync" data-state="pending">Loading…</span>
-      <button type="button" class="installbtn" id="force-update-btn" title="Force clear cache & reload latest version">v111 🔄</button>
+      <button type="button" class="installbtn" id="force-update-btn" title="Force clear cache & reload latest version">v112 🔄</button>
       <button type="button" class="installbtn" id="app-settings-btn" title="Phone app settings" aria-label="Phone app settings" hidden>⚙️</button>
       <button type="button" class="installbtn" id="install-btn" hidden>📲 Install App</button>
       <button type="button" class="signout" id="signout" hidden>Sign out</button>
@@ -797,17 +797,17 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=111" onerror="void 0"></script>
-<script src="ledger-logic.js?v=111"></script>
-<script src="app.js?v=111"></script>
-<script src="modern.js?v=111"></script>
-<script src="insights.js?v=111"></script>
-<script src="card.js?v=111"></script>
-<script src="phone.js?v=111"></script>
+<script src="config.js?v=112" onerror="void 0"></script>
+<script src="ledger-logic.js?v=112"></script>
+<script src="app.js?v=112"></script>
+<script src="modern.js?v=112"></script>
+<script src="insights.js?v=112"></script>
+<script src="card.js?v=112"></script>
+<script src="phone.js?v=112"></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('sw.js?v=111').then(function (reg) {
+      navigator.serviceWorker.register('sw.js?v=112').then(function (reg) {
         reg.update().catch(function () {});
         reg.addEventListener('updatefound', function () {
           var newWorker = reg.installing;
