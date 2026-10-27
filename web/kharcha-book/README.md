@@ -177,3 +177,6 @@ A bank SMS only updates the balance of that same bank. SMS from other banks (for
 
 ## Calm home (v110)
 The dashboard shows only the month total, the 7-day bars, today / 7 days / average, the safe-to-spend line, one "Add a spend" bar (the + button opens the full form, which folds away after saving), search, and the day-by-day list. Several due payments fold into one line, past months fold away, and the budget strip is hidden until a budget is set.
+
+## Tappable top card (v111)
+Tap any bar of the 7-day chart, or the Today / 7 days / Avg per day boxes, to see how much was spent and what it went on (categories and the biggest payments). The day you spent the most blazes with a flame; the other days are cool ice-blue, and today has an outline.
