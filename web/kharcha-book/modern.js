@@ -445,6 +445,7 @@
     if (!K.dayKey) return false;
     var sec = document.querySelector('#days section.day[data-day="' + K.dayKey(ts) + '"]');
     if (!sec) return false;
+    if (sec.hidden) { showAllDays = true; trimDays(); }
     var head = sec.querySelector('.day-head');
     if (head && !head.classList.contains('expanded')) head.click();
     sec = document.querySelector('#days section.day[data-day="' + K.dayKey(ts) + '"]') || sec;
@@ -530,6 +531,107 @@
     head.addEventListener('click', function () { ccOpen = !ccOpen; body.hidden = !ccOpen; head.classList.toggle('open', ccOpen); head.setAttribute('aria-expanded', ccOpen ? 'true' : 'false'); });
   }
 
+
+  /* ---------- month calendar (v115): every date as a box, coloured by spend, with pictures of what it went on ---------- */
+  var showAllDays = false;
+  function compact(r) { return r >= 100000 ? (r / 100000).toFixed(r >= 1000000 ? 0 : 1).replace(/\.0$/, '') + 'L' : r >= 1000 ? (r / 1000).toFixed(r >= 10000 ? 0 : 1).replace(/\.0$/, '') + 'k' : String(Math.round(r)); }
+  function catOf(e) { var KL = window.KharchaLedger; return KL && KL.categoryOf ? KL.categoryOf(e.desc, e.raw) : { icon: '💳', label: 'Other', color: '#64748b', key: 'other' }; }
+  function renderCalendar() {
+    var sec = $('days-sec'); if (!sec || !K.visibleEntries || !K.selMonth) return;
+    var box = $('cal-sec');
+    if (!box) { box = el('section', 'cal-sec'); box.id = 'cal-sec'; sec.parentNode.insertBefore(box, sec); }
+    box.textContent = '';
+    var key = K.selMonth(), y = +key.split('-')[0], mo = +key.split('-')[1] - 1;
+    var dim = new Date(y, mo + 1, 0).getDate(), lead = (new Date(y, mo, 1).getDay() + 6) % 7;
+    var days = []; for (var i = 1; i <= dim; i++) days.push({ n: i, p: 0, items: [], start: new Date(y, mo, i).getTime() });
+    K.visibleEntries().forEach(function (e) { var d = new Date(e.ts); if (d.getFullYear() === y && d.getMonth() === mo) { days[d.getDate() - 1].p += paise(e.amount); days[d.getDate() - 1].items.push(e); } });
+    var max = Math.max.apply(null, days.map(function (d) { return d.p; })) || 1, hot = days.filter(function (d) { return d.p === max && d.p > 0; })[0];
+    var head = el('div', 'cal-head');
+    head.appendChild(el('h2', 'sec-title', 'Calendar'));
+    head.appendChild(el('span', 'cal-hint', 'Tap a date'));
+    box.appendChild(head);
+    var grid = el('div', 'cal-grid');
+    ['M', 'T', 'W', 'T', 'F', 'S', 'S'].forEach(function (w) { grid.appendChild(el('span', 'cal-wd', w)); });
+    for (var b = 0; b < lead; b++) grid.appendChild(el('span', 'cal-blank'));
+    var todayStart = new Date(); todayStart = new Date(todayStart.getFullYear(), todayStart.getMonth(), todayStart.getDate()).getTime();
+    days.forEach(function (d) {
+      var lvl = d.p ? Math.min(4, 1 + Math.floor((d.p / max) * 4 - 0.0001)) : 0;
+      var c = el('button', 'cal-day lvl' + lvl + (d === hot ? ' hot' : '') + (d.start === todayStart ? ' today' : '') + (d.start > todayStart ? ' future' : '')); c.type = 'button';
+      c.appendChild(el('span', 'cal-n', String(d.n)));
+      if (d.p) {
+        var seen = {}, icons = '';
+        d.items.slice().sort(function (a, b2) { return b2.amount - a.amount; }).forEach(function (e) { var ct = catOf(e); if (!seen[ct.key] && Object.keys(seen).length < 2) { seen[ct.key] = 1; icons += ct.icon; } });
+        c.appendChild(el('span', 'cal-ic', icons));
+        c.appendChild(el('span', 'cal-amt', '\u20B9' + compact(d.p / 100)));
+      }
+      c.setAttribute('aria-label', d.n + ': ' + K.money(d.p / 100));
+      c.addEventListener('click', function () { openDaySheet(d.start, d.items); });
+      grid.appendChild(c);
+    });
+    box.appendChild(grid);
+    // what the month went on, as pictures
+    var cats = {}, all = [].concat.apply([], days.map(function (d) { return d.items; })), tot = 0;
+    all.forEach(function (e) { var ct = catOf(e); var k = ct.key; cats[k] = cats[k] || { c: ct, p: 0, n: 0 }; cats[k].p += paise(e.amount); cats[k].n++; tot += paise(e.amount); });
+    var list = Object.keys(cats).map(function (k) { return cats[k]; }).sort(function (a, b2) { return b2.p - a.p; });
+    if (list.length) {
+      var strip = el('div', 'cal-cats');
+      list.slice(0, 8).forEach(function (x) {
+        var chip = el('button', 'cal-cat'); chip.type = 'button';
+        chip.appendChild(el('span', 'cal-cat-ic', x.c.icon)); chip.style.setProperty('--cc', x.c.color);
+        var t = el('span', 'cal-cat-t'); t.appendChild(el('b', null, x.c.label)); t.appendChild(el('span', null, K.money(Math.round(x.p / 100)) + ' \u00b7 ' + Math.round((x.p / tot) * 100) + '%'));
+        chip.appendChild(t);
+        chip.addEventListener('click', function () {
+          var its = all.filter(function (e) { return catOf(e).key === x.c.key; });
+          openDaySheet(null, its, x.c.icon + ' ' + x.c.label + ' this month');
+        });
+        strip.appendChild(chip);
+      });
+      box.appendChild(strip);
+    }
+  }
+  function openDaySheet(dayTs, items, title) {
+    var old = document.querySelector('.hx-pop-bd'); if (old) old.remove();
+    var dayName = new Intl.DateTimeFormat('en-IN', { weekday: 'long', day: 'numeric', month: 'short' }), tF = new Intl.DateTimeFormat('en-IN', { hour: 'numeric', minute: '2-digit' });
+    var dF = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short' });
+    var total = items.reduce(function (n, e) { return n + paise(e.amount); }, 0) / 100;
+    var bd = el('div', 'hx-pop-bd'), pop = el('div', 'hx-pop');
+    var head = el('div', 'hx-pop-head'); head.appendChild(el('b', null, title || dayName.format(new Date(dayTs))));
+    var x = el('button', 'hx-pop-x', '\u00d7'); x.type = 'button'; x.setAttribute('aria-label', 'Close'); head.appendChild(x); pop.appendChild(head);
+    pop.appendChild(el('div', 'hx-pop-amt', K.money(Math.round(total * 100) / 100)));
+    pop.appendChild(el('p', 'hx-pop-note', items.length ? items.length + (items.length === 1 ? ' spend' : ' spends') : 'Nothing spent'));
+    items.slice().sort(function (a, b) { return dayTs ? a.ts - b.ts : b.ts - a.ts; }).forEach(function (e) {
+      var ct = catOf(e), r = el('div', 'ds-row');
+      var ic = el('span', 'ds-ic', ct.icon); ic.style.background = ct.color + '1f'; r.appendChild(ic);
+      var t = el('div', 'ds-t'); t.appendChild(el('b', null, String(e.desc || '').replace(/^[^\wऀ-ॿ]+/, '').replace(/\s*\[.*$/, '').slice(0, 40)));
+      t.appendChild(el('span', null, ct.label + ' \u00b7 ' + (dayTs ? tF.format(new Date(e.ts)) : dF.format(new Date(e.ts)))));
+      r.appendChild(t); r.appendChild(el('b', 'ds-a', K.money(e.amount)));
+      pop.appendChild(r);
+    });
+    if (dayTs && items.length) {
+      var go = el('button', 'linkbtn', 'Edit these in the list \u203A'); go.type = 'button';
+      go.addEventListener('click', function () { close(); goToDay(dayTs); });
+      pop.appendChild(go);
+    }
+    bd.appendChild(pop); document.body.appendChild(bd);
+    function close() { bd.remove(); document.removeEventListener('keydown', onKey); }
+    function onKey(ev) { if (ev.key === 'Escape') close(); }
+    x.addEventListener('click', close); bd.addEventListener('click', function (ev) { if (ev.target === bd) close(); });
+    document.addEventListener('keydown', onKey);
+  }
+  // Day by day keeps only the two newest days; the calendar is the overview. "Show all days" brings the rest back.
+  function trimDays() {
+    var box = $('days'); if (!box) return;
+    var secs = box.querySelectorAll(':scope > section.day');
+    var btn = $('days-more'); if (btn) btn.remove();
+    secs.forEach(function (s, i) { s.hidden = !showAllDays && i >= 2; });
+    if (secs.length > 2) {
+      btn = el('button', 'days-more'); btn.id = 'days-more'; btn.type = 'button';
+      btn.textContent = showAllDays ? 'Show fewer days \u25B4' : 'Show all ' + secs.length + ' days \u25BE';
+      btn.addEventListener('click', function () { showAllDays = !showAllDays; trimDays(); });
+      box.appendChild(btn);
+    }
+  }
+
   var lastTotal = null, animToken = 0;
   function fitTotal() {
     var t = $('mtotal'); if (!t) return;
@@ -564,6 +666,17 @@
       if (row.querySelector(':scope > .av')) return;
       var d = row.querySelector('.d'); if (!d) return;
       var av = el('span', 'av'); av.setAttribute('aria-hidden', 'true');
+      var KLc = window.KharchaLedger;
+      if (row.dataset.desc && KLc && KLc.categoryOf) {
+        var cat = KLc.categoryOf(row.dataset.desc, row.dataset.raw);
+        av.textContent = cat.icon; av.style.background = cat.color + '1f'; av.style.boxShadow = 'inset 0 0 0 1.5px ' + cat.color + '55';
+        var f0 = d.firstChild;
+        if (f0 && f0.nodeType === 3) f0.nodeValue = f0.nodeValue.replace(/^\s*(?:[←-⯿️‍]|[\uD83C-\uD83E][\uDC00-\uDFFF])+\s*/, '');
+        var chip = el('small', 'cat-chip', cat.label); chip.style.color = cat.color; chip.style.background = cat.color + '14';
+        d.appendChild(chip);
+        row.insertBefore(av, row.firstChild);
+        return;
+      }
       var first = d.firstChild, txt = first && first.nodeType === 3 ? first.nodeValue : d.textContent;
       var m = String(txt || '').trim().match(EMOJI_LEAD);
       if (m) {
@@ -1034,7 +1147,7 @@
   attachSuggest($('desc'), $('amt'));
   attachSuggest($('trip-exp-desc'), $('trip-exp-amt'));
   document.addEventListener('kharcha:render', function () {
-    pool = null; countUpTotal(); renderHeroExtras(); renderCardHome(); decorateRows(); syncNav(); renderAnswerCard(); watchNewEntries(); decorateEmpty();
+    pool = null; countUpTotal(); renderHeroExtras(); renderCardHome(); renderCalendar(); trimDays(); decorateRows(); syncNav(); renderAnswerCard(); watchNewEntries(); decorateEmpty();
     var m0 = $('main'); if (m0 && !m0.hidden) setTimeout(function () { showTour(false); }, 900);
   });
   var main = $('main');
@@ -1091,6 +1204,50 @@
       var upd = function () { bw.classList.toggle('calm-hide', /not set/i.test(bs.textContent || '')); };
       new MutationObserver(upd).observe(bs, { childList: true, characterData: true, subtree: true }); upd();
     }
+  })();
+
+  /* ---------- sidebar (v115): every page one tap away ---------- */
+  (function sidebar() {
+    var top = document.querySelector('header.top'); if (!top) return;
+    var btn = el('button', 'side-btn'); btn.type = 'button'; btn.setAttribute('aria-label', 'Open menu');
+    btn.innerHTML = '<span></span><span></span><span></span>';
+    top.insertBefore(btn, top.firstChild);
+    var bd = el('div', 'side-bd'); bd.hidden = true;
+    var pane = el('nav', 'side'); pane.setAttribute('aria-label', 'All pages');
+    var brand = el('div', 'side-brand'); brand.appendChild(el('b', null, 'Kharcha Book')); brand.appendChild(el('span', null, 'Go anywhere'));
+    pane.appendChild(brand);
+    var groups = [['Everyday', [['spends', '🏠', 'Home', 'Spends, calendar'], ['incomings', '💰', 'Income', 'Salary, received'], ['trips', '✈️', 'Trips', 'Shared trips']]]].concat(MORE_GROUPS);
+    var links = [];
+    groups.forEach(function (g) {
+      pane.appendChild(el('div', 'side-h', g[0]));
+      g[1].forEach(function (t) {
+        if (t[0] === '__settings' && !(window.KharchaNative && window.KharchaNative.openSettings)) return;
+        var a = el('button', 'side-link'); a.type = 'button'; a.dataset.stream = t[0];
+        a.appendChild(el('span', 'side-ic', t[1]));
+        var tx = el('span', 'side-t'); tx.appendChild(el('b', null, t[2])); if (t[3]) tx.appendChild(el('small', null, t[3])); a.appendChild(tx);
+        a.addEventListener('click', function () {
+          close();
+          if (t[0] === '__settings') { window.KharchaNative.openSettings(); return; }
+          if (t[0] === '__signout') { var so = $('signout'); if (so) so.click(); return; }
+          goStream(t[0]);
+        });
+        links.push(a); pane.appendChild(a);
+      });
+    });
+    bd.appendChild(pane); document.body.appendChild(bd);
+    function current() { var a = document.querySelector('.streambtn.active'); return a ? a.dataset.stream : 'spends'; }
+    function open() {
+      var cur = current(); links.forEach(function (l) { l.classList.toggle('active', l.dataset.stream === cur); });
+      bd.hidden = false; requestAnimationFrame(function () { bd.classList.add('open'); });
+      document.addEventListener('keydown', onKey);
+    }
+    function close() { bd.classList.remove('open'); setTimeout(function () { bd.hidden = true; }, reduceMotion ? 0 : 220); document.removeEventListener('keydown', onKey); }
+    function onKey(ev) { if (ev.key === 'Escape') close(); }
+    btn.addEventListener('click', open);
+    bd.addEventListener('click', function (ev) { if (ev.target === bd) close(); });
+    // swipe left on the pane closes it
+    var sx = null; pane.addEventListener('touchstart', function (ev) { sx = ev.touches[0].clientX; }, { passive: true });
+    pane.addEventListener('touchend', function (ev) { if (sx != null && ev.changedTouches[0].clientX - sx < -60) close(); sx = null; });
   })();
   window.addEventListener('resize', fitTotal);
   refresh();

@@ -189,3 +189,11 @@ Tapping Today, or any bar of the week chart, scrolls down to that day in "Day by
 
 ## Credit card on the home screen (v114)
 "Where your money went" is gone from the home screen. In its place: this month's credit card spends (total and number of swipes). Tap it to see every card spend date-wise, with each day's total, and a link to the full card screen (what the card owes). Categories still show in the week and day popups on the top card.
+
+## Calendar, pictures, sidebar, cash per bank (v115)
+- Home has a month calendar: every date is a box coloured by how much was spent (the biggest day glows red/orange), with small pictures of what it went on (🍔 food, 📺 subscription, ⛽ fuel, 🛒 grocery, 🏧 cash...). Tap a date for that day's spends with pictures and times; "Edit these in the list" jumps to it. Below the calendar, the month's categories as picture chips (tap one to see every spend in it).
+- Every spend in the list shows a picture and a coloured category label (Food, Subscription, Fuel, Grocery, Health, Travel, Salon, Shopping, Bills, Mobile & internet, Insurance, To a person...).
+- Day by day shows the two newest days; "Show all days" brings the rest.
+- ☰ menu at the top left opens a sidebar with every page.
+- Bank page: each bank shows the cash withdrawn from it this month (and last month), with dates.
+- Neater pages: consistent cards, spacing and headings on Bank, Trips, Udhaar, Card, Wallet and the rest; the trip picker no longer runs off the screen.

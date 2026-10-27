@@ -1137,6 +1137,44 @@
     }).filter(function (r) { return r.sent > 0 && r.back > 0; }).sort(function (a, b) { return b.last - a.last; });
   }
 
+
+  /* ---------- smart category for one spend: icon, label, colour (for pictures in lists and the calendar) ---------- */
+  var CATEGORY_DEFS = [
+    ['subscription', '📺', 'Subscription', '#7c3aed', ['netflix', 'spotify', 'prime video', 'amazon prime', 'hotstar', 'jiohotstar', 'disney', 'youtube premium', 'youtube', 'google play', 'play store', 'apple.com', 'apple ', 'icloud', 'zee5', 'sonyliv', 'jiocinema', 'subscription', 'membership', 'renewal', 'chatgpt', 'openai', 'claude', 'linkedin', 'microsoft']],
+    ['cash', '🏧', 'Cash withdrawal', '#0f766e', ['atm', 'cash withdrawal', 'withdrawn', 'cash wdl', 'nfs']],
+    ['bills', '🧾', 'Bills', '#b45309', ['electricity', 'bijli', 'bses', 'discom', 'water bill', 'piped gas', 'lpg', 'cylinder', 'indane', 'maintenance', 'society', 'rent', 'emi', 'loan', 'municipal', 'property tax']],
+    ['recharge', '📱', 'Mobile & internet', '#2563eb', ['recharge', 'jio', 'airtel', 'vodafone', 'bsnl', 'broadband', 'wifi', 'wi-fi', 'fiber', 'dth', 'tata play', 'postpaid', 'prepaid']],
+    ['insurance', '🛡️', 'Insurance', '#475569', ['insurance', 'premium', 'lic', 'policy', 'hdfc life', 'sbi life', 'star health', 'acko']],
+    ['petrol', '⛽', 'Fuel', '#dc2626', SEARCH_CONCEPTS.petrol],
+    ['food', '🍔', 'Food', '#ea580c', SEARCH_CONCEPTS.food],
+    ['grocery', '🛒', 'Grocery', '#16a34a', SEARCH_CONCEPTS.grocery.concat(['vegetable', 'sabzi', 'doodh', 'paneer', 'curd'])],
+    ['medicine', '💊', 'Health', '#db2777', SEARCH_CONCEPTS.medicine],
+    ['travel', '🚕', 'Travel', '#0891b2', SEARCH_CONCEPTS.travel],
+    ['salon', '💇', 'Salon', '#c026d3', SEARCH_CONCEPTS.salon],
+    ['shopping', '🛍️', 'Shopping', '#9333ea', SEARCH_CONCEPTS.shopping],
+    ['entertainment', '🎬', 'Entertainment', '#e11d48', SEARCH_CONCEPTS.entertainment],
+    ['fitness', '🏋️', 'Fitness', '#65a30d', SEARCH_CONCEPTS.fitness],
+    ['education', '🎓', 'Education', '#4f46e5', SEARCH_CONCEPTS.education],
+    ['home', '🔧', 'Home & help', '#a16207', SEARCH_CONCEPTS.home.concat(['house help', 'kamwali'])]
+  ];
+  var CATEGORY_BY_KEY = {};
+  CATEGORY_DEFS.forEach(function (c) { CATEGORY_BY_KEY[c[0]] = { key: c[0], icon: c[1], label: c[2], color: c[3] }; });
+  CATEGORY_BY_KEY.person = { key: 'person', icon: '🤝', label: 'To a person', color: '#0d9488' };
+  CATEGORY_BY_KEY.family = { key: 'family', icon: '🏠', label: 'Family', color: '#f59e0b' };
+  CATEGORY_BY_KEY.other = { key: 'other', icon: '💳', label: 'Other', color: '#64748b' };
+  function categoryOf(desc, raw) {
+    var d = String(desc || '').toLowerCase().replace(/\[[^\]]*\]/g, ' ');
+    var hay = d + ' ' + String(raw || '').toLowerCase().slice(0, 160);
+    for (var i = 0; i < CATEGORY_DEFS.length; i++) {
+      var c = CATEGORY_DEFS[i], terms = c[4];
+      for (var j = 0; j < terms.length; j++) if (searchHit(c[0] === 'cash' || c[0] === 'subscription' ? hay : d, terms[j])) return CATEGORY_BY_KEY[c[0]];
+    }
+    var who = personOf({ desc: desc, raw: raw });
+    if (who && !/\b(?:traders?|store|stores|enterprises?|mart|shop|services?|pvt|ltd|limited|agency|agencies|centre|center|company|co|corporation|industries|solutions|technologies|hotel|foods?)\b/.test(who)) return CATEGORY_BY_KEY.person;
+    if (/^\s*🏠/u.test(String(desc || ''))) return CATEGORY_BY_KEY.family;
+    return CATEGORY_BY_KEY.other;
+  }
+
   return {
     findDuplicates: findDuplicates, autoTransferPairs: autoTransferPairs, parseCardLimit: parseCardLimit, cardState: cardState, seedRules: seedRules,
     upcomingRules: upcomingRules, parseOwn: parseOwn, defaultOwn: defaultOwn, cardFor: cardFor, ownAccountFor: ownAccountFor, transferCandidates: transferCandidates, autoOwnTransfers: autoOwnTransfers, orphanTransfers: orphanTransfers, isOwnName: isOwnName, sourceAccountFromRaw: sourceAccountFromRaw,
@@ -1149,7 +1187,7 @@
     addPayment: addPayment, editLoan: editLoan, editPayment: editPayment, summarize: summarize,
     walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, parseWalletDesc: parseWalletDesc,
     parseWallets: parseWallets, walletState: walletState, walletReconcile: walletReconcile,
-    smartSearch: smartSearch, smsAccounts: smsAccounts, personOf: personOf, findPaybacks: findPaybacks, peopleLedger: peopleLedger, cleanBankAccounts: cleanBankAccounts, askQuery: askQuery, forecastMonth: forecastMonth, unusualSpends: unusualSpends,
+    smartSearch: smartSearch, smsAccounts: smsAccounts, categoryOf: categoryOf, personOf: personOf, findPaybacks: findPaybacks, peopleLedger: peopleLedger, cleanBankAccounts: cleanBankAccounts, askQuery: askQuery, forecastMonth: forecastMonth, unusualSpends: unusualSpends,
     payCycles: payCycles, lastWorkingDay: lastWorkingDay, nextPayday: nextPayday, parseBank: parseBank, parseAvlBalance: parseAvlBalance, balanceFromSms: balanceFromSms, bankEstimate: bankEstimate, parseTransfers: parseTransfers
   };
 });
