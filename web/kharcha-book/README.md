@@ -223,3 +223,6 @@ Inside an older phone app, "Add from contacts" did nothing (the app's browser ha
 - **Remove someone**: the × next to each friend on the trip (asks first, says if they had paid for anything, and Undo puts them back). Their spends stay; the split is worked out again.
 - **Delete a spend**: tap any spend in the trip's Day by day list (Undo restores it). A spend a friend added from the trip link is deleted for everyone.
 - **Rename** the trip from the trip page.
+
+## Install the app from the web page (v122)
+On an Android phone in Chrome, Kharcha Book shows a slim "📲 Get the Android app · Install" strip under the header (× hides it) and an "Install the app" entry in the ☰ sidebar. Both open a card with a one-tap Download button and the three install steps, including what to do if Google Play Protect blocks it. Hidden inside the app itself and on iPhone.
