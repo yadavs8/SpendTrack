@@ -409,11 +409,11 @@
       col.title = K.money(d.p / 100); col.appendChild(bar); col.appendChild(el('i', null, d.letter)); bars.appendChild(col);
     });
     box.appendChild(bars);
-    var bank = K.getBankTotals ? K.getBankTotals() : null;
-    if (bank && bank.has) {
+    var bank = K.getTopBank ? K.getTopBank() : null;
+    if (bank) {
       var chip = el('button', 'hx-bank'); chip.type = 'button';
-      chip.appendChild(el('span', null, '\uD83C\uDFE6 Bank balance' + (bank.count > 1 ? ' (' + bank.count + ' accounts)' : '') + ' \u00b7 estimate'));
-      chip.appendChild(el('b', null, K.money(bank.total)));
+      chip.appendChild(el('span', null, '\uD83C\uDFE6 ' + bank.name + ' balance'));
+      chip.appendChild(el('b', null, K.money(bank.balance)));
       chip.addEventListener('click', function () { goStream('bank'); });
       box.appendChild(chip);
     }
@@ -862,8 +862,10 @@
       return smart ? smart.test(e.desc) : String(e.desc || '').toLowerCase().indexOf(q) >= 0;
     }).sort(function (a, b) { return b.ts - a.ts; });
     box.hidden = false;
+    var ask = !test && KLs && KLs.askQuery ? KLs.askQuery(K.getEntries ? K.getEntries() : [], q, Date.now(), function (e) { return K.isExpense(e); }) : null;
+    if (ask) { var ab = el('div', 'sa-head', '\uD83D\uDCAC ' + ask.text); ab.style.fontWeight = '700'; box.appendChild(ab); }
     var total = rows.reduce(function (n, e) { return n + (K.isExpense(e) ? e.amount : 0); }, 0);
-    box.appendChild(el('div', 'sa-head', rows.length ? rows.length + ' found in all months' + (total ? ' · spent ' + K.money(Math.round(total * 100) / 100) : '') : 'Nothing found in any month.'));
+    if (!(ask && !rows.length)) box.appendChild(el('div', 'sa-head', rows.length ? rows.length + ' found in all months' + (total ? ' · spent ' + K.money(Math.round(total * 100) / 100) : '') : 'Nothing found in any month.'));
     rows.slice(0, 30).forEach(function (e) {
       var r = el('div', 'sa-row'), isIn = K.isIncome && K.isIncome(e);
       r.appendChild(el('span', 'sa-d', dFmtS.format(new Date(e.ts))));

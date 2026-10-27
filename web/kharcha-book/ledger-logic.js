@@ -931,6 +931,115 @@
     };
   }
 
+
+  /* ---------- accounts seen in bank SMS: { key, name, last4, ts, balance } newest balance per bank + account number ---------- */
+  var SMS_BANKS = [['icici', 'ICICI', /icici/i], ['hdfc', 'HDFC', /hdfc/i], ['pnb', 'PNB', /\bpnb|punjab national/i], ['sbi', 'SBI', /\bsbi\b|state bank/i],
+    ['axis', 'Axis', /\baxis/i], ['kotak', 'Kotak', /kotak/i], ['canara', 'Canara', /canara/i], ['baroda', 'Bank of Baroda', /\bbob\b|baroda/i],
+    ['idfc', 'IDFC First', /idfc/i], ['yes', 'Yes Bank', /yes\s*bank|\byesb/i], ['indusind', 'IndusInd', /indusind/i], ['union', 'Union Bank', /union bank|\bubi\b/i]];
+  function smsBankOf(text) {
+    for (var i = 0; i < SMS_BANKS.length; i++) if (SMS_BANKS[i][2].test(text)) return SMS_BANKS[i];
+    return null;
+  }
+  function smsAcctDigits(raw) {
+    var m = /(?:a\/c|acct?|account)\.?\s*(?:no\.?)?\s*[:\-]?\s*(?:[x*]+\s*)?(\d{3,6})\b/i.exec(raw) || /[x*]{2,}\s*(\d{3,6})\b/i.exec(raw);
+    return m ? m[1] : '';
+  }
+  function smsAccounts(entries) {
+    var best = {};
+    (entries || []).forEach(function (e) {
+      if (!e || e.synthetic || !e.raw) return;
+      var raw = String(e.raw);
+      if (/credit\s*card|\bcard\b.{0,40}limit/i.test(raw)) return;
+      var bal = parseAvlBalance(raw); if (bal == null) return;
+      var b = smsBankOf(String(e.bank || '') + ' ' + raw.slice(0, 60)) || smsBankOf(raw); if (!b) return;
+      var d = smsAcctDigits(raw); if (!d) return;
+      var k = b[0] + '|' + d.slice(-4);
+      if (!best[k] || e.ts > best[k].ts) best[k] = { key: b[0], name: b[1], last4: d.slice(-4), ts: e.ts, balance: bal };
+    });
+    return Object.keys(best).map(function (k) { return best[k]; });
+  }
+
+  /* ---------- ask in plain words: "food last month", "petrol this week", "how much on salon" ---------- */
+  var ASK_STOP = /\b(all|time|ever|far|how|much|did|i|spend|spent|spending|on|in|for|total|the|my|what|was|is|show|me|expenses?|expense|rs|rupees)\b/g;
+  function askRange(q, now) {
+    var d = new Date(now), sod = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(), DAY = 86400000;
+    if (/\btoday\b/.test(q)) return { from: sod, to: sod + DAY, label: 'today' };
+    if (/\byesterday\b/.test(q)) return { from: sod - DAY, to: sod, label: 'yesterday' };
+    if (/\blast\s+week\b/.test(q)) { var dow = (d.getDay() + 6) % 7, thisMon = sod - dow * DAY; return { from: thisMon - 7 * DAY, to: thisMon, label: 'last week' }; }
+    if (/\bthis\s+week\b/.test(q)) { var dw = (d.getDay() + 6) % 7; return { from: sod - dw * DAY, to: sod + DAY, label: 'this week' }; }
+    if (/\blast\s+month\b/.test(q)) return { from: new Date(d.getFullYear(), d.getMonth() - 1, 1).getTime(), to: new Date(d.getFullYear(), d.getMonth(), 1).getTime(), label: 'last month' };
+    if (/\bthis\s+month\b/.test(q)) return { from: new Date(d.getFullYear(), d.getMonth(), 1).getTime(), to: sod + DAY, label: 'this month' };
+    if (/\b(?:this\s+year)\b/.test(q)) return { from: new Date(d.getFullYear(), 0, 1).getTime(), to: sod + DAY, label: 'this year' };
+    var m = /\blast\s+(\d{1,3})\s+days?\b/.exec(q);
+    if (m) return { from: sod - (Number(m[1]) - 1) * DAY, to: sod + DAY, label: 'the last ' + m[1] + ' days' };
+    return null;
+  }
+  // Returns null when the text is not a question about spending; otherwise { text, total, count, topWord, range }.
+  function askQuery(entries, query, now, isExpense) {
+    var q = String(query || '').toLowerCase().trim();
+    if (q.length < 3) return null;
+    var range = askRange(q, now);
+    var words = q.replace(/\b(?:today|yesterday|last\s+week|this\s+week|last\s+month|this\s+month|this\s+year|last\s+\d{1,3}\s+days?)\b/g, ' ').replace(ASK_STOP, ' ').replace(/[?.,!]/g, ' ').trim();
+    var asked = /\b(how much|spent|spend|spending|total)\b/.test(q);
+    if (!range && !asked) return null;
+    var sm = words ? smartSearch(words) : null;
+    var list = (entries || []).filter(function (e) {
+      if (!e || e.synthetic || !isExpense(e)) return false;
+      if (range && !(e.ts >= range.from && e.ts < range.to)) return false;
+      return sm ? sm.test(e.desc) : true;
+    });
+    var total = list.reduce(function (n, e) { return n + toPaise(e.amount); }, 0) / 100;
+    var label = (words ? words : 'everything') + (range ? ' ' + range.label : ' (all time)');
+    return { total: total, count: list.length, label: label, text: (list.length ? 'You spent ' + total.toLocaleString('en-IN', { maximumFractionDigits: 2 }) + ' on ' + label + ' across ' + list.length + (list.length === 1 ? ' payment.' : ' payments.') : 'Nothing found for ' + label + '.') };
+  }
+
+  /* ---------- month-end forecast: pace so far + known monthly payments still to come ---------- */
+  function forecastMonth(entries, now, isExpense, upcomingTotal) {
+    var d = new Date(now), y = d.getFullYear(), mo = d.getMonth(), dim = new Date(y, mo + 1, 0).getDate(), day = d.getDate();
+    var from = new Date(y, mo, 1).getTime(), spent = 0, perDow = [0, 0, 0, 0, 0, 0, 0], cnt = [0, 0, 0, 0, 0, 0, 0];
+    var back = now - 56 * 86400000;
+    (entries || []).forEach(function (e) {
+      if (!e || e.synthetic || !isExpense(e) || e.ts > now) return;
+      if (e.ts >= from) spent += toPaise(e.amount);
+      if (e.ts >= back) { var w = new Date(e.ts).getDay(); perDow[w] += toPaise(e.amount); }
+    });
+    for (var t = back; t <= now; t += 86400000) cnt[new Date(t).getDay()]++;
+    var avgDow = perDow.map(function (v, i) { return cnt[i] ? v / cnt[i] / 100 : 0; });
+    var spentR = spent / 100, left = 0;
+    for (var dd = day + 1; dd <= dim; dd++) left += avgDow[new Date(y, mo, dd).getDay()];
+    var recentPace = day ? spentR / day : 0;
+    var risky = avgDow.indexOf(Math.max.apply(null, avgDow));
+    var days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    return { spent: spentR, projected: spentR + left + (upcomingTotal || 0), daysLeft: dim - day, riskyDay: days[risky], riskyAvg: avgDow[risky], perDay: recentPace };
+  }
+
+  /* ---------- unusual spends: today's/this week's payments far above what that kind of payee usually costs ---------- */
+  function unusualSpends(entries, now, isExpense) {
+    var since = now - 3 * 86400000, hist = {}, out = [];
+    function key(e) { return smartKey(e.desc); }
+    (entries || []).forEach(function (e) {
+      if (!e || e.synthetic || !isExpense(e) || e.ts > now) return;
+      var k = key(e); if (!k) return;
+      if (e.ts < since) (hist[k] = hist[k] || []).push(e.amount);
+    });
+    (entries || []).forEach(function (e) {
+      if (!e || e.synthetic || !isExpense(e) || e.ts < since || e.ts > now || e.amount < 500) return;
+      var h = hist[key(e)]; if (!h || h.length < 3) return;
+      var sorted = h.slice().sort(function (a, b) { return a - b; }), med = sorted[Math.floor(sorted.length / 2)];
+      if (med > 0 && e.amount >= med * 2.5) out.push({ e: e, usual: med, times: e.amount / med });
+    });
+    // Same payee charged twice on one day for the same amount
+    var seen = {};
+    (entries || []).forEach(function (e) {
+      if (!e || e.synthetic || !isExpense(e) || e.ts < since || e.ts > now) return;
+      var k = key(e) + '|' + toPaise(e.amount) + '|' + new Date(e.ts).toDateString();
+      if (seen[k] && !e.refNo) out.push({ e: e, twice: true });
+      seen[k] = true;
+    });
+    return out.sort(function (a, b) { return b.e.ts - a.e.ts; });
+  }
+  function smartKey(desc) { return String(desc || '').toLowerCase().replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim().split(' ').slice(0, 3).join(' '); }
+
   return {
     findDuplicates: findDuplicates, autoTransferPairs: autoTransferPairs, parseCardLimit: parseCardLimit, cardState: cardState, seedRules: seedRules,
     upcomingRules: upcomingRules, parseOwn: parseOwn, defaultOwn: defaultOwn, cardFor: cardFor, ownAccountFor: ownAccountFor, transferCandidates: transferCandidates, autoOwnTransfers: autoOwnTransfers, orphanTransfers: orphanTransfers, isOwnName: isOwnName, sourceAccountFromRaw: sourceAccountFromRaw,
@@ -943,7 +1052,7 @@
     addPayment: addPayment, editLoan: editLoan, editPayment: editPayment, summarize: summarize,
     walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, parseWalletDesc: parseWalletDesc,
     parseWallets: parseWallets, walletState: walletState, walletReconcile: walletReconcile,
-    smartSearch: smartSearch,
+    smartSearch: smartSearch, smsAccounts: smsAccounts, askQuery: askQuery, forecastMonth: forecastMonth, unusualSpends: unusualSpends,
     payCycles: payCycles, lastWorkingDay: lastWorkingDay, nextPayday: nextPayday, parseBank: parseBank, parseAvlBalance: parseAvlBalance, balanceFromSms: balanceFromSms, bankEstimate: bankEstimate, parseTransfers: parseTransfers
   };
 });
