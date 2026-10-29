@@ -277,3 +277,10 @@ Search "milk", "petrol", "swiggy" (or an amount) and you get a full panel, not j
   - Ask sends a WhatsApp with your UPI pay link.
   - **✓ Settled** records the settlement.
 - **Fix:** the month-end forecast no longer treats daily milk as a monthly bill.
+
+## Fixing Autopilot mistakes (v128)
+
+- **Remove:** tap **×** on any bill. A bill you added, or tracked from a suggestion, is removed (with Undo). A bill Autopilot found is hidden. Paid bills are under **Show paid this month**.
+- **Edit:** tap a bill you added (it shows ✏️) to change its name, amount or day.
+- **Restore:** **🙈 Hidden bills · restore** lists everything you hid, with a **Restore** button, so nothing hidden is lost once the Undo pop-up is gone.
+- **Keep aside:** tap **Change** and enter 0 to clear it.
