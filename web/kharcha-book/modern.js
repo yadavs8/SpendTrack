@@ -74,7 +74,7 @@
   };
   var NAV_OF = { spends: 'home', incomings: 'income', trips: 'trips' };   // everything else lives under More
   var MORE_GROUPS = [
-    ['My money', [['monthly', '📊', 'Monthly', 'Savings'], ['bank', '🏦', 'Bank', 'Balance, cash'], ['card', '💳', 'Credit card', 'Owed, spends'], ['insights', '✨', 'Insights', 'Week, goals, net worth'], ['wallet', '👛', 'Wallet', 'Amazon Pay'], ['rules', '⚙️', 'Auto rules', 'Payees, monthly bills']]],
+    ['My money', [['autopilot', '🤖', 'Autopilot', 'Safe to spend, bills'], ['monthly', '📊', 'Monthly', 'Savings'], ['bank', '🏦', 'Bank', 'Balance, cash'], ['card', '💳', 'Credit card', 'Owed, spends'], ['insights', '✨', 'Insights', 'Week, goals, net worth'], ['wallet', '👛', 'Wallet', 'Amazon Pay'], ['rules', '⚙️', 'Auto rules', 'Payees, monthly bills']]],
     ['People', [['udhaar', '🤝', 'Udhaar', 'Who owes you'], ['settlement', '👵', 'Settle', "Mother's money"]]],
     ['Plans', [['investments', '📈', 'Invest', 'SIPs and savings'], ['projects', '🔨', 'Projects', 'Home work costs']]],
     ['Account', [['phone', '📡', 'Phone connection', 'SMS, sync, settings'], ['__settings', '⚙️', 'Phone settings', 'SMS access, sync, lock'], ['__signout', '🚪', 'Sign out', '']]]
@@ -396,7 +396,7 @@
     var key = NAV_OF[stream] || 'more';
     // Tool screens and Trips have their own numbers: the month card would only be noise there.
     var heroEl = document.querySelector('.hero');
-    var tool = ['trips', 'projects', 'investments', 'udhaar', 'wallet', 'bank', 'rules', 'monthly', 'insights', 'card', 'phone'].indexOf(stream) >= 0;
+    var tool = ['trips', 'projects', 'investments', 'udhaar', 'wallet', 'bank', 'rules', 'monthly', 'insights', 'autopilot', 'card', 'phone'].indexOf(stream) >= 0;
     if (heroEl) heroEl.hidden = tool;
     var stk = $('sticky-month-bar'); if (stk) stk.style.display = tool ? 'none' : '';
     if (backbar) {
@@ -1110,6 +1110,9 @@
     if (!card) { card = el('section', 'ans-card'); card.id = 'ans-card'; sw.parentNode.insertBefore(card, sw); }
     var act = document.querySelector('.streambtn.active'), onHome = !act || act.dataset.stream === 'spends';
     card.hidden = !(f.viewingCurrent && onHome);
+    // v127: the Autopilot chip in the top card answers "safe to spend" (one number on Home, not two)
+    var ap = window.__autopilot && window.__autopilot.plan ? window.__autopilot.plan() : null;
+    if (ap && ap.safe) card.hidden = true;
     if (card.hidden) return;
     card.setAttribute('data-pace', kind || 'none');
     card.textContent = '';

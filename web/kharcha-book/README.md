@@ -255,3 +255,25 @@ Search "milk", "petrol", "swiggy" (or an amount) and you get a full panel, not j
 - **Trip security.** `trip_add_owner_expense` now checks that you own the trip, and signed-out users can't call it. A paused trip link also stops friends adding spends, not just viewing. Amounts and descriptions have sane limits.
 - **Faster database rules.** The row-level policies read `auth.uid()` once per query instead of once per row. Two foreign-key indexes were added.
 - **Layout.** The Insights page no longer scrolls sideways on phones. A search for "milk" no longer says "incl. milk".
+
+## Autopilot: safe to spend, bills, money coming in (v127)
+
+- **🛡️ Safe to spend today.** A chip at the top of Home. Tap it to open **More → 🤖 Autopilot**.
+  - Starts from your monthly budget if you set one. Otherwise it uses your usual month's income: the median of the last 3 months, or the last 30 days while history is short. This way a salary that lands on the 30th counts for the month it pays for.
+  - Takes off what you've spent and invested, the bills still due and an optional monthly **keep aside**, then spreads the rest over the days left.
+  - A day never gets more than 1.5× a normal day's share. Extra money shows as **spare**, with a nudge to save it.
+  - Shows whether today is over its share and what each day gets from tomorrow.
+- **📅 Bills on autopilot.**
+  - Finds payments that repeat about once a month in 2 of the last 3 months: EMI, LIC, phone, subscriptions. Daily habits like milk are left out.
+  - Shows the usual day, a countdown (in N days / tomorrow / due / N days late) and paid-this-month.
+  - Flags price changes ("▲ ₹50 more than last month").
+  - Bills you know can be added by hand, or with one tap from "Looks like a bill" suggestions. × means "not a bill", with undo.
+  - Settings `kharcha_autopilot_bills`, `kharcha_autopilot_hide` and `kharcha_autopilot_keep` sync across devices.
+- **💼 Money coming in:** salaries and pension with their usual day and whether they've arrived.
+- **🔁 Fixed costs:** the monthly and yearly cost of your bills, their share of your income, and subscriptions priced per year.
+- **📈 Last 30 days vs your usual:** categories creeping up or nicely down. Tap one to search it.
+- **Trip settle-up:** each "to settle" row now has **⚡ Pay** and **📲 Ask**.
+  - Pay opens your UPI app with their UPI ID and the amount. The UPI ID comes from the trip link, or you type it once.
+  - Ask sends a WhatsApp with your UPI pay link.
+  - **✓ Settled** records the settlement.
+- **Fix:** the month-end forecast no longer treats daily milk as a monthly bill.

@@ -667,3 +667,42 @@ t('smsSourceBank: bank column first, else the SMS opening only', () => {
   assert.strictEqual(L.smsSourceBank({ raw: 'Your a/c XX9 is credited with INR 2,000.00 by UPI. -Punjab National Bank' }), '');
   assert.strictEqual(L.smsSourceBank({ desc: 'Milk', amount: 60 }), '');
 });
+
+t('recurringSeries: monthly bills, not daily habits; status, price change', () => {
+  const now = new Date(2026, 9, 12, 12).getTime(), at = (mo, d) => new Date(2026, mo, d, 10).getTime();
+  const rows = [];
+  [6, 7, 8].forEach((mo) => rows.push({ id: 'emi' + mo, amount: 5718, desc: '👤 Flat emi', ts: at(mo, 5) }));
+  rows.push({ id: 'emi9', amount: 5718, desc: '👤 Flat emi', ts: at(9, 5) });                    // paid this month
+  [7, 8].forEach((mo) => rows.push({ id: 'air' + mo, amount: 949, desc: 'WWW AIRTEL (ICICI Card XX1014)', ts: at(mo, 6) }));
+  rows.push({ id: 'air9', amount: 999, desc: 'WWW AIRTEL (ICICI Card XX1014)', ts: at(9, 6) }); // price went up
+  [7, 8].forEach((mo) => rows.push({ id: 'net' + mo, amount: 649, desc: 'Netflix', ts: at(mo, 20) }));
+  [7, 8].forEach((mo) => rows.push({ id: 'lic' + mo, amount: 5000, desc: '📈 LIC premium', ts: at(mo, 2) }));     // 2nd, not paid: late
+  for (let mo = 7; mo <= 9; mo++) for (let d = 1; d <= 28; d++) rows.push({ id: 'milk' + mo + d, amount: 60, desc: '🏠 Milk vendor', ts: at(mo, d) });
+  const s = L.recurringSeries(rows, now, () => true), by = Object.fromEntries(s.map((x) => [x.key, x]));
+  assert.ok(!by['milk vendor'], 'daily milk is a habit, not a bill');
+  assert.strictEqual(by['flat emi'].status, 'paid'); assert.strictEqual(by['flat emi'].amount, 5718);
+  assert.strictEqual(by['www airtel'].change, 50);
+  assert.strictEqual(by['netflix'].status, 'upcoming'); assert.strictEqual(by['netflix'].daysTo, 8);
+  assert.strictEqual(by['lic premium'].status, 'late');
+});
+
+t('safeToSpend: pool over the days left, today and from tomorrow', () => {
+  const r = L.safeToSpend({ incomeGot: 58000, incomeExpected: 38000, spent: 40000, billsDue: 6000, keepAside: 10000, todaySpent: 500, day: 11, daysInMonth: 31 });
+  assert.strictEqual(r.pool, 40000); assert.strictEqual(r.daysLeft, 21);
+  assert.strictEqual(r.allowance, Math.round(40500 / 21)); assert.strictEqual(r.todayLeft, Math.round(40500 / 21 - 500));
+  assert.strictEqual(r.fromTomorrow, 2000); assert.strictEqual(r.status, 'ok');
+  assert.strictEqual(L.safeToSpend({ incomeGot: 1000, spent: 3000, day: 5, daysInMonth: 30 }).status, 'over');
+  // month-end with lots left: a day is capped at 1.5x a normal day's share, the rest is spare
+  const e = L.safeToSpend({ incomeGot: 90000, spent: 20000, billsDue: 0, fixedMonth: 15000, todaySpent: 0, day: 29, daysInMonth: 30 });
+  assert.strictEqual(e.share, 2500); assert.strictEqual(e.allowance, 3750); assert.strictEqual(e.fromTomorrow, 3750);
+  assert.strictEqual(e.spare, 70000 - 3750 * 2);
+});
+
+t('creepingSpends: last 30 days against the usual', () => {
+  const now = new Date(2026, 9, 28, 12).getTime(), D = 864e5, rows = [];
+  for (let i = 0; i < 120; i += 10) rows.push({ id: 'f' + i, amount: i < 30 ? 1500 : 500, desc: 'Swiggy order', ts: now - i * D - 1000 });
+  for (let i = 0; i < 120; i += 15) rows.push({ id: 'p' + i, amount: i < 30 ? 300 : 1500, desc: 'HP Petrol Pump', ts: now - i * D - 1000 });
+  const r = L.creepingSpends(rows, now, () => true);
+  assert.strictEqual(r.up[0].key, 'food'); assert.ok(r.up[0].pct > 100);
+  assert.strictEqual(r.down[0].key, 'petrol');
+});

@@ -346,7 +346,16 @@
     pc.appendChild(addRow);
     if ((s.transfers || []).length) {
       var tr = el('div', 'th-settle'); tr.appendChild(el('span', 'th-k', 'TO SETTLE UP'));
-      s.transfers.slice(0, 6).forEach(function (x) { tr.appendChild(el('div', 'th-tr', (x.from === 'Me' ? 'You' : x.from) + ' → ' + (x.to === 'Me' ? 'you' : x.to) + '  ' + money(Math.round(x.amount)))); });
+      s.transfers.slice(0, 6).forEach(function (x) {
+        var row = el('div', 'th-tr th-tr-act');
+        row.appendChild(el('span', 'th-tr-t', (x.from === 'Me' ? 'You' : x.from) + ' → ' + (x.to === 'Me' ? 'you' : x.to) + '  ' + money(Math.round(x.amount))));
+        var api = K.tripsApi, acts = el('span', 'th-tr-btns');
+        function btn(txt, cls, fn) { var b = el('button', 'th-tr-b ' + cls, txt); b.type = 'button'; b.addEventListener('click', function (ev) { ev.stopPropagation(); fn(); }); acts.appendChild(b); }
+        if (api && api.pay && x.from === 'Me') btn('⚡ Pay', 'pay', function () { api.pay(trip, x.to, x.amount); });
+        if (api && api.ask && x.to === 'Me') btn('📲 Ask', 'ask', function () { api.ask(trip, x.from, x.amount); });
+        if (api && api.settle) btn('✓ Settled', 'done', function () { api.settle(trip, x.from, x.to, x.amount); });
+        row.appendChild(acts); tr.appendChild(row);
+      });
       pc.appendChild(tr);
     }
     root.appendChild(pc);

@@ -1238,6 +1238,85 @@
     var d = String(desc || '').replace(/\[[^\]]*\]/g, ' ').replace(/^[^A-Za-z0-9ऀ-ॿ]+/, '').replace(/^[^:]{0,30}:\s+/, '').replace(/\s*\(.*$/, '').trim();
     return d.split(/\s+/).slice(0, 4).join(' ');
   }
+  /* ---------- v127 Autopilot: payments that repeat each month, safe to spend, costs creeping up ---------- */
+  function seriesKey(desc) {
+    return payeeName(desc).toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim().split(' ').slice(0, 3).join(' ');
+  }
+  function medianOf(nums) {
+    var s = nums.slice().sort(function (a, b) { return a - b; }), m = Math.floor(s.length / 2);
+    return s.length ? (s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2) : 0;
+  }
+  // The same payee about once a month (not a daily habit like milk) in at least 2 of the last 3 full months.
+  // Gives the usual amount and day, whether this month's is paid, how far off the due day is, and price changes.
+  function recurringSeries(entries, nowMs, pred) {
+    var now = new Date(nowMs), y = now.getFullYear(), m = now.getMonth(), today = now.getDate();
+    var cur = y * 12 + m, dim = new Date(y, m + 1, 0).getDate(), groups = {};
+    (entries || []).forEach(function (e) {
+      if (!e || e.synthetic || !(e.amount > 0) || !pred(e)) return;
+      var d = new Date(e.ts), mi = d.getFullYear() * 12 + d.getMonth();
+      if (mi > cur || mi < cur - 4) return;
+      var k = seriesKey(e.desc); if (k.length < 3) return;
+      (groups[k] = groups[k] || []).push({ e: e, mi: mi, day: d.getDate() });
+    });
+    var out = [];
+    Object.keys(groups).forEach(function (k) {
+      var g = groups[k], months = {};
+      g.forEach(function (x) { var b = months[x.mi] = months[x.mi] || { p: 0, n: 0, day: 32, last: null }; b.p += toPaise(x.e.amount); b.n++; if (x.day < b.day) b.day = x.day; if (!b.last || x.e.ts > b.last.ts) b.last = x.e; });
+      var recent = [cur - 1, cur - 2, cur - 3].filter(function (mi) { return months[mi]; });
+      if (recent.length < 2) return;
+      var past = [cur - 1, cur - 2, cur - 3, cur - 4].filter(function (mi) { return months[mi]; });
+      var n = past.reduce(function (s, mi) { return s + months[mi].n; }, 0);
+      if (n / past.length > 2.5) return;                                       // a habit (daily milk), not a bill
+      var sums = past.map(function (mi) { return months[mi].p; });
+      var lo = Math.min.apply(null, sums), hi = Math.max.apply(null, sums);
+      if (lo <= 0 || hi / lo > 1.6) return;                                    // amounts all over the place
+      var usual = Math.round(medianOf(sums) / 100), day = Math.round(medianOf(past.map(function (mi) { return months[mi].day; })));
+      var dueDay = Math.min(day, dim), paid = months[cur] || null, latest = (paid || months[past[0]]).last;
+      var lastP = months[past[0]].p, prevP = past[1] != null ? months[past[1]].p : 0;
+      var a = paid ? paid.p : lastP, b = paid ? lastP : prevP, change = 0;
+      if (b > 0 && Math.abs(a - b) >= Math.max(1000, b * 0.03)) change = Math.round((a - b) / 100);
+      var daysTo = dueDay - today;
+      var status = paid ? 'paid' : daysTo < -3 ? 'late' : daysTo < 0 ? 'due' : daysTo <= 3 ? 'soon' : 'upcoming';
+      out.push({ key: k, label: payeeName(latest.desc) || k, amount: usual, day: day, dueTs: new Date(y, m, dueDay).getTime(), daysTo: daysTo,
+        status: status, paidAmount: paid ? Math.round(paid.p / 100) : 0, paidTs: paid ? paid.last.ts : null, months: past.length, change: change, sample: latest });
+    });
+    return out.sort(function (a, b) { return a.day - b.day || b.amount - a.amount; });
+  }
+  // What you can still spend: income in (plus salary still expected) minus spent, bills still due and what you keep aside, over the days left.
+  function safeToSpend(o) {
+    var daysLeft = Math.max(1, o.daysInMonth - o.day + 1);
+    var pool = (o.incomeGot || 0) + (o.incomeExpected || 0) - (o.spent || 0) - (o.billsDue || 0) - (o.keepAside || 0);
+    // a normal day's share of the month after bills and savings; a day never gets more than 1.5x of it,
+    // so money left at month-end shows as "spare" instead of a huge "spend it today"
+    var share = o.fixedMonth != null ? Math.max(0, ((o.incomeGot || 0) + (o.incomeExpected || 0) - (o.keepAside || 0) - o.fixedMonth) / Math.max(1, o.daysInMonth)) : 0;
+    var cap = share > 0 ? share * 1.5 : Infinity;
+    var allowance = Math.min(cap, (pool + (o.todaySpent || 0)) / daysLeft);   // what today started with
+    var todayLeft = allowance - (o.todaySpent || 0);
+    var fromTomorrow = daysLeft > 1 ? Math.min(cap, pool / (daysLeft - 1)) : 0;
+    var spare = isFinite(cap) ? Math.max(0, pool + (o.todaySpent || 0) - cap * daysLeft) : 0;
+    return { pool: Math.round(pool), daysLeft: daysLeft, allowance: Math.max(0, Math.round(allowance)), todayLeft: Math.round(todayLeft),
+      fromTomorrow: Math.round(fromTomorrow), share: Math.round(share), spare: Math.round(spare), status: pool < 0 ? 'over' : todayLeft < 0 ? 'today-over' : 'ok' };
+  }
+  // Categories costing clearly more (or less) in the last 30 days than their usual 30 days over the 90 before.
+  function creepingSpends(entries, nowMs, isExpense) {
+    var D = 86400000, a = nowMs - 30 * D, b = nowMs - 120 * D, cats = {};
+    (entries || []).forEach(function (e) {
+      if (!e || e.synthetic || e.ts > nowMs || e.ts < b || !isExpense(e)) return;
+      var c = categoryOf(e.desc, e.raw); if (!c || c.key === 'cash' || c.key === 'person' || c.key === 'other') return;
+      var r = cats[c.key] = cats[c.key] || { cat: c, now: 0, before: 0, n: 0 };
+      if (e.ts >= a) { r.now += toPaise(e.amount); r.n++; } else r.before += toPaise(e.amount);
+    });
+    var up = [], down = [];
+    Object.keys(cats).forEach(function (k) {
+      var r = cats[k], usual = r.before / 3, nowR = Math.round(r.now / 100), usualR = Math.round(usual / 100);
+      if (usualR < 200) return;
+      var pct = Math.round((r.now / usual - 1) * 100), row = { key: k, label: r.cat.label, icon: r.cat.icon, color: r.cat.color, now: nowR, usual: usualR, pct: pct, diff: nowR - usualR };
+      if (pct >= 25 && nowR - usualR >= 300) up.push(row);
+      else if (pct <= -25 && usualR - nowR >= 300) down.push(row);
+    });
+    up.sort(function (x, y) { return y.diff - x.diff; }); down.sort(function (x, y) { return x.diff - y.diff; });
+    return { up: up, down: down };
+  }
   function searchInsights(rows, nowMs, isExpense) {
     var now = new Date(nowMs), y = now.getFullYear(), m = now.getMonth(), DAY = 86400000;
     var list = (rows || []).filter(function (e) { return e && !e.synthetic && isExpense(e); });
@@ -1286,7 +1365,7 @@
     addPayment: addPayment, editLoan: editLoan, editPayment: editPayment, summarize: summarize,
     walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, parseWalletDesc: parseWalletDesc,
     parseWallets: parseWallets, walletState: walletState, walletReconcile: walletReconcile,
-    smartSearch: smartSearch, smsAccounts: smsAccounts, searchInsights: searchInsights, payeeName: payeeName, tripDiaryLabel: tripDiaryLabel, placeIn: placeIn, categoryOf: categoryOf, personOf: personOf, findPaybacks: findPaybacks, peopleLedger: peopleLedger, cleanBankAccounts: cleanBankAccounts, smsSourceBank: smsSourceBank, askQuery: askQuery, forecastMonth: forecastMonth, unusualSpends: unusualSpends,
+    smartSearch: smartSearch, smsAccounts: smsAccounts, searchInsights: searchInsights, payeeName: payeeName, tripDiaryLabel: tripDiaryLabel, placeIn: placeIn, categoryOf: categoryOf, personOf: personOf, findPaybacks: findPaybacks, peopleLedger: peopleLedger, cleanBankAccounts: cleanBankAccounts, smsSourceBank: smsSourceBank, recurringSeries: recurringSeries, safeToSpend: safeToSpend, creepingSpends: creepingSpends, seriesKey: seriesKey, askQuery: askQuery, forecastMonth: forecastMonth, unusualSpends: unusualSpends,
     payCycles: payCycles, lastWorkingDay: lastWorkingDay, nextPayday: nextPayday, parseBank: parseBank, parseAvlBalance: parseAvlBalance, balanceFromSms: balanceFromSms, bankEstimate: bankEstimate, parseTransfers: parseTransfers
   };
 });
