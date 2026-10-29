@@ -1914,6 +1914,12 @@
   var confirmModalCallback = null;
 
   function showConfirmModal(options) {
+    // v129: you just said yes in the "ask before save / delete" check; don't ask the same thing twice
+    if (window.__kharchaOkUntil && Date.now() < window.__kharchaOkUntil) {
+      window.__kharchaOkUntil = 0;
+      if (options && options.onConfirm) options.onConfirm();
+      return;
+    }
     var modal = $('confirm-modal');
     if (!modal) {
       if (confirm(options.message)) {
@@ -2973,7 +2979,7 @@
     var card = el('div', 'wal-card');
     var head = el('div', 'wal-head');
     head.appendChild(el('span', 'wal-name', '👛 ' + w.name));
-    var rm = el('button', 'udh-x', '×'); rm.type = 'button'; rm.setAttribute('aria-label', 'Stop tracking ' + w.name);
+    var rm = el('button', 'udh-x', '×'); rm.type = 'button'; rm.setAttribute('aria-label', 'Stop tracking ' + w.name); rm.setAttribute('data-self-confirm', '');
     rm.addEventListener('click', function () {
       showConfirmModal({ title: 'Stop tracking ' + w.name + '?', message: 'Your top-up and purchase entries stay in Kharcha Book; only the balance card is removed.', onConfirm: function () {
         saveWallets(loadWallets().filter(function (x) { return x.id !== w.id; })); renderWallet();
@@ -3840,7 +3846,7 @@
     var card = el('div', 'wal-card');
     var head = el('div', 'wal-head');
     head.appendChild(el('span', 'wal-name', '🏦 ' + a.name));
-    var rm = el('button', 'udh-x', '×'); rm.type = 'button'; rm.setAttribute('aria-label', 'Stop tracking ' + a.name);
+    var rm = el('button', 'udh-x', '×'); rm.type = 'button'; rm.setAttribute('aria-label', 'Stop tracking ' + a.name); rm.setAttribute('data-self-confirm', '');
     rm.addEventListener('click', function () {
       showConfirmModal({ title: 'Stop tracking ' + a.name + '?', message: 'Only the balance card is removed. Your entries stay.', onConfirm: function () { saveBank(loadBank().filter(function (x) { return x.id !== a.id; })); renderBank(); render(); } });
     });
@@ -4590,6 +4596,28 @@
     render();
     toast('Project renamed to ' + next + (moved ? ' (' + moved + ' entries moved)' : ''));
   }
+
+  // v129: delete a project after a confirm; its spends go too
+  function deleteProject(name) {
+    var low = String(name || '').toLowerCase(), legacy = (kv.get(LEGACY_PROJECT_KEY) || '').trim().toLowerCase() === low;
+    var mine = state.entries.filter(function (e) { var p = projectNameOf(e.desc); return !e.synthetic && ((p || '').toLowerCase() === low || (legacy && !p && isProjectEntry(e.desc))); });
+    var total = mine.reduce(function (t, e) { return t + (Number(e.amount) || 0); }, 0);
+    showConfirmModal({
+      title: '🗑️ Delete ' + name + '?',
+      message: (mine.length ? 'Its ' + mine.length + ' entr' + (mine.length === 1 ? 'y' : 'ies') + ' (' + money(total) + ') are deleted too. ' : 'It has no entries. ') + 'This cannot be undone.',
+      confirmText: 'Yes, delete project', isDanger: true,
+      onConfirm: async function () {
+        var gone = 0;
+        for (var i = 0; i < mine.length; i++) { try { await store.remove(mine[i].id); gone++; } catch (err) { break; } }
+        try { kv.set(ALL_PROJECTS_KEY, JSON.stringify((JSON.parse(kv.get(ALL_PROJECTS_KEY) || '[]') || []).filter(function (p) { return String(p).trim().toLowerCase() !== low; }))); } catch (e) {}
+        if (getActiveProjectName().toLowerCase() === low) { var rest = getAllProjects().filter(function (p) { return p.toLowerCase() !== low; }); setActiveProjectName(rest[0] || ''); }
+        render();
+        toast(gone < mine.length ? 'Deleted ' + gone + ' of ' + mine.length + ' entries. Try again for the rest.' : '🗑️ ' + name + ' deleted');
+      }
+    });
+  }
+  var projDelBtn = $('project-delete-btn');
+  if (projDelBtn) projDelBtn.addEventListener('click', function () { deleteProject(getActiveProjectName()); });
 
   function promptNewProject() {
     showInputModal({
@@ -6032,6 +6060,36 @@
         onConfirm: function (v) { var u = String(v[0] || '').trim(); if (/^[\w.\-]{2,}@[\w.\-]{2,}$/.test(u)) kv.set('kharcha_my_upi', u); else u = ''; send(u); } });
     },
     settle: function (trip, from, to, amount) { showTripSettlementModal(trip, from, to, Math.round(amount)); },
+    // v129: delete a whole trip after a clear confirm. Its own spends go too, and the friends' link is switched off.
+    remove: function (name, done) {
+      var mine = state.entries.filter(function (e) { return !e.isGuestEntry && !e.synthetic && extractTripNameFromDesc(e.desc) === name; });
+      var total = mine.reduce(function (t, e) { return t + (Number(e.amount) || 0); }, 0);
+      showConfirmModal({
+        title: '🗑️ Delete ' + name + '?',
+        message: (mine.length ? 'Its ' + mine.length + ' spend' + (mine.length === 1 ? '' : 's') + ' (' + money(total) + ') are deleted too. ' : 'It has no spends of yours. ') + 'Friends\' trip link stops working. This cannot be undone.',
+        confirmText: 'Yes, delete trip', isDanger: true,
+        onConfirm: async function () {
+          var gone = 0;
+          for (var i = 0; i < mine.length; i++) { try { await store.remove(mine[i].id); deleteTripMirrorIfAny(mine[i].id); gone++; } catch (err) { break; } }
+          try { kv.set(ALL_TRIPS_KEY, JSON.stringify((JSON.parse(kv.get(ALL_TRIPS_KEY) || '[]') || []).filter(function (t) { return t !== name; }))); } catch (e) {}
+          ['kharcha_trip_friends_', 'kharcha_trip_budget_', 'kharcha_trip_places_'].forEach(function (k) { try { kv.remove(k + name); } catch (e) {} });
+          if (getActiveTripName() === name) { setActiveTripName(''); setTripPaused(false); }
+          if (getSelectedViewTripName() === name) setSelectedViewTripName('');
+          if (sb) sb.from('trips').select('id').eq('name', name).then(function (res) {
+            ((res && res.data) || []).forEach(function (t) { sb.rpc('trip_set_invite', { p_trip_id: t.id, p_enabled: false }); });
+          });
+          delete tripInviteCache[name];
+          render();
+          toast(gone < mine.length ? 'Deleted ' + gone + ' of ' + mine.length + ' spends. Try again for the rest.' : '🗑️ ' + name + ' deleted');
+          if (done) done();
+        }
+      });
+    },
+    removePlace: function (name, idx) {
+      var v = tripsApi.places(name), was = v.slice();
+      v.splice(idx, 1); kv.set('kharcha_trip_places_' + name, JSON.stringify(v)); render();
+      toast('📍 Check-in removed', function () { kv.set('kharcha_trip_places_' + name, JSON.stringify(was)); render(); });
+    },
     // Trip mode: while on (and not paused) every payment the phone sees is filed to this trip and split equally.
     mode: function () { return { name: getActiveTripName(), paused: isTripPaused() }; },
     start: function (name) { setActiveTripName(name); render(); toast('🟢 Trip mode on: ' + name); offerTripBackfill(name); },
@@ -6960,7 +7018,7 @@
     var btns = el('div', 'edit-btns');
     var save = el('button', 'primary small', 'Save'); save.type = 'submit';
     var cancel = el('button', 'ghost', 'Cancel'); cancel.type = 'button';
-    var del = el('button', 'danger', 'Delete'); del.type = 'button';
+    var del = el('button', 'danger', 'Delete'); del.type = 'button'; del.setAttribute('data-self-confirm', '');
     btns.appendChild(save); btns.appendChild(cancel); btns.appendChild(del);
     f.appendChild(row1); f.appendChild(row2); f.appendChild(shiftRow); if (acctField) f.appendChild(acctField); if (xferBox) f.appendChild(xferBox); if (!isDemoMode) f.appendChild(receiptRow(e)); f.appendChild(msg); f.appendChild(btns);
 
@@ -6988,14 +7046,10 @@
         save.disabled = false; msg.textContent = 'Could not save the change. Try again.'; msg.hidden = false;
       });
     });
-    var armed = false, armTimer = 0;
     del.addEventListener('click', function () {
-      if (!armed) {
-        armed = true; del.textContent = 'Tap again to delete'; del.classList.add('armed');
-        armTimer = setTimeout(function () { armed = false; del.textContent = 'Delete'; del.classList.remove('armed'); }, 4000);
-        return;
-      }
-      clearTimeout(armTimer);
+      showConfirmModal({ title: '🗑️ Delete this entry?', message: e.desc + ' · ' + money(e.amount) + '\n' + dFmt.format(new Date(e.ts)), confirmText: 'Yes, delete', isDanger: true, onConfirm: doDelete });
+    });
+    function doDelete() {
       var hadReceipt = hasReceipt(e.id), undone = false, wasTripEntry = isTripEntry(e);
       store.remove(e.id).then(function () {
         state.editing = null; render();
@@ -7015,7 +7069,7 @@
             }).catch(function () { toast('Could not undo. Try again.'); });
         });
       }).catch(function () { msg.textContent = 'Could not delete. Try again.'; msg.hidden = false; });
-    });
+    }
     return f;
   }
 
