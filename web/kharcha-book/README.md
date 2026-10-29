@@ -248,3 +248,10 @@ Search "milk", "petrol", "swiggy" (or an amount) and you get a full panel, not j
 - **Habits in plain words**: how often you buy it and when ("about every day, mostly in the mornings"), where most often ("Milk vendor, 70 times"), the biggest purchase, and the all-time and yearly cost.
 - **Every spend grouped by month**, each month with its own total; months fold open and shut.
 - A specific word stays specific: "milk" means milk and dairy (Amul, paneer, curd, ghee...), not all groceries. × clears the search.
+
+## Audit fixes: banks that aren't yours, trip security, layout (v126)
+
+- **Not your bank, not counted.** SMS from a bank that isn't yours (PNB, a parent's account linked to your number) stay visible but never count as your income, spends or cash. The Bank page lists them under "Not your bank" with this month's in/out and a one-tap **Count as mine** (with undo). The setting is `kharcha_not_mine_banks` and syncs across devices.
+- **Trip security.** `trip_add_owner_expense` now checks that you own the trip, and signed-out users can't call it. A paused trip link also stops friends adding spends, not just viewing. Amounts and descriptions have sane limits.
+- **Faster database rules.** The row-level policies read `auth.uid()` once per query instead of once per row. Two foreign-key indexes were added.
+- **Layout.** The Insights page no longer scrolls sideways on phones. A search for "milk" no longer says "incl. milk".

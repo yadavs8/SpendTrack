@@ -1198,7 +1198,7 @@
     var head = el('div', 'sa-top');
     var hic = el('span', 'sa-ic', test ? '🔢' : dom.icon); hic.style.background = (dom.color || '#0284c7') + '22'; head.appendChild(hic);
     var ht = el('div', 'sa-ttl'); ht.appendChild(el('b', null, test ? 'Amount ' + q : title));
-    ht.appendChild(el('small', null, rows.length + (rows.length === 1 ? ' match' : ' matches') + (ins && ins.since ? ' since ' + dFmtS.format(new Date(ins.since)) : '') + (smart && smart.concepts.length ? ' · incl. ' + smart.concepts.join(', ') : '')));
+    ht.appendChild(el('small', null, rows.length + (rows.length === 1 ? ' match' : ' matches') + (ins && ins.since ? ' since ' + dFmtS.format(new Date(ins.since)) : '') + (smart && smart.concepts.filter(function (c) { return c.toLowerCase() !== q; }).length ? ' · incl. ' + smart.concepts.filter(function (c) { return c.toLowerCase() !== q; }).join(', ') : '')));
     head.appendChild(ht);
     var clr = el('button', 'sa-x', '×'); clr.type = 'button'; clr.setAttribute('aria-label', 'Clear search');
     clr.addEventListener('click', function () { inp.value = ''; inp.dispatchEvent(new Event('input', { bubbles: true })); renderSearchAll(); });

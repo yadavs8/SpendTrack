@@ -293,7 +293,8 @@ body.privacy .hero .eye-btn { filter: none; }
 :root[data-theme="thanos"] .hero[data-pace="bad"]  { --hero-grad: linear-gradient(135deg, #4c1d95 0%, #b91c1c 120%); }
 
 /* v70: Insights */
-#insights-root { display: grid; gap: 14px; }
+#insights-root { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; }
+#insights-root > * { min-width: 0; }
 .in-card { padding: 16px; border-radius: 22px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-sm); }
 .in-k { font-size: 0.7rem; font-weight: 800; letter-spacing: 0.1em; color: var(--muted); margin-bottom: 4px; }
 .in-h { font-weight: 800; font-size: 1rem; margin: 0 2px 8px; }
@@ -729,3 +730,10 @@ body.privacy .th-cd-amt, body.privacy .th-cat-top b { filter: blur(7px); }
 .sa-allm { margin-top: 8px; padding: 10px; border: 0; border-radius: 12px; background: var(--bg); color: var(--accent, #0284c7); font: inherit; font-weight: 700; cursor: pointer; }
 body.privacy .sa-big, body.privacy .sa-tile b, body.privacy .sa-bv, body.privacy .sa-fact, body.privacy .sa-gt, body.privacy .sa-ask { filter: blur(7px); }
 @media (prefers-reduced-motion: reduce) { .search-all, .sa-bar { animation: none; } }
+
+/* v126: banks that aren't yours */
+.nm-card .nm-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+.nm-card .nm-name { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; background: none; border: 0; padding: 0; text-align: left; color: inherit; font: inherit; cursor: pointer; }
+.nm-card .nm-name small { color: var(--muted); font-size: .78rem; }
+.nm-card .nm-flip { flex: none; font-size: .8rem; padding: 6px 10px; }
+.method-badge.nm-badge { background: rgba(148, 163, 184, .18); color: var(--muted); }

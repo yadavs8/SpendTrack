@@ -974,6 +974,13 @@
     for (var i = 0; i < SMS_BANKS.length; i++) if (SMS_BANKS[i][2].test(text)) return SMS_BANKS[i];
     return null;
   }
+  // The bank that sent this SMS: the phone's bank column first, else the SMS opening only (a body that
+  // names another bank, "sent to PNB a/c", must not move the row there). '' for typed-in rows.
+  function smsSourceBank(e) {
+    if (!e || !e.raw) return '';
+    var b = e.bank ? smsBankOf(String(e.bank)) : smsBankOf(String(e.raw).slice(0, 60));
+    return b ? b[0] : '';
+  }
   function smsAcctDigits(raw) {
     var m = /(?:a\/c|acct?|account)\.?\s*(?:no\.?)?\s*[:\-]?\s*(?:[x*]+\s*)?(\d{3,6})\b/i.exec(raw) || /[x*]{2,}\s*(\d{3,6})\b/i.exec(raw);
     return m ? m[1] : '';
@@ -1279,7 +1286,7 @@
     addPayment: addPayment, editLoan: editLoan, editPayment: editPayment, summarize: summarize,
     walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, parseWalletDesc: parseWalletDesc,
     parseWallets: parseWallets, walletState: walletState, walletReconcile: walletReconcile,
-    smartSearch: smartSearch, smsAccounts: smsAccounts, searchInsights: searchInsights, payeeName: payeeName, tripDiaryLabel: tripDiaryLabel, placeIn: placeIn, categoryOf: categoryOf, personOf: personOf, findPaybacks: findPaybacks, peopleLedger: peopleLedger, cleanBankAccounts: cleanBankAccounts, askQuery: askQuery, forecastMonth: forecastMonth, unusualSpends: unusualSpends,
+    smartSearch: smartSearch, smsAccounts: smsAccounts, searchInsights: searchInsights, payeeName: payeeName, tripDiaryLabel: tripDiaryLabel, placeIn: placeIn, categoryOf: categoryOf, personOf: personOf, findPaybacks: findPaybacks, peopleLedger: peopleLedger, cleanBankAccounts: cleanBankAccounts, smsSourceBank: smsSourceBank, askQuery: askQuery, forecastMonth: forecastMonth, unusualSpends: unusualSpends,
     payCycles: payCycles, lastWorkingDay: lastWorkingDay, nextPayday: nextPayday, parseBank: parseBank, parseAvlBalance: parseAvlBalance, balanceFromSms: balanceFromSms, bankEstimate: bankEstimate, parseTransfers: parseTransfers
   };
 });

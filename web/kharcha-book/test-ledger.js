@@ -660,3 +660,10 @@ t('searchInsights: milk this month vs last, habits, estimate', () => {
   assert.strictEqual(r.biggest.id, 'big');
   assert.strictEqual(r.months.length, 6); assert.strictEqual(r.months[5].label, 'Oct');
 });
+
+t('smsSourceBank: bank column first, else the SMS opening only', () => {
+  assert.strictEqual(L.smsSourceBank({ bank: 'PNB', raw: 'A/c XX12 credited INR 5000' }), 'pnb');
+  assert.strictEqual(L.smsSourceBank({ raw: 'ICICI Bank Acct XX123 debited for Rs 500; credited to PNB a/c of RAMESH' }), 'icici');
+  assert.strictEqual(L.smsSourceBank({ raw: 'Your a/c XX9 is credited with INR 2,000.00 by UPI. -Punjab National Bank' }), '');
+  assert.strictEqual(L.smsSourceBank({ desc: 'Milk', amount: 60 }), '');
+});

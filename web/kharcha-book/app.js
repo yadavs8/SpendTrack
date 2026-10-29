@@ -58,7 +58,34 @@
   function savePaybacks(list) { kv.set(PAYBACK_KEY, JSON.stringify(list)); }
   function isPaybackIn(e) { return !!e && !!loadPaybacks().inSet[e.id]; }
   function isPaidBack(e) { return !!e && (!!loadPaybacks().outSet[e.id] || isPaybackIn(e)); }
-  function isIncome(e) { return isIncomeRaw(e) && !isPaybackIn(e); }
+  function isIncome(e) { return isIncomeRaw(e) && !isPaybackIn(e) && !isNotMineBank(e); }
+  // v126: alerts from a bank that isn't yours (a parent's account linked to your phone number) stay visible
+  // but are never counted as your income, spending or cash. Default: PNB, which you said is your father's.
+  var NOT_MINE_KEY = 'kharcha_not_mine_banks', notMineMemo = { raw: undefined, list: [] }, srcBankMemo = new WeakMap();
+  function notMineBanks() {
+    var raw = kv.get(NOT_MINE_KEY);
+    if (raw === notMineMemo.raw) return notMineMemo.list;
+    var list = ['pnb'];
+    if (raw != null) { try { var a = JSON.parse(raw); list = Array.isArray(a) ? a : []; } catch (er) { list = []; } }
+    notMineMemo = { raw: raw, list: list };
+    return list;
+  }
+  function setNotMineBank(key, notMine) {
+    var list = notMineBanks().filter(function (k) { return k !== key; });
+    if (notMine) list.push(key);
+    kv.set(NOT_MINE_KEY, JSON.stringify(list));
+  }
+  function srcBankOf(e) {
+    if (!e || !e.raw || typeof e !== 'object') return '';
+    if (srcBankMemo.has(e)) return srcBankMemo.get(e);
+    var KL = window.KharchaLedger, k = KL && KL.smsSourceBank ? KL.smsSourceBank(e) : '';
+    srcBankMemo.set(e, k); return k;
+  }
+  function isNotMineBank(e) {
+    if (!e || !e.raw) return false;
+    var list = notMineBanks(); if (!list.length) return false;
+    var k = srcBankOf(e); return !!k && list.indexOf(k) >= 0;
+  }
   function isIncomeRaw(e) {
     if (!e || !e.desc) return false;
     // Rows from the phone carry an explicit kind (v5 column); typed-in rows are read from the text.
@@ -109,7 +136,7 @@
   // into your cash wallet. It's counted as "Unaccounted cash" until you log what it was spent on,
   // so the month total is the same either way and cash is never counted twice.
   function isCashWithdrawal(e) {
-    if (!e) return false;
+    if (!e || isNotMineBank(e)) return false;
     if (e.kind === 'cash_withdrawal') return true;
     return !!e.desc && e.desc.trim().indexOf('💵 Cash withdrawn') === 0;
   }
@@ -125,7 +152,7 @@
 
   function isTransferEntry(e) { return !!e && /^\s*\u{1F501}/u.test(e.desc || ''); }
   function isExpense(e) {
-    return !isIncome(e) && !isPaidBack(e) && !isTransferEntry(e) && !isInvestment(e) && !isTripEntry(e) && !isCashWithdrawal(e) && !isWalletTopup(e) && !(e && e.kind === 'transfer');
+    return !isNotMineBank(e) && !isIncome(e) && !isPaidBack(e) && !isTransferEntry(e) && !isInvestment(e) && !isTripEntry(e) && !isCashWithdrawal(e) && !isWalletTopup(e) && !(e && e.kind === 'transfer');
   }
 
   /* ---------- Cash wallet ---------- */
@@ -1433,7 +1460,7 @@
   /* ---------- Shared settings: one row in Supabase kharcha_settings, used by web + phone ----------
      Same keys and string values as localStorage, so feature code just swaps localStorage for kv.
      localStorage stays as the offline cache, and is all there is until the v4 SQL has been run. */
-  var SHARED_KEYS = ['kharcha_trip_mirror_map', 'kharcha_trip_phones', 'kharcha_paybacks', 'kharcha_payback_no', 'kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
+  var SHARED_KEYS = ['kharcha_not_mine_banks', 'kharcha_trip_mirror_map', 'kharcha_trip_phones', 'kharcha_paybacks', 'kharcha_payback_no', 'kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
     'kharcha_is_trip_paused', 'kharcha_all_projects_list', 'kharcha_is_project_paused', 'kharcha_legacy_project_name',
     'kharcha_active_trip_name', 'kharcha_all_trips_list', 'kharcha_category_budgets', 'kharcha_merchant_memory',
     'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers', 'kharcha_loans', 'kharcha_wallets', 'kharcha_bank', 'kharcha_cycle', 'kharcha_rules', 'kharcha_acctmap', 'kharcha_primary_acct', 'kharcha_rule_skips', 'kharcha_transfers', 'kharcha_own', 'kharcha_xfer_dismissed', 'kharcha_goal', 'kharcha_receipts', 'kharcha_rules_seeded', 'kharcha_card', 'kharcha_dup_dismissed'];
@@ -3687,12 +3714,49 @@
     }
     accts.forEach(function (a) { root.appendChild(bankCard(a)); });
     if (accts.length > 1) root.appendChild(bankTransfers(accts));
+    var nm = notMineCard(accts); if (nm) root.appendChild(nm);
     if (bankUi.add || !accts.length) root.appendChild(bankSetupForm());
     else {
       var add = el('button', 'ghost', '+ Track another account'); add.type = 'button';
       add.addEventListener('click', function () { bankUi.add = true; renderBank(); });
       root.appendChild(add);
     }
+  }
+
+  // v126: banks whose SMS reach this phone but aren't your accounts (a parent's). Shown, never counted; one tap flips it.
+  var notMineOpen = {};
+  function notMineCard(accts) {
+    var KL = window.KharchaLedger, list = notMineBanks(), seen = {};
+    var mine = accts.map(function (a) { return String(a.name || '').toLowerCase(); }).join(' ');
+    state.entries.forEach(function (e) {
+      var k = srcBankOf(e); if (!k) return;
+      if (list.indexOf(k) < 0 && mine.indexOf(k) >= 0) return; // one of your tracked accounts
+      if (list.indexOf(k) < 0) return; // only banks you marked "not mine" are listed here
+      (seen[k] = seen[k] || []).push(e);
+    });
+    var keys = Object.keys(seen).concat(list.filter(function (k) { return !seen[k]; }));
+    if (!keys.length) return null;
+    var box = el('div', 'wal-card nm-card');
+    box.appendChild(el('div', 'in-k', '🚫 NOT YOUR BANK · NOT COUNTED'));
+    box.appendChild(el('p', 'hint', 'SMS from these banks reach your phone but the account isn\'t yours, so they never change your income, spends or balance.'));
+    keys.forEach(function (k) {
+      var rows = (seen[k] || []).slice().sort(function (a, b) { return b.ts - a.ts; });
+      var name = k.toUpperCase(), inn = 0, out = 0, mk = monthKey(Date.now());
+      rows.forEach(function (e) { if (monthKey(e.ts) !== mk) return; if (isIncomeRaw(e)) inn += Number(e.amount) || 0; else out += Number(e.amount) || 0; });
+      var head = el('div', 'nm-row');
+      var tx = el('button', 'nm-name'); tx.type = 'button';
+      tx.appendChild(el('b', null, '🏦 ' + name));
+      tx.appendChild(el('small', null, rows.length + ' SMS · this month ' + money(inn) + ' in · ' + money(out) + ' out' + (rows.length ? (notMineOpen[k] ? ' · hide ▴' : ' · show ▾') : '')));
+      tx.addEventListener('click', function () { notMineOpen[k] = !notMineOpen[k]; renderBank(); });
+      var flip = el('button', 'ghost nm-flip', 'Count as mine'); flip.type = 'button';
+      flip.addEventListener('click', function () {
+        setNotMineBank(k, false); render(); renderBank();
+        toast(name + ' is counted as yours again', function () { setNotMineBank(k, true); render(); renderBank(); });
+      });
+      head.appendChild(tx); head.appendChild(flip); box.appendChild(head);
+      if (notMineOpen[k]) rows.slice(0, 15).forEach(function (e) { box.appendChild(entryRow(e, true)); });
+    });
+    return box;
   }
 
   // Money moved between your own accounts (ICICI to HDFC): lowers one balance, raises the other, never counted as spending or income.
@@ -6697,6 +6761,7 @@
     var how = methodLabel(e);
     if (how) dSpan.appendChild(el('small', 'method-badge method-' + e.method, (METHOD_ICONS[e.method] || '') + ' ' + how));
     if (hasReceipt(e.id)) dSpan.appendChild(el('small', 'method-badge', '📎'));
+    if (isNotMineBank(e)) dSpan.appendChild(el('small', 'method-badge nm-badge', '🚫 Not your bank · not counted'));
     var tripSplit = parseTripSplit(e.desc) || (Array.isArray(e.splitAmong) ? e.splitAmong : null);
     if (tripSplit && tripSplit.length) {
       dSpan.appendChild(el('small', 'tag-split', '👥 Split: ' + tripSplit.join(', ')));
