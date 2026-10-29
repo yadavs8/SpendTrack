@@ -836,3 +836,14 @@ body.privacy .ap-spare { filter: blur(6px); }
 .ap-hidden .ap-sub-row { align-items: center; }
 .ap-restore { color: var(--accent, #0284c7); border-color: var(--line); background: transparent; }
 .ap-x { width: 32px; height: 32px; font-size: 1.1rem; }
+
+/* v129: ask before save & delete */
+#confirm-modal { z-index: 100500; }
+#confirm-modal-msg { white-space: pre-line; overflow-wrap: anywhere; max-height: 45vh; overflow: auto; }
+.th-act.danger { color: var(--danger, #dc2626); border-color: rgba(220, 38, 38, .35); }
+.th-places { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.th-place { display: inline-flex; align-items: center; gap: 4px; padding: 4px 4px 4px 10px; border-radius: 99px; background: rgba(100, 116, 139, .12); border: 1px solid var(--line); font-size: .78rem; font-weight: 600; }
+.th-place-x { width: 22px; height: 22px; border-radius: 50%; border: 0; background: rgba(100, 116, 139, .2); color: inherit; font-size: .9rem; line-height: 1; cursor: pointer; }
+#project-sec .project-card-top { flex-wrap: wrap; gap: 8px; }
+#project-sec .trip-actions-row { flex-wrap: wrap; gap: 6px; min-width: 0; }
+#project-delete-btn { color: var(--danger, #dc2626); }

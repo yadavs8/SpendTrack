@@ -189,6 +189,18 @@
     where.appendChild(el('small', null, last ? 'Update' : 'Labels spends with the place'));
     where.addEventListener('click', function () { checkIn(trip, false); });
     card.appendChild(where);
+    // v129: every check-in can be taken off (a wrong town spoils the "Filled petrol in ..." labels)
+    if (pl.length && api.removePlace) {
+      var chips = el('div', 'th-places');
+      pl.slice(-6).forEach(function (x, j) {
+        var idx = pl.length - Math.min(6, pl.length) + j;
+        var c = el('span', 'th-place'); c.appendChild(document.createTextNode('📍 ' + x.place));
+        var xb = el('button', 'th-place-x', '×'); xb.type = 'button'; xb.setAttribute('aria-label', 'Remove check-in ' + x.place);
+        xb.addEventListener('click', function () { api.removePlace(trip, idx); });
+        c.appendChild(xb); chips.appendChild(c);
+      });
+      card.appendChild(chips);
+    }
     return card;
   }
   function endTrip(trip) {
@@ -290,7 +302,9 @@
     var sh = el('button', 'th-act', '🔗 Share link'); sh.type = 'button'; sh.addEventListener('click', function () { shareLink(trip); });
     var cp = el('button', 'th-act', '📋 Copy link'); cp.type = 'button'; cp.addEventListener('click', function () { copyLink(trip); });
     var rn = el('button', 'th-act', '✏️ Rename'); rn.type = 'button'; rn.addEventListener('click', function () { ui.trip = null; api.rename(trip); });
-    acts.appendChild(add); acts.appendChild(sh); acts.appendChild(cp); acts.appendChild(rn);
+    var dl = el('button', 'th-act danger', '🗑️ Delete trip'); dl.type = 'button'; dl.setAttribute('data-self-confirm', '');
+    dl.addEventListener('click', function () { api.remove(trip, function () { closeTrip(); }); });
+    acts.appendChild(add); acts.appendChild(sh); acts.appendChild(cp); acts.appendChild(rn); if (api.remove) acts.appendChild(dl);
     root.appendChild(acts);
 
     // people

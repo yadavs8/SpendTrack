@@ -13,15 +13,24 @@
   var reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
   /* Whatever opens can be closed again: by tapping the same thing, tapping outside, or the phone's back button.
      Each open sheet/page pushes one history entry; the back button pops it and closes the newest thing. */
-  var backStack = [], skipPop = 0;
-  function backOpen(closeFn) { backStack.push(closeFn); try { history.pushState({ kb: backStack.length }, ''); } catch (e) {} }
+  // depth = history entries this page pushed that are still there. backDone never steps back further than that,
+  // so closing things quickly one after another (open Trips, then tap +) can't walk out of the app.
+  // An open that comes while our own back step is still on its way (close Trips + open the Add form in one tap)
+  // waits for it; pushing first would make that back step undo the new entry and leave the app on the next close.
+  var backStack = [], skipPop = 0, depth = 0, waitingPush = 0;
+  function push() { try { history.pushState({ kb: backStack.length }, ''); depth++; } catch (e) {} }
+  function backOpen(closeFn) { backStack.push(closeFn); if (skipPop > 0) waitingPush++; else push(); }
   function backDone(closeFn) {
     var i = backStack.indexOf(closeFn); if (i < 0) return;
-    backStack.splice(i, 1); skipPop++;
-    try { history.back(); } catch (e) { skipPop--; }
+    backStack.splice(i, 1);
+    if (waitingPush > 0) { waitingPush--; return; }          // its entry was never pushed
+    if (depth <= 0) return;
+    depth--; skipPop++;
+    try { history.back(); } catch (e) { skipPop--; depth++; }
   }
   window.addEventListener('popstate', function () {
-    if (skipPop > 0) { skipPop--; return; }
+    if (skipPop > 0) { skipPop--; if (!skipPop) while (waitingPush > 0) { waitingPush--; push(); } return; }
+    if (depth > 0) depth--;
     var c = backStack.pop(); if (c) c(true);
   });
   window.KharchaBack = { open: backOpen, done: backDone };
@@ -77,7 +86,7 @@
     ['My money', [['autopilot', '🤖', 'Autopilot', 'Safe to spend, bills'], ['monthly', '📊', 'Monthly', 'Savings'], ['bank', '🏦', 'Bank', 'Balance, cash'], ['card', '💳', 'Credit card', 'Owed, spends'], ['insights', '✨', 'Insights', 'Week, goals, net worth'], ['wallet', '👛', 'Wallet', 'Amazon Pay'], ['rules', '⚙️', 'Auto rules', 'Payees, monthly bills']]],
     ['People', [['udhaar', '🤝', 'Udhaar', 'Who owes you'], ['settlement', '👵', 'Settle', "Mother's money"]]],
     ['Plans', [['investments', '📈', 'Invest', 'SIPs and savings'], ['projects', '🔨', 'Projects', 'Home work costs']]],
-    ['Account', [['phone', '📡', 'Phone connection', 'SMS, sync, settings'], ['__settings', '⚙️', 'Phone settings', 'SMS access, sync, lock'], ['__signout', '🚪', 'Sign out', '']]]
+    ['Account', [['__confirm', '🛡️', 'Ask before save & delete', 'On'], ['phone', '📡', 'Phone connection', 'SMS, sync, settings'], ['__settings', '⚙️', 'Phone settings', 'SMS access, sync, lock'], ['__signout', '🚪', 'Sign out', '']]]
   ];
   var TITLES = {};
   MORE_GROUPS.forEach(function (g) { g[1].forEach(function (t) { TITLES[t[0]] = t[1] + ' ' + t[2]; }); });
@@ -351,7 +360,12 @@
         b.appendChild(el('span', 'e', t[1]));
         var tx = el('span', 'mt'); tx.appendChild(el('b', null, t[2])); if (t[3]) tx.appendChild(el('small', null, t[3]));
         b.appendChild(tx);
+        if (t[0] === '__confirm') {
+          b.setAttribute('data-self-confirm', '');
+          var sm = tx.querySelector('small'); if (sm && window.__kharchaSafety) sm.textContent = window.__kharchaSafety.on() ? 'On · tap to turn off' : 'Off · tap to turn on';
+        }
         b.addEventListener('click', function () {
+          if (t[0] === '__confirm') { if (window.__kharchaSafety) { var now = window.__kharchaSafety.toggle(); var sm2 = tx.querySelector('small'); if (sm2) sm2.textContent = now ? 'On · tap to turn off' : 'Off · tap to turn on'; } return; }
           if (t[0] === '__settings') { closeSheet(true); window.KharchaNative.openSettings(); return; }
           if (t[0] === '__signout') { closeSheet(true); var so = $('signout'); if (so) so.click(); return; }
           goStream(t[0]);
@@ -1408,13 +1422,14 @@
       pane.appendChild(el('div', 'side-h', g[0]));
       g[1].forEach(function (t) {
         if (t[0] === '__settings' && !(window.KharchaNative && window.KharchaNative.openSettings)) return;
-        var a = el('button', 'side-link'); a.type = 'button'; a.dataset.stream = t[0];
+        var a = el('button', 'side-link'); a.type = 'button'; a.dataset.stream = t[0]; if (t[0] === '__confirm') a.setAttribute('data-self-confirm', '');
         a.appendChild(el('span', 'side-ic', t[1]));
         var tx = el('span', 'side-t'); tx.appendChild(el('b', null, t[2])); if (t[3]) tx.appendChild(el('small', null, t[3])); a.appendChild(tx);
         a.addEventListener('click', function () {
           close();
           if (t[0] === '__settings') { window.KharchaNative.openSettings(); return; }
           if (t[0] === '__signout') { var so = $('signout'); if (so) so.click(); return; }
+          if (t[0] === '__confirm') { if (window.__kharchaSafety) window.__kharchaSafety.toggle(); return; }
           goStream(t[0]);
         });
         links.push(a); pane.appendChild(a);
@@ -1427,6 +1442,8 @@
       if (isOpen) { close(); return; }
       isOpen = true;
       var cur = current(); links.forEach(function (l) { l.classList.toggle('active', l.dataset.stream === cur); });
+      var cf = pane.querySelector('.side-link[data-stream="__confirm"] small');
+      if (cf && window.__kharchaSafety) cf.textContent = window.__kharchaSafety.on() ? 'On · tap to turn off' : 'Off · tap to turn on';
       bd.hidden = false; requestAnimationFrame(function () { bd.classList.add('open'); });
       document.addEventListener('keydown', onKey);
       backOpen(close);

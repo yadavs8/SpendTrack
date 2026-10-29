@@ -284,3 +284,19 @@ Search "milk", "petrol", "swiggy" (or an amount) and you get a full panel, not j
 - **Edit:** tap a bill you added (it shows ✏️) to change its name, amount or day.
 - **Restore:** **🙈 Hidden bills · restore** lists everything you hid, with a **Restore** button, so nothing hidden is lost once the Undo pop-up is gone.
 - **Keep aside:** tap **Change** and enter 0 to clear it.
+
+## Ask before save & delete, delete for everything (v129)
+
+- **Every save asks first.** Any form that adds, saves, logs, records, creates, sets or updates something shows **"Add this? / Save this?"** with what you typed (amount, description, date…). Nothing is saved until you tap **Yes**.
+  - The same goes for buttons that save straight away ("Log it", "Save & Update Balance") and one-tap suggestions.
+  - Forms that don't save a record (Sign in, Open UPI app, Send on WhatsApp) don't ask.
+- **Every delete asks first.** Any delete, remove, × or "Not a bill" button shows **"Delete this?"** with what it is.
+  - The spend editor's "tap again to delete" is now a proper confirmation.
+  - Buttons that already ask their own fuller question ask only once.
+- **Delete for everything you can create:**
+  - **🗑️ Delete trip** on the trip screen. Its spends go too, the friends' link is switched off, and the confirmation shows how many spends and how much.
+  - **🗑️ Delete** on Projects. Its entries go too.
+  - **×** on each 📍 trip check-in, with Undo.
+- **Switch:** ☰ → **🛡️ Ask before save & delete** turns the confirmations on or off (setting `kharcha_confirm_actions`, synced; on by default). Undo pop-ups still work either way.
+- One central check (`safety.js`) covers every page and pop-up, including ones added later.
+- **Fix:** opening Trips and then tapping **+** to add a spend could make the app step "back" out of itself after saving. The back-button history now waits for a pending back step before adding a new one, and never steps back past the app's first page.
