@@ -831,3 +831,8 @@ body.privacy .ap-big, body.privacy .ap-line b, body.privacy .ap-pill b, body.pri
 body.privacy .ap-sg b { filter: blur(7px); }
 .ap-spare { margin: 0 0 12px; padding: 9px 12px; border-radius: 14px; background: rgba(255, 255, 255, 0.18); border: 1px solid rgba(255, 255, 255, 0.25); font-size: .85rem; font-weight: 600; line-height: 1.35; }
 body.privacy .ap-spare { filter: blur(6px); }
+.ap-edit { cursor: pointer; }
+.ap-edit b::after { content: ' ✏️'; font-size: .75em; opacity: .6; }
+.ap-hidden .ap-sub-row { align-items: center; }
+.ap-restore { color: var(--accent, #0284c7); border-color: var(--line); background: transparent; }
+.ap-x { width: 32px; height: 32px; font-size: 1.1rem; }

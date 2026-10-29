@@ -12,7 +12,7 @@
   var HIDE_KEY = 'kharcha_autopilot_hide', KEEP_KEY = 'kharcha_autopilot_keep', MINE_KEY = 'kharcha_autopilot_bills';
   var BILL_WORDS = /\b(emi|rent|lic|premium|insurance|electric\w*|bijli|broadband|wifi|fibre|fiber|recharge|postpaid|airtel|jio|vodafone|\bvi\b|netflix|hotstar|prime|spotify|youtube|sip|maintenance|society|school fee|tuition|gas bill|water bill)\b/i;
   var dFmt = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short' });
-  var ui = { paidOpen: false };
+  var ui = { paidOpen: false, hiddenOpen: false };
   var SUBS = { subscription: 1, recharge: 1, entertainment: 1 };
 
   function hidden() { try { var a = JSON.parse(K.kvGet(HIDE_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
@@ -194,7 +194,40 @@
       K.toast(b.label + ' is not treated as a bill', function () { K.kvSet(HIDE_KEY, JSON.stringify(before)); memo.v = null; render(); homeChip(); });
     });
     row.appendChild(x);
+    if (b.mine) {
+      // a bill you added: tap it to fix the name, amount or day
+      mid.classList.add('ap-edit'); mid.setAttribute('role', 'button'); mid.tabIndex = 0;
+      mid.addEventListener('click', function () { editBill(b); });
+    }
     return row;
+  }
+  function editBill(b) {
+    var list = myBills(), KL = window.KharchaLedger, i = list.map(function (m) { return KL.seriesKey(m.name); }).indexOf(b.key);
+    if (i < 0) return;
+    var cur = list[i];
+    K.inputBox({ title: '✏️ Edit ' + cur.name, message: 'Change what is wrong, or tap × on the bill to remove it.',
+      fields: [{ label: 'Name', value: cur.name }, { label: 'Amount (₹)', value: String(cur.amount), inputmode: 'decimal' }, { label: 'Day of the month (1-31)', value: String(cur.day), inputmode: 'numeric' }],
+      confirmText: 'Save',
+      onConfirm: function (v) {
+        var name = String(v[0] || '').trim().slice(0, 40), amt = Number(String(v[1] || '').replace(/[,₹\s]/g, '')), day = parseInt(v[2], 10);
+        if (!name || !(amt > 0) || !(day >= 1 && day <= 31)) { K.toast('Add a name, an amount and a day from 1 to 31'); return; }
+        var next = list.slice(); next[i] = { name: name, amount: Math.round(amt), day: day }; saveMyBills(next); K.toast('Saved ' + name);
+      } });
+  }
+  // bills you hid with ×, listed so they can come back any time (not only from the Undo pop-up)
+  function hiddenList() {
+    var h = hidden(); if (!h.length) return null;
+    var box = el('div', 'ap-hidden');
+    var t = el('button', 'ap-more', ui.hiddenOpen ? 'Close hidden bills ▴' : '🙈 Hidden bills (' + h.length + ') · restore ▾'); t.type = 'button';
+    t.addEventListener('click', function () { ui.hiddenOpen = !ui.hiddenOpen; render(); });
+    box.appendChild(t);
+    if (ui.hiddenOpen) h.forEach(function (k) {
+      var r = el('div', 'ap-sub-row'); r.appendChild(el('span', null, '🙈 ' + k.replace(/\b[a-z]/g, function (c) { return c.toUpperCase(); })));
+      var rb = el('button', 'ap-keep ap-restore', 'Restore'); rb.type = 'button';
+      rb.addEventListener('click', function () { K.kvSet(HIDE_KEY, JSON.stringify(hidden().filter(function (x) { return x !== k; }))); memo.v = null; render(); homeChip(); K.toast('Back on Autopilot'); });
+      r.appendChild(rb); box.appendChild(r);
+    });
+    return box;
   }
   function ordinal(d) { return (d % 100 >= 11 && d % 100 <= 13) ? 'th' : (['th', 'st', 'nd', 'rd'][d % 10] || 'th'); }
   function billsCard(p) {
@@ -228,7 +261,7 @@
     });
     if (!p.bills.length) {
       card.appendChild(el('p', 'ap-muted', 'Bills show up here by themselves once the same payment repeats in two months: EMI, rent, phone, insurance, subscriptions. Add the ones you know now.'));
-      card.appendChild(addB); return card;
+      card.appendChild(addB); var hl0 = hiddenList(); if (hl0) card.appendChild(hl0); return card;
     }
     var order = { late: 0, due: 1, soon: 2, upcoming: 3, paid: 4 };
     var open = p.bills.filter(function (b) { return b.status !== 'paid'; }).sort(function (a, b) { return order[a.status] - order[b.status] || a.daysTo - b.daysTo; });
@@ -242,7 +275,8 @@
       if (ui.paidOpen) paid.forEach(function (b) { card.appendChild(billRow(b)); });
     }
     card.appendChild(addB);
-    card.appendChild(el('p', 'ap-muted', 'Tap × on anything that isn\'t a bill.'));
+    var hl = hiddenList(); if (hl) card.appendChild(hl);
+    card.appendChild(el('p', 'ap-muted', 'Added one by mistake? Tap × on it to remove it. Tap a bill you added to change it. Paid ones are under “Show paid”.'));
     return card;
   }
   function fixedCard(p) {
