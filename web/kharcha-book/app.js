@@ -1543,7 +1543,7 @@
   /* ---------- Shared settings: one row in Supabase kharcha_settings, used by web + phone ----------
      Same keys and string values as localStorage, so feature code just swaps localStorage for kv.
      localStorage stays as the offline cache, and is all there is until the v4 SQL has been run. */
-  var SHARED_KEYS = ['kharcha_salary_seen', 'kharcha_family_acct_off', 'kharcha_autopilot_bills', 'kharcha_autopilot_hide', 'kharcha_autopilot_keep', 'kharcha_not_mine_banks', 'kharcha_trip_mirror_map', 'kharcha_trip_phones', 'kharcha_paybacks', 'kharcha_payback_no', 'kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
+  var SHARED_KEYS = ['kharcha_cardbill_no', 'kharcha_salary_seen', 'kharcha_family_acct_off', 'kharcha_autopilot_bills', 'kharcha_autopilot_hide', 'kharcha_autopilot_keep', 'kharcha_not_mine_banks', 'kharcha_trip_mirror_map', 'kharcha_trip_phones', 'kharcha_paybacks', 'kharcha_payback_no', 'kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
     'kharcha_is_trip_paused', 'kharcha_all_projects_list', 'kharcha_is_project_paused', 'kharcha_legacy_project_name',
     'kharcha_active_trip_name', 'kharcha_all_trips_list', 'kharcha_category_budgets', 'kharcha_merchant_memory',
     'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers', 'kharcha_loans', 'kharcha_wallets', 'kharcha_bank', 'kharcha_cycle', 'kharcha_rules', 'kharcha_acctmap', 'kharcha_primary_acct', 'kharcha_rule_skips', 'kharcha_transfers', 'kharcha_own', 'kharcha_xfer_dismissed', 'kharcha_goal', 'kharcha_receipts', 'kharcha_rules_seeded', 'kharcha_card', 'kharcha_dup_dismissed'];
@@ -3385,8 +3385,11 @@
     if (accts.length > 1) sugg = KL.transferCandidates(state.entries, accts, loadOwn(), Date.now(), loadJsonObj('kharcha_xfer_dismissed'), transferPred(accts)).slice(0, 3);
     var dups = (state.dupMaybe || []).filter(function (m) { return state.entries.indexOf(m.drop) >= 0 && state.entries.indexOf(m.keep) >= 0; }).slice(0, 2);
     var asks = (state.paybackAsk || []).slice(0, 2);
-    if ((!due.length && !sugg.length && !dups.length && !asks.length) || (state.activeStream || 'spends') !== 'spends') { box.hidden = true; return; }
+    var cbNo = loadJsonObj(CARDBILL_NO_KEY), since30 = Date.now() - 30 * 86400000;
+    var cbs = KL.looksLikeCardBill ? state.entries.filter(function (e) { return e.ts > since30 && !cbNo[e.id] && KL.looksLikeCardBill(e); }).slice(0, 2) : [];
+    if ((!due.length && !sugg.length && !dups.length && !asks.length && !cbs.length) || (state.activeStream || 'spends') !== 'spends') { box.hidden = true; return; }
     box.hidden = false;
+    cbs.forEach(function (e) { box.appendChild(cardBillSuggestion(e)); });
     asks.forEach(function (p) { var c = paybackSuggestion(p); if (c) box.appendChild(c); });
     dups.forEach(function (m) { box.appendChild(dupSuggestion(m)); });
     sugg.forEach(function (c) { box.appendChild(transferSuggestion(c, accts)); });
@@ -3534,7 +3537,7 @@
   function paybackSuggestion(p) {
     var inE = state.entries.filter(function (x) { return x.id === p.inId; })[0], outE = state.entries.filter(function (x) { return x.id === p.outIds[0]; })[0];
     if (!inE || !outE) return null;
-    var row = el('div', 'due-card'), txt = el('div', 'due-txt'), isRefund = p.kind === 'refund';
+    var row = el('div', 'due-card due-ask'), txt = el('div', 'due-txt'), isRefund = p.kind === 'refund';
     var left0 = Math.round((outE.amount - inE.amount) * 100) / 100;
     if (isRefund) {
       var shop = window.KharchaLedger.refundShop(inE) || window.KharchaLedger.refundShop(outE) || 'a shop';
@@ -3570,6 +3573,33 @@
     row.appendChild(yes); row.appendChild(no);
     return row;
   }
+  // v132: a bank debit that pays the credit card (Amazon Pay Cred, CRED...): one tap files it as the card bill
+  var CARDBILL_NO_KEY = 'kharcha_cardbill_no';
+  function cardBillName() {
+    var o = loadOwn(), c = ((o && o.cards) || []).filter(function (x) { return x.kind === 'credit'; })[0];
+    return c ? (String(c.bank || '').toUpperCase() + ' ··' + c.last4).trim() : 'card';
+  }
+  function cardBillSuggestion(e) {
+    var row = el('div', 'due-card due-ask'), txt = el('div', 'due-txt'), raw = String(e.raw || '');
+    var via = /amazon\s*pay/i.test(raw + e.desc) ? 'Amazon Pay' : /\bcred\b/i.test(raw + e.desc) ? 'CRED' : '';
+    txt.appendChild(el('b', null, '💳 ' + money(e.amount) + (via ? ' to ' + via : '') + ': your credit card bill?'));
+    txt.appendChild(el('span', null, dFmt.format(new Date(e.ts)) + ' · now counted as a spend. As a card bill it isn\'t (the card swipes already were) and it shows as paid on the Credit card page.'));
+    row.appendChild(txt);
+    var yes = el('button', 'primary small', 'Yes, card bill'); yes.type = 'button';
+    yes.addEventListener('click', function () {
+      yes.disabled = true;
+      var oldDesc = e.desc, nd = '🔁 Credit card bill · ' + cardBillName() + (via ? ' (' + via + ')' : '');
+      store.update(e.id, { amount: e.amount, desc: nd, spent_at: new Date(e.ts).toISOString(), method: e.method || null }).then(function () {
+        render(); toast('💳 Filed as your credit card bill, not a spend', function () {
+          store.update(e.id, { amount: e.amount, desc: oldDesc, spent_at: new Date(e.ts).toISOString(), method: e.method || null }).then(render);
+        });
+      }).catch(function () { yes.disabled = false; toast('Could not save. Try again.'); });
+    });
+    var no = el('button', 'ghost', 'No, a spend'); no.type = 'button';
+    no.addEventListener('click', function () { var d = loadJsonObj(CARDBILL_NO_KEY); d[e.id] = 1; kv.set(CARDBILL_NO_KEY, JSON.stringify(d)); renderDue(); });
+    row.appendChild(yes); row.appendChild(no);
+    return row;
+  }
   function undoPayback(inId) {
     var pb = loadPaybacks(), p = pb.inSet[inId]; if (!p) return Promise.resolve();
     var done = function () { savePaybacks(pb.list.filter(function (x) { return x.inId !== inId; })); var d = loadJsonObj(PAYBACK_NO_KEY); d[inId] = 1; kv.set(PAYBACK_NO_KEY, JSON.stringify(d)); render(); toast('Counted as income again'); };
@@ -3582,7 +3612,7 @@
 
   function tidyUp() { return applyOwnTransfers().then(applyBalanceFromSms, applyBalanceFromSms).then(applyDuplicateCheck, applyDuplicateCheck).then(applyPaybacks, applyPaybacks); }
   function dupSuggestion(m) {
-    var row = el('div', 'due-card'), txt = el('div', 'due-txt');
+    var row = el('div', 'due-card due-ask'), txt = el('div', 'due-txt');
     txt.appendChild(el('b', null, '👯 ' + money(m.drop.amount) + ' may be entered twice'));
     txt.appendChild(el('span', null, (m.keep.desc || 'Entry') + ' · ' + tFmt.format(m.keep.ts) + ' and ' + tFmt.format(m.drop.ts)));
     row.appendChild(txt);
@@ -3671,7 +3701,7 @@
   function transferSuggestion(c, accts) {
     var nameOf = function (id) { var a = accts.filter(function (x) { return x.id === id; })[0]; return a ? a.name : '?'; };
     var from = xferSwap[c.id] ? c.to : c.from, to = xferSwap[c.id] ? c.from : c.to;
-    var row = el('div', 'due-card'), txt = el('div', 'due-txt');
+    var row = el('div', 'due-card due-ask'), txt = el('div', 'due-txt');
     txt.appendChild(el('b', null, '↔ ' + money(c.amount) + ' looks like your own transfer'));
     txt.appendChild(el('span', null, nameOf(from) + ' → ' + nameOf(to) + ' · ' + c.reason));
     row.appendChild(txt);

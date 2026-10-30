@@ -332,3 +332,10 @@ Search "milk", "petrol", "swiggy" (or an amount) and you get a full panel, not j
   - A **Coming up** card on Home lists bills due within 3 days, late, or short of money, using each bill's next due date (an EMI paid on the 5th shows next month's on the 30th).
   - The phone app gets every Autopilot bill (labels like "Flat emi · HDFC (low bal)") and reminds you 2 days before and on the day.
 - **Fix:** long toasts no longer shrink into a circle.
+
+## Card bills paid through Amazon Pay / CRED (v132)
+
+- A bank debit that pays the credit card ("Amazon Pay Cred credited", CRED, "credit card repayment", BillDesk card…) shows a **"💳 your credit card bill?"** question on Home.
+  - **Yes, card bill** files it as "🔁 Credit card bill · ICICI ··1014": not a spend (the swipes already were), still money out of the bank, and "Bill paid" on the Credit card page. Undo is there.
+  - **No, a spend** leaves it as it is (`kharcha_cardbill_no`).
+- Questions (card bill, refund, money back, duplicates, transfers) are never folded into the "N payments due this month" line.
