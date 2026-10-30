@@ -706,3 +706,21 @@ t('creepingSpends: last 30 days against the usual', () => {
   assert.strictEqual(r.up[0].key, 'food'); assert.ok(r.up[0].pct > 100);
   assert.strictEqual(r.down[0].key, 'petrol');
 });
+
+t('routeAccount: an SMS goes to its own bank\'s account; family accounts survive the repair', () => {
+  const accts = L.parseBank(JSON.stringify([
+    { id: 'i', name: 'ICICI SALARY account', snapshots: [{ ts: 1, balance: 100 }] },
+    { id: 'h', name: 'HDFC bak', snapshots: [{ ts: 1, balance: 50 }] },
+    { id: 'p', name: "PNB · Mom's pension", role: 'family', snapshots: [{ ts: 1, balance: 9, src: 'sms' }] }]));
+  assert.strictEqual(accts[2].role, 'family');
+  const hd = { id: 'x1', desc: 'Swiggy', raw: 'Update! INR 200.00 debited from HDFC Bank A/c XX8749', bank: 'HDFC', ts: 5, amount: 200 };
+  const pn = { id: 'x2', desc: 'Received', raw: 'Ac XX0096 Credited with Rs.5000.00. Avl Bal Rs.245310.66CR -PNB', bank: 'PNB', ts: 6, amount: 5000 };
+  const typed = { id: 'x3', desc: 'Milk', ts: 7, amount: 60 };
+  assert.strictEqual(L.routeAccount(hd, accts, {}, [], 'i', null), 'h');
+  assert.strictEqual(L.routeAccount(pn, accts, {}, [], 'i', null), 'p');
+  assert.strictEqual(L.routeAccount(typed, accts, {}, [], 'i', null), 'i');
+  assert.strictEqual(L.routeAccount({ id: 'x4', desc: 'x', raw: 'SBI a/c debited', bank: 'SBI', ts: 8, amount: 1 }, accts, {}, [], 'i', null), null);
+  const r = L.cleanBankAccounts(accts, [pn], ['icici', 'hdfc']);
+  assert.ok(r.accts.some((a) => a.id === 'p'), 'the family account is kept');
+  assert.deepStrictEqual(L.balanceFromSms([pn], accts[2], (e) => L.routeAccount(e, accts, {}, [], 'i', null), () => false), { ts: 6, balance: 245310.66 });
+});

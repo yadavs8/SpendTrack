@@ -300,3 +300,16 @@ Search "milk", "petrol", "swiggy" (or an amount) and you get a full panel, not j
 - **Switch:** ☰ → **🛡️ Ask before save & delete** turns the confirmations on or off (setting `kharcha_confirm_actions`, synced; on by default). Undo pop-ups still work either way.
 - One central check (`safety.js`) covers every page and pop-up, including ones added later.
 - **Fix:** opening Trips and then tapping **+** to add a spend could make the app step "back" out of itself after saving. The back-button history now waits for a pending back step before adding a new one, and never steps back past the app's first page.
+
+## Every bank balance at a glance, with the family account (v130)
+
+- **🏦 Bank balances** in the top card on Home and at the top of the Bank page: every account in one card.
+  - Order: ⭐ ICICI (main) first, then your other accounts (HDFC), then family accounts.
+  - Each row shows a colour badge, the balance, a bar sized to it, and a 30-day **balance trail** sparkline drawn from its SMS balances.
+  - The small line says when it last updated: from an SMS, or when you last typed it. A typed balance older than 7 days says "tap to update", and tapping opens that account's Update balance.
+  - The total shows only **your** accounts.
+- **Family account.** A bank marked "not yours" (Papa's PNB, where Mom's pension comes in) now gets its own **👵 PNB · Mom's pension** card, created by itself from its latest SMS balance and updated with every PNB SMS.
+  - Its money in and out is still never counted as your income or spends.
+  - Stop tracking it with ×, and it won't come back (`kharcha_family_acct_off`).
+- **Fix:** an SMS from a bank that has its own account here (HDFC) now goes to that account. It used to be filed under the main account (ICICI) and moved its estimate.
+- HDFC updates itself as soon as an HDFC SMS with "Avl bal" reaches the phone app. Until then it uses the balance you type.
