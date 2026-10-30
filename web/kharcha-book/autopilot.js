@@ -18,6 +18,14 @@
   function hidden() { try { var a = JSON.parse(K.kvGet(HIDE_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
   function myBills() { try { var a = JSON.parse(K.kvGet(MINE_KEY) || '[]'); return Array.isArray(a) ? a.filter(function (b) { return b && b.name && b.amount > 0 && b.day >= 1 && b.day <= 31; }) : []; } catch (e) { return []; } }
   function saveMyBills(a) { K.kvSet(MINE_KEY, JSON.stringify(a)); memo.v = null; render(); homeChip(); }
+  function shortBank(a) {
+    var k = a.look && a.look.key;
+    return k ? (k.length <= 5 ? k.toUpperCase() : k.charAt(0).toUpperCase() + k.slice(1)) : String(a.name || '').split(' ')[0];
+  }
+  function bankHint(cur) {
+    var bals = K.getBalances ? K.getBalances() : [];
+    return bals.filter(function (x) { return x.role !== 'family'; }).map(shortBank).join(' / ') || 'ICICI / HDFC';
+  }
   function keepAside() { var n = Number(K.kvGet(KEEP_KEY) || 0); return isFinite(n) && n > 0 ? n : 0; }
   function pad(n) { return n < 10 ? '0' + n : String(n); }
   function curKey(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1); }
@@ -46,9 +54,32 @@
       var dueDay = Math.min(mb.day, dim), daysTo = dueDay - now.getDate();
       bills.push({ key: key, label: mb.name, amount: Math.round(mb.amount), day: mb.day, dueTs: new Date(now.getFullYear(), now.getMonth(), dueDay).getTime(), daysTo: daysTo,
         status: hit ? 'paid' : daysTo < -3 ? 'late' : daysTo < 0 ? 'due' : daysTo <= 3 ? 'soon' : 'upcoming', paidAmount: hit ? Math.round(hit.amount) : 0, paidTs: hit ? hit.ts : null,
-        months: 0, change: hit && Math.abs(hit.amount - mb.amount) >= Math.max(10, mb.amount * 0.03) ? Math.round(hit.amount - mb.amount) : 0, sample: hit || { desc: mb.name }, mine: true });
+        months: 0, change: hit && Math.abs(hit.amount - mb.amount) >= Math.max(10, mb.amount * 0.03) ? Math.round(hit.amount - mb.amount) : 0, sample: hit || { desc: mb.name }, mine: true, from: mb.from || '' });
     });
     bills.sort(function (a, b) { return a.day - b.day; });
+    // v131: which bank pays each bill (your choice, else the bank its payment came from, else the main account),
+    // and whether that bank holds enough for what it has to pay in the next 7 days
+    var bals = K.getBalances ? K.getBalances() : [], byId = {};
+    bals.forEach(function (x) { byId[x.id] = x; });
+    var byName = function (txt) { var k = KL.nameKey(String(txt || '')); if (!k) return null; return bals.filter(function (x) { return (x.look.key && k.indexOf(x.look.key) >= 0) || KL.nameKey(x.name).indexOf(k) >= 0; })[0] || null; };
+    bills.forEach(function (b) {
+      var a = b.from ? byName(b.from) : null;
+      if (!a && b.sample && b.sample.ts && K.accountOf) { var acc = K.accountOf(b.sample); a = acc ? byId[acc.id] : null; }
+      if (!a) a = bals.filter(function (x) { return x.main; })[0] || null;
+      b.acct = a ? a.id : null; b.acctShort = a ? shortBank(a) : ''; b.short = 0;
+    });
+    // the next time each bill has to be paid: this month's if still open, else next month's (EMI on the 5th seen on the 30th)
+    var t0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime(), dimNext = new Date(now.getFullYear(), now.getMonth() + 2, 0).getDate();
+    bills.forEach(function (b) {
+      if (b.status !== 'paid') { b.nextIn = b.daysTo; b.nextTs = b.dueTs; }
+      else { b.nextTs = new Date(now.getFullYear(), now.getMonth() + 1, Math.min(b.day, dimNext)).getTime(); b.nextIn = Math.round((b.nextTs - t0) / 86400000); }
+    });
+    var need = {};
+    bills.forEach(function (b) { if (b.acct && b.nextIn <= 7) need[b.acct] = (need[b.acct] || 0) + b.amount; });
+    bills.forEach(function (b) {
+      var a = b.acct && byId[b.acct];
+      if (a && a.role !== 'family' && b.nextIn <= 7 && a.balance < need[b.acct]) { b.short = Math.round(need[b.acct] - a.balance); b.acctBal = a.balance; }
+    });
     // payments this month that look like bills and aren't tracked yet: one tap to add
     var have = bills.map(function (b) { return b.key; }).concat(hide), seen = {};
     var suggest = thisMonth.filter(function (e) {
@@ -176,8 +207,9 @@
     var ic = el('span', 'ap-ic', c.icon || '🧾'); ic.style.background = (c.color || '#64748b') + '22'; row.appendChild(ic);
     var mid = el('div', 'ap-mid');
     mid.appendChild(el('b', null, b.label));
-    var meta = el('small', null, (b.mine ? 'Every month on the ' : 'Usually the ') + b.day + ordinal(b.day) + (b.mine ? ' · added by you' : ' · seen ' + b.months + ' months'));
+    var meta = el('small', null, (b.mine ? 'Every month on the ' : 'Usually the ') + b.day + ordinal(b.day) + (b.acctShort ? ' · 🏦 ' + b.acctShort : '') + (b.mine ? ' · added by you' : ' · seen ' + b.months + ' months'));
     mid.appendChild(meta);
+    if (b.short > 0) mid.appendChild(el('span', 'ap-shortline', '⚠️ ' + b.acctShort + ' has ' + money(b.acctBal) + ' · ' + money(b.short) + ' short for the next one on ' + dLong.format(new Date(b.nextTs))));
     if (b.change) mid.appendChild(el('span', 'ap-chg ' + (b.change > 0 ? 'up' : 'down'), (b.change > 0 ? '▲ ' : '▼ ') + money(Math.abs(b.change)) + (b.change > 0 ? ' more than last month' : ' less than last month')));
     row.appendChild(mid);
     var right = el('div', 'ap-right');
@@ -206,12 +238,13 @@
     if (i < 0) return;
     var cur = list[i];
     K.inputBox({ title: '✏️ Edit ' + cur.name, message: 'Change what is wrong, or tap × on the bill to remove it.',
-      fields: [{ label: 'Name', value: cur.name }, { label: 'Amount (₹)', value: String(cur.amount), inputmode: 'decimal' }, { label: 'Day of the month (1-31)', value: String(cur.day), inputmode: 'numeric' }],
+      fields: [{ label: 'Name', value: cur.name }, { label: 'Amount (₹)', value: String(cur.amount), inputmode: 'decimal' }, { label: 'Day of the month (1-31)', value: String(cur.day), inputmode: 'numeric' },
+        { label: 'Paid from which bank? (optional)', value: cur.from || '', placeholder: bankHint() }],
       confirmText: 'Save',
       onConfirm: function (v) {
-        var name = String(v[0] || '').trim().slice(0, 40), amt = Number(String(v[1] || '').replace(/[,₹\s]/g, '')), day = parseInt(v[2], 10);
+        var name = String(v[0] || '').trim().slice(0, 40), amt = Number(String(v[1] || '').replace(/[,₹\s]/g, '')), day = parseInt(v[2], 10), from = String(v[3] || '').trim().slice(0, 30);
         if (!name || !(amt > 0) || !(day >= 1 && day <= 31)) { K.toast('Add a name, an amount and a day from 1 to 31'); return; }
-        var next = list.slice(); next[i] = { name: name, amount: Math.round(amt), day: day }; saveMyBills(next); K.toast('Saved ' + name);
+        var next = list.slice(); next[i] = { name: name, amount: Math.round(amt), day: day, from: from }; saveMyBills(next); K.toast('Saved ' + name);
       } });
   }
   // bills you hid with ×, listed so they can come back any time (not only from the Undo pop-up)
@@ -241,7 +274,8 @@
         var b = el('button', 'ap-sg'); b.type = 'button';
         b.appendChild(el('span', null, (catOf(e).icon || '🧾') + ' ' + name)); b.appendChild(el('b', null, money(e.amount) + ' · ' + d.getDate() + ordinal(d.getDate())));
         b.addEventListener('click', function () {
-          saveMyBills(myBills().concat([{ name: name, amount: Math.round(e.amount), day: d.getDate() }]));
+          var acc = K.accountOf ? K.accountOf(e) : null;
+          saveMyBills(myBills().concat([{ name: name, amount: Math.round(e.amount), day: d.getDate(), from: acc ? acc.name : '' }]));
           K.toast(name + ' is tracked every month on the ' + d.getDate() + ordinal(d.getDate()));
         });
         sg.appendChild(b);
@@ -251,12 +285,13 @@
     var addB = el('button', 'ap-add', '＋ Add a bill'); addB.type = 'button';
     addB.addEventListener('click', function () {
       K.inputBox({ title: '📅 Add a monthly bill', message: 'Autopilot counts it in safe-to-spend and marks it paid when a payment with this name comes in.',
-        fields: [{ label: 'Name', placeholder: 'e.g. Flat EMI' }, { label: 'Amount (₹)', placeholder: 'e.g. 5718', inputmode: 'decimal' }, { label: 'Day of the month (1-31)', placeholder: 'e.g. 5', inputmode: 'numeric' }],
+        fields: [{ label: 'Name', placeholder: 'e.g. Flat EMI' }, { label: 'Amount (₹)', placeholder: 'e.g. 5718', inputmode: 'decimal' }, { label: 'Day of the month (1-31)', placeholder: 'e.g. 5', inputmode: 'numeric' },
+          { label: 'Paid from which bank? (optional)', placeholder: bankHint() }],
         confirmText: 'Add bill',
         onConfirm: function (v) {
-          var name = String(v[0] || '').trim().slice(0, 40), amt = Number(String(v[1] || '').replace(/[,₹\s]/g, '')), day = parseInt(v[2], 10);
+          var name = String(v[0] || '').trim().slice(0, 40), amt = Number(String(v[1] || '').replace(/[,₹\s]/g, '')), day = parseInt(v[2], 10), from = String(v[3] || '').trim().slice(0, 30);
           if (!name || !(amt > 0) || !(day >= 1 && day <= 31)) { K.toast('Add a name, an amount and a day from 1 to 31'); return; }
-          saveMyBills(myBills().concat([{ name: name, amount: Math.round(amt), day: day }])); K.toast(name + ' added');
+          saveMyBills(myBills().concat([{ name: name, amount: Math.round(amt), day: day, from: from }])); K.toast(name + ' added');
         } });
     });
     if (!p.bills.length) {
@@ -340,17 +375,140 @@
     setTimeout(function () { var b = $('search-all'); if (b && !b.hidden) b.scrollIntoView({ behavior: 'smooth', block: 'start' }); }, 250);
   }
 
+  /* ---------- v131: salary autopilot ----------
+     The day a salary lands: what this salary has to cover until the same salary comes again (bills in between,
+     what you keep aside), and what is free to spend each day. One tap moves the keep-aside into your savings goal. */
+  var SAL_SEEN = 'kharcha_salary_seen', GOAL_KEY = 'kharcha_goal';
+  function salSeen() { try { var a = JSON.parse(K.kvGet(SAL_SEEN) || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+  function loadGoal() { try { var g = JSON.parse(K.kvGet(GOAL_KEY) || 'null'); return g && g.target > 0 && Array.isArray(g.adds) ? g : null; } catch (e) { return null; } }
+  var dLong = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short' });
+  function salaryPlan(p) {
+    var KL = window.KharchaLedger, now = Date.now(), D = 86400000, seen = salSeen();
+    if (!K.isSalary) return null;
+    var sal = K.getEntries().filter(function (e) { return e && !e.synthetic && e.ts <= now && e.ts > now - 3 * D && K.isSalary(e); }).sort(function (a, b) { return b.ts - a.ts; })[0];
+    if (!sal || seen.indexOf(sal.id) >= 0) return null;
+    var d = new Date(sal.ts), key = KL.seriesKey(sal.desc), ser = p.incomes.filter(function (x) { return x.key === key; })[0];
+    var nm = d.getMonth() + 1, dimN = new Date(d.getFullYear(), nm + 1, 0).getDate();
+    var next = new Date(d.getFullYear(), nm, Math.min(ser ? ser.day : d.getDate(), dimN), 10).getTime();
+    var t0 = new Date(new Date(now).getFullYear(), new Date(now).getMonth(), new Date(now).getDate()).getTime();
+    var days = Math.max(1, Math.round((next - t0) / D));
+    var cover = [];
+    p.bills.forEach(function (b) {
+      var nd = new Date(now);
+      [0, 1].forEach(function (off) {
+        var y = nd.getFullYear(), m = nd.getMonth() + off, dim = new Date(y, m + 1, 0).getDate(), due = new Date(y, m, Math.min(b.day, dim), 10).getTime();
+        if (off === 0 ? b.status !== 'paid' : due < next) cover.push({ b: b, due: due });
+      });
+    });
+    cover.sort(function (x, y) { return x.due - y.due; });
+    var bills = cover.reduce(function (t, c) { return t + c.b.amount; }, 0), keep = p.keep;
+    var free = sal.amount - bills - keep;
+    var also = p.incomes.filter(function (x) { return x.key !== key && x.status !== 'paid' && x.daysTo >= 0; });
+    var acc = K.accountOf ? K.accountOf(sal) : null;
+    return { sal: sal, next: next, days: days, cover: cover, bills: bills, keep: keep, free: free, perDay: free / days, also: also, bank: acc ? acc.name : '' };
+  }
+  function salaryCard(sp, onDone) {
+    var card = el('section', 'ap-salary');
+    var x = el('button', 'ap-sal-x', '×'); x.type = 'button'; x.setAttribute('aria-label', 'Hide the salary plan'); x.setAttribute('data-self-confirm', '');
+    card.appendChild(x);
+    card.appendChild(el('div', 'ap-k', '💼 SALARY DAY'));
+    card.appendChild(el('div', 'ap-sal-amt', money(sp.sal.amount)));
+    card.appendChild(el('p', 'ap-sub', 'came in ' + (new Date(sp.sal.ts).toDateString() === new Date().toDateString() ? 'today' : dLong.format(new Date(sp.sal.ts))) + (sp.bank ? ' to ' + sp.bank : '') + '. Here is how it lasts until the next one on ' + dLong.format(new Date(sp.next)) + ' (' + sp.days + ' days).'));
+    var steps = el('div', 'ap-sal-steps');
+    function step(ic, label, amt, sub) {
+      var r = el('div', 'ap-sal-step'); r.appendChild(el('span', 'ap-sal-ic', ic));
+      var t = el('div', 'ap-sal-t'); t.appendChild(el('b', null, label)); if (sub) t.appendChild(el('small', null, sub)); r.appendChild(t);
+      r.appendChild(el('b', 'ap-sal-v', amt)); steps.appendChild(r);
+    }
+    step('📅', 'Bills before then', '− ' + money(sp.bills), sp.cover.length ? sp.cover.slice(0, 3).map(function (c) { return c.b.label + ' ' + dLong.format(new Date(c.due)); }).join(' · ') + (sp.cover.length > 3 ? ' +' + (sp.cover.length - 3) + ' more' : '') : 'No bills found yet. Add them in Autopilot.');
+    step('🐷', 'Keep aside', '− ' + money(sp.keep), sp.keep ? 'Your monthly savings' : 'Not set. 20% would be ' + money(Math.round(sp.sal.amount * 0.2 / 100) * 100));
+    step(sp.free >= 0 ? '🛡️' : '⚠️', sp.free >= 0 ? 'Free to spend' : 'Short this cycle', money(sp.free), sp.free >= 0 ? 'About ' + money(Math.max(0, sp.perDay)) + ' a day for ' + sp.days + ' days' : 'Bills and savings are more than this salary');
+    card.appendChild(steps);
+    if (sp.also.length) card.appendChild(el('p', 'ap-foot', 'Also coming: ' + sp.also.map(function (x) { return x.label + ' ' + money(x.amount) + ' (' + x.day + ordinal(x.day) + ')'; }).join(', ') + '. That is extra on top.'));
+    var acts = el('div', 'ap-sal-acts'), g = loadGoal();
+    var save = sp.keep || Math.round(sp.sal.amount * 0.2 / 100) * 100;
+    if (g) {
+      var mv = el('button', 'ap-sal-go', '🐷 Save ' + money(save) + ' to ' + g.name); mv.type = 'button'; mv.setAttribute('data-confirm', 'Save');
+      mv.addEventListener('click', function () {
+        var before = K.kvGet(GOAL_KEY), cur = loadGoal(); if (!cur) return;
+        K.kvSet(GOAL_KEY, JSON.stringify(Object.assign({}, cur, { adds: cur.adds.concat([{ id: Date.now().toString(36), ts: Date.now(), amount: save }]) })));
+        K.toast('🐷 ' + money(save) + ' added to ' + cur.name, function () { K.kvSet(GOAL_KEY, before); });
+        done();
+      });
+      acts.appendChild(mv);
+    } else if (!sp.keep) {
+      var st = el('button', 'ap-sal-go', '🐷 Keep ' + money(save) + ' aside every month'); st.type = 'button'; st.setAttribute('data-confirm', 'Set');
+      st.addEventListener('click', function () { K.kvSet(KEEP_KEY, String(save)); memo.v = null; K.toast('Autopilot keeps ' + money(save) + ' aside each month'); done(); });
+      acts.appendChild(st);
+    }
+    var ok = el('button', 'ap-sal-ok', 'Got it'); ok.type = 'button'; ok.addEventListener('click', done); acts.appendChild(ok);
+    card.appendChild(acts);
+    function done() { var s0 = salSeen(); if (s0.indexOf(sp.sal.id) < 0) K.kvSet(SAL_SEEN, JSON.stringify(s0.concat([sp.sal.id]).slice(-24))); memo.v = null; if (onDone) onDone(); }
+    x.addEventListener('click', done);
+    return card;
+  }
+
+  /* ---------- v131: bill reminders on Home (the phone app also sends them 2 days before and on the day) ---------- */
+  var NUDGE_SEEN = 'kharcha_bill_nudge_seen';
+  function nudgeSeen() { try { return JSON.parse(localStorage.getItem(NUDGE_SEEN) || '{}') || {}; } catch (e) { return {}; } }
+  function billNudges(p) {
+    var seen = nudgeSeen(), mk = curKey(new Date());
+    return p.bills.filter(function (b) { return (b.nextIn <= 3 || b.short > 0) && b.nextIn <= 7 && !seen[nudgeKey(b)]; })
+      .sort(function (a, b) { return (b.short > 0) - (a.short > 0) || a.nextIn - b.nextIn; }).slice(0, 3);
+  }
+  function nudgeKey(b) { return b.key + '|' + curKey(new Date(b.nextTs)) + '|' + (b.nextIn < 0 ? 'late' : b.nextIn <= 3 ? 'soon' : 'week') + (b.short > 0 ? '|s' : ''); }
+  function nextText(b) {
+    if (b.nextIn < -3) return (-b.nextIn) + ' days late';
+    if (b.nextIn < 0) return 'Was due ' + (-b.nextIn === 1 ? 'yesterday' : (-b.nextIn) + ' days ago');
+    return b.nextIn === 0 ? 'Due today' : b.nextIn === 1 ? 'Due tomorrow' : 'In ' + b.nextIn + ' days · ' + dLong.format(new Date(b.nextTs));
+  }
+  function remindersCard(list, onDone) {
+    var card = el('section', 'ap-remind');
+    var head = el('div', 'ap-remind-h'); head.appendChild(el('b', null, '🔔 Coming up'));
+    var x = el('button', 'ap-sal-x', '×'); x.type = 'button'; x.setAttribute('aria-label', 'Hide these reminders'); x.setAttribute('data-self-confirm', '');
+    head.appendChild(x); card.appendChild(head);
+    list.forEach(function (b) {
+      var r = el('button', 'ap-remind-row ' + (b.nextIn < 0 ? 'late' : b.nextIn <= 3 ? 'soon' : 'upcoming') + (b.short > 0 ? ' short' : '')); r.type = 'button';
+      r.appendChild(el('span', 'ap-ic', (catOf(b.sample).icon || '🧾')));
+      var t = el('span', 'ap-mid'); t.appendChild(el('b', null, b.label));
+      t.appendChild(el('small', null, nextText(b) + (b.acctShort ? ' · from ' + b.acctShort : '')));
+      if (b.short > 0) t.appendChild(el('span', 'ap-shortline', '⚠️ ' + b.acctShort + ' has ' + money(b.acctBal) + '. Add ' + money(b.short) + ' before ' + dLong.format(new Date(b.nextTs))));
+      r.appendChild(t); r.appendChild(el('b', 'ap-remind-amt', money(b.amount)));
+      r.addEventListener('click', goAutopilot);
+      card.appendChild(r);
+    });
+    x.addEventListener('click', function () {
+      var s0 = nudgeSeen(), mk = curKey(new Date());
+      list.forEach(function (b) { s0[nudgeKey(b)] = 1; });
+      try { localStorage.setItem(NUDGE_SEEN, JSON.stringify(s0)); } catch (e) {}
+      if (onDone) onDone();
+    });
+    return card;
+  }
+  function homeNudges() {
+    var old = $('ap-nudges'); if (old) old.remove();
+    var st = K.state || {}, sw = $('stream-switcher');
+    if (!sw || (st.activeStream || 'spends') !== 'spends' || (K.selMonth && K.selMonth() !== curKey(new Date()))) return;
+    var p = plan(); if (!p) return;
+    var box = el('div', 'ap-nudges'); box.id = 'ap-nudges';
+    var sp = salaryPlan(p); if (sp) box.appendChild(salaryCard(sp, homeNudges));
+    var nl = billNudges(p); if (nl.length) box.appendChild(remindersCard(nl, homeNudges));
+    if (!box.children.length) return;
+    var anchor = $('ans-card') || sw; anchor.parentNode.insertBefore(box, anchor);
+  }
+
   function render() {
     var root = $('autopilot-root'); if (!root) return;
     var sec = $('autopilot-sec'); if (sec && sec.hidden) return;
     var p = plan();
     root.textContent = '';
     if (!p) { root.appendChild(el('p', 'err', 'Autopilot could not load. Refresh the page.')); return; }
+    var sp = salaryPlan(p); if (sp) root.appendChild(salaryCard(sp, function () { render(); homeNudges(); }));
     root.appendChild(heroCard(p));
     [billsCard(p), incomeCard(p), fixedCard(p), creepCard(p)].forEach(function (c) { if (c) root.appendChild(c); });
   }
 
   window.__autopilot = { plan: plan, render: render };
   document.addEventListener('kharcha:autopilot', function () { memo.v = null; render(); });
-  document.addEventListener('kharcha:render', function () { memo.v = null; homeChip(); render(); });
+  document.addEventListener('kharcha:render', function () { memo.v = null; homeChip(); homeNudges(); render(); });
 })();
