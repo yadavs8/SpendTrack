@@ -313,3 +313,22 @@ Search "milk", "petrol", "swiggy" (or an amount) and you get a full panel, not j
   - Stop tracking it with ×, and it won't come back (`kharcha_family_acct_off`).
 - **Fix:** an SMS from a bank that has its own account here (HDFC) now goes to that account. It used to be filed under the main account (ICICI) and moved its estimate.
 - HDFC updates itself as soon as an HDFC SMS with "Avl bal" reaches the phone app. Until then it uses the balance you type.
+
+## Salary autopilot, refund matcher, bill reminders with the paying bank (v131)
+
+- **💼 Salary day.** When a salary lands, a card on Home (and at the top of Autopilot) shows how it lasts until the same salary comes again:
+  - the bills due before then (this month's still open and next month's early ones),
+  - what you keep aside (or a 20% suggestion),
+  - what is free to spend, about ₹X a day.
+  - One tap saves the amount to your savings goal (it asks first), or sets a monthly keep-aside.
+  - "Got it" or × hides it for that salary (`kharcha_salary_seen`, synced). Other incomes still to come (Salary 2) are listed as extra.
+- **↩️ Refund matcher.** A credit that says refund, reversal, reversed, chargeback or cancelled is paired with the purchase it undoes: same shop word (AMAZON, MYNTRA…), before it, within 90 days.
+  - Same shop and same amount: matched by itself. Neither is counted as spending or income, with Undo.
+  - A partial refund, or a same-amount credit with no shop word: asked, and "Yes, a refund" makes the spend the net amount.
+  - "Not a refund" leaves it as income. It uses the same store as paybacks, so Undo works the same way.
+- **🔔 Bill reminders with the paying bank.**
+  - Every Autopilot bill knows which bank pays it: your choice ("Paid from which bank?" when adding or editing), else the bank its payment came from, else the main account.
+  - It shows "🏦 HDFC" on the bill and warns when that bank holds less than its bills due in the next 7 days ("⚠️ HDFC has ₹3,182. Add ₹2,536 before 5 Nov").
+  - A **Coming up** card on Home lists bills due within 3 days, late, or short of money, using each bill's next due date (an EMI paid on the 5th shows next month's on the 30th).
+  - The phone app gets every Autopilot bill (labels like "Flat emi · HDFC (low bal)") and reminds you 2 days before and on the day.
+- **Fix:** long toasts no longer shrink into a circle.

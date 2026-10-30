@@ -1128,6 +1128,44 @@
     });
     return { auto: auto, ask: ask };
   }
+  /* ---------- v131: refund matcher ----------
+     A refund / reversal credit is paired with the purchase it undoes: same shop (a shared word such as AMAZON),
+     before the refund, within 90 days. Same amount and same shop: matched by itself (both drop out of spending
+     and income). Same amount, no shop word, or a smaller (partial) refund: asked. */
+  var REFUND_WORDS = /\b(refund(?:ed)?|reversal|reversed|revers(?:ed|al)|chargeback|returned|cancell?ation|cancelled|txn\s+reversed|money\s+back)\b/i;
+  var REFUND_STOP = { refund: 1, refunded: 1, reversal: 1, reversed: 1, credited: 1, credit: 1, debited: 1, account: 1, acct: 1, bank: 1, your: 1, from: 1, for: 1, towards: 1, the: 1, has: 1, been: 1, with: 1, info: 1, upi: 1, ref: 1, imps: 1, neft: 1, card: 1, avl: 1, bal: 1, balance: 1, available: 1, avail: 1, limit: 1, inr: 1, rupees: 1, txn: 1, transaction: 1, dear: 1, customer: 1, money: 1, back: 1, returned: 1, cancelled: 1, cancellation: 1, icici: 1, hdfc: 1, sbi: 1, axis: 1, kotak: 1, pnb: 1, payment: 1, received: 1, amount: 1, will: 1, reflect: 1, days: 1, working: 1, call: 1, sms: 1, block: 1, dispute: 1, not: 1, you: 1, this: 1, that: 1, are: 1, was: 1, ltd: 1, pvt: 1, private: 1, limited: 1, india: 1, www: 1, com: 1, http: 1, https: 1, order: 1, refno: 1 };
+  function shopWords(text) {
+    var out = {};
+    String(text || '').toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).forEach(function (w) { if (w.length >= 4 && !REFUND_STOP[w]) out[w] = 1; });
+    return out;
+  }
+  function isRefundText(e) { return REFUND_WORDS.test(String(e && e.desc || '') + ' ' + String(e && e.raw || '')); }
+  function findRefunds(entries, pairs, dismissed, nowMs, pred) {
+    var usedIn = {}, usedOut = {}, auto = [], ask = [], D = 86400000;
+    (pairs || []).forEach(function (p) { usedIn[p.inId] = 1; (p.outIds || []).forEach(function (id) { usedOut[id] = 1; }); });
+    var ins = [], outs = [];
+    (entries || []).forEach(function (e) {
+      if (!e || e.synthetic || !(e.amount > 0)) return;
+      if (pred.isIn(e) && isRefundText(e) && !usedIn[e.id] && !(dismissed && dismissed[e.id]) && e.ts > nowMs - 60 * D) ins.push(e);
+      else if (pred.isOut(e) && !usedOut[e.id] && !isRefundText(e)) outs.push(e);
+    });
+    ins.sort(function (a, b) { return a.ts - b.ts; }).forEach(function (r) {
+      var rw = shopWords(r.desc + ' ' + String(r.raw || '').slice(0, 200)), amt = toPaise(r.amount);
+      var cands = outs.filter(function (o) { return !usedOut[o.id] && o.ts < r.ts && o.ts > r.ts - 90 * D && toPaise(o.amount) >= amt; }).map(function (o) {
+        var ow = shopWords(o.desc + ' ' + String(o.raw || '').slice(0, 200)), hits = Object.keys(rw).filter(function (w) { return ow[w]; }).length;
+        return { o: o, hits: hits, exact: toPaise(o.amount) === amt };
+      }).sort(function (a, b) { return (b.hits > 0) - (a.hits > 0) || b.exact - a.exact || b.hits - a.hits || b.o.ts - a.o.ts; });
+      var best = cands[0]; if (!best) return;
+      var exactShop = cands.filter(function (c) { return c.exact && c.hits > 0; });
+      if (exactShop.length) { usedOut[exactShop[0].o.id] = 1; auto.push({ inId: r.id, outIds: [exactShop[0].o.id], amount: r.amount, partial: false, kind: 'refund' }); return; }
+      if (best.hits > 0) { ask.push({ inId: r.id, outIds: [best.o.id], amount: r.amount, partial: !best.exact, kind: 'refund' }); return; }
+      var exactAny = cands.filter(function (c) { return c.exact && c.o.ts > r.ts - 30 * D; });
+      if (exactAny.length === 1) ask.push({ inId: r.id, outIds: [exactAny[0].o.id], amount: r.amount, partial: false, kind: 'refund' });
+    });
+    return { auto: auto, ask: ask };
+  }
+  function refundShop(e) { var w = Object.keys(shopWords(String(e && e.desc || '') + ' ' + String(e && e.raw || '').slice(0, 200))); return w.length ? w[0].charAt(0).toUpperCase() + w[0].slice(1) : ''; }
+
   // Everything sent to and received from each person (last `days` days).
   function peopleLedger(entries, pred, nowMs, days, ownNames) {
     var by = {}, since = nowMs - (days || 180) * 86400000, own = ownNames || [];
@@ -1365,7 +1403,7 @@
     addPayment: addPayment, editLoan: editLoan, editPayment: editPayment, summarize: summarize,
     walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, parseWalletDesc: parseWalletDesc,
     parseWallets: parseWallets, walletState: walletState, walletReconcile: walletReconcile,
-    smartSearch: smartSearch, smsAccounts: smsAccounts, searchInsights: searchInsights, payeeName: payeeName, tripDiaryLabel: tripDiaryLabel, placeIn: placeIn, categoryOf: categoryOf, personOf: personOf, findPaybacks: findPaybacks, peopleLedger: peopleLedger, cleanBankAccounts: cleanBankAccounts, smsSourceBank: smsSourceBank, recurringSeries: recurringSeries, safeToSpend: safeToSpend, creepingSpends: creepingSpends, seriesKey: seriesKey, askQuery: askQuery, forecastMonth: forecastMonth, unusualSpends: unusualSpends,
+    smartSearch: smartSearch, smsAccounts: smsAccounts, searchInsights: searchInsights, payeeName: payeeName, tripDiaryLabel: tripDiaryLabel, placeIn: placeIn, categoryOf: categoryOf, personOf: personOf, findPaybacks: findPaybacks, peopleLedger: peopleLedger, cleanBankAccounts: cleanBankAccounts, smsSourceBank: smsSourceBank, findRefunds: findRefunds, isRefundText: isRefundText, refundShop: refundShop, recurringSeries: recurringSeries, safeToSpend: safeToSpend, creepingSpends: creepingSpends, seriesKey: seriesKey, askQuery: askQuery, forecastMonth: forecastMonth, unusualSpends: unusualSpends,
     payCycles: payCycles, lastWorkingDay: lastWorkingDay, nextPayday: nextPayday, parseBank: parseBank, parseAvlBalance: parseAvlBalance, balanceFromSms: balanceFromSms, bankEstimate: bankEstimate, parseTransfers: parseTransfers
   };
 });

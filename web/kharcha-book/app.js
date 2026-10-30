@@ -1484,7 +1484,7 @@
     enterApp: enterApp,
     getSb: function () { return sb; },
     getEntries: function () { return state.entries; },
-    getMonthlySummary: getMonthlySummary, getMonthlyHistory: getMonthlyHistory, monthsWithAnyEntry: monthsWithAnyEntry, getPeriodSummary: getPeriodSummary, isBankIn: isBankIn, isBankOut: isBankOut, getBankTotals: getBankTotals, getTopBank: getTopBank, getBalances: function () { return getBalances(); }, refreshBalances: function () { applyBalanceFromSms(); }, balancesCard: function (w, f) { return balancesCard(w, f); }, dayKey: dayKey, selMonth: function () { return state.sel; }, visibleEntries: function () { return visibleEntries(state.sel); }, isCashWithdrawal: isCashWithdrawal, getHomeFacts: getHomeFacts, isIncome: isIncome, getNetWorthParts: getNetWorthParts, getSpendSources: getSpendSources, backupData: backupData, inspectBackup: inspectBackup, restoreData: restoreData, loadRules: loadRules, kvGet: function (k) { return kv.get(k); }, kvSet: function (k, v) { kv.set(k, v); }, toast: function (m, u) { toast(m, u); }, confirmBox: function (o) { showConfirmModal(o); }, inputBox: function (o) { showInputModal(o); }, startOfDay: startOfDay,
+    getMonthlySummary: getMonthlySummary, getMonthlyHistory: getMonthlyHistory, monthsWithAnyEntry: monthsWithAnyEntry, getPeriodSummary: getPeriodSummary, isBankIn: isBankIn, isBankOut: isBankOut, getBankTotals: getBankTotals, getTopBank: getTopBank, getBalances: function () { return getBalances(); }, accountOf: function (e) { var KL = window.KharchaLedger, accts = loadBank(); if (!KL || !accts.length || !e) return null; var id = KL.routeAccount(e, accts, loadJsonObj(ACCTMAP_KEY), loadRules(), primaryAcctId(accts), loadOwn()); return accts.filter(function (a) { return a.id === id; })[0] || null; }, recurringKey: function (d) { return recurringKey(d); }, refreshBalances: function () { applyBalanceFromSms(); }, runTidy: function () { return tidyUp(); }, balancesCard: function (w, f) { return balancesCard(w, f); }, dayKey: dayKey, selMonth: function () { return state.sel; }, visibleEntries: function () { return visibleEntries(state.sel); }, isCashWithdrawal: isCashWithdrawal, getHomeFacts: getHomeFacts, isIncome: isIncome, getNetWorthParts: getNetWorthParts, getSpendSources: getSpendSources, backupData: backupData, inspectBackup: inspectBackup, restoreData: restoreData, loadRules: loadRules, kvGet: function (k) { return kv.get(k); }, kvSet: function (k, v) { kv.set(k, v); }, toast: function (m, u) { toast(m, u); }, confirmBox: function (o) { showConfirmModal(o); }, inputBox: function (o) { showInputModal(o); }, startOfDay: startOfDay,
     parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, parseSMSDate: parseSMSDate, findDuplicate: findDuplicate, categoryBreakdown: categoryBreakdown, monthCompare: monthCompare,
     isIncome: isIncome, isMotherSettlement: isMotherSettlement, isMotherPension: isMotherPension, isSalary: isSalary, isExpense: isExpense, isInvestment: isInvestment, getFamilySettlement: getFamilySettlement, getPersonalCashFlow: getPersonalCashFlow,
     isProjectEntry: isProjectEntry, isProjectMotherPaid: isProjectMotherPaid, getProjectSummary: getProjectSummary, projectNameOf: projectNameOf, cleanScopePrefix: cleanScopePrefix,
@@ -1543,7 +1543,7 @@
   /* ---------- Shared settings: one row in Supabase kharcha_settings, used by web + phone ----------
      Same keys and string values as localStorage, so feature code just swaps localStorage for kv.
      localStorage stays as the offline cache, and is all there is until the v4 SQL has been run. */
-  var SHARED_KEYS = ['kharcha_family_acct_off', 'kharcha_autopilot_bills', 'kharcha_autopilot_hide', 'kharcha_autopilot_keep', 'kharcha_not_mine_banks', 'kharcha_trip_mirror_map', 'kharcha_trip_phones', 'kharcha_paybacks', 'kharcha_payback_no', 'kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
+  var SHARED_KEYS = ['kharcha_salary_seen', 'kharcha_family_acct_off', 'kharcha_autopilot_bills', 'kharcha_autopilot_hide', 'kharcha_autopilot_keep', 'kharcha_not_mine_banks', 'kharcha_trip_mirror_map', 'kharcha_trip_phones', 'kharcha_paybacks', 'kharcha_payback_no', 'kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
     'kharcha_is_trip_paused', 'kharcha_all_projects_list', 'kharcha_is_project_paused', 'kharcha_legacy_project_name',
     'kharcha_active_trip_name', 'kharcha_all_trips_list', 'kharcha_category_budgets', 'kharcha_merchant_memory',
     'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers', 'kharcha_loans', 'kharcha_wallets', 'kharcha_bank', 'kharcha_cycle', 'kharcha_rules', 'kharcha_acctmap', 'kharcha_primary_acct', 'kharcha_rule_skips', 'kharcha_transfers', 'kharcha_own', 'kharcha_xfer_dismissed', 'kharcha_goal', 'kharcha_receipts', 'kharcha_rules_seeded', 'kharcha_card', 'kharcha_dup_dismissed'];
@@ -2276,6 +2276,15 @@
       // Recurring bills go to the phone, which reminds you a couple of days before each is due.
       var bills = recurringBills(state.entries, nowKey).filter(function (b) { return b.isExpense; }).slice(0, 40)
         .map(function (b) { return { key: b.key, label: b.label, amount: b.amount, day: b.day, paidThisMonth: b.paidThisMonth }; });
+      var ap = window.__autopilot && window.__autopilot.plan ? window.__autopilot.plan() : null;
+      if (ap && ap.bills && ap.bills.length) {
+        var seen = {};
+        bills = ap.bills.map(function (b) {
+          var key = recurringKey((b.sample && b.sample.desc) || b.label); seen[key] = 1;
+          var label = b.label + (b.acctShort ? ' · ' + b.acctShort : '') + (b.short > 0 ? ' (low bal)' : '');
+          return { key: key, label: label.slice(0, 40), amount: b.amount, day: b.day, paidThisMonth: b.status === 'paid' };
+        }).concat(bills.filter(function (b) { return !seen[b.key]; })).slice(0, 40);
+      }
       bridge.reportSummary(JSON.stringify({
         month: monthLabel(nowKey),
         spentLabel: money(fc.spent),
@@ -3504,33 +3513,56 @@
     var KL = window.KharchaLedger;
     if (!KL || !KL.findPaybacks || state.mode !== 'db') return;
     var pb = loadPaybacks(), res = KL.findPaybacks(state.entries, pb.list, loadJsonObj(PAYBACK_NO_KEY), Date.now(), paybackPred(), ownNameList());
+    // v131: refunds and reversals undo the purchase they belong to (same store, so Undo and "not a refund" work the same)
+    if (KL.findRefunds) {
+      var rf = KL.findRefunds(state.entries, pb.list.concat(res.auto), loadJsonObj(PAYBACK_NO_KEY), Date.now(), paybackPred());
+      res = { auto: res.auto.concat(rf.auto), ask: res.ask.concat(rf.ask) };
+    }
     state.paybackAsk = res.ask;
     if (!res.auto.length) return;
     var before = pb.list.slice(), now = Date.now();
     savePaybacks(before.concat(res.auto.map(function (p) { return Object.assign({ ts: now }, p); })));
     render();
     var first = res.auto[0], inE = state.entries.filter(function (x) { return x.id === first.inId; })[0];
+    if (first.kind === 'refund') {
+      var outE0 = state.entries.filter(function (x) { return x.id === first.outIds[0]; })[0], shop = KL.refundShop(inE) || 'the shop';
+      toast('↩️ ' + money(first.amount) + ' refund from ' + shop + ' matched to your ' + (outE0 ? dFmt.format(new Date(outE0.ts)) + ' ' : '') + 'purchase. Not counted as spending or income' + (res.auto.length > 1 ? ' (+' + (res.auto.length - 1) + ' more)' : '') + '.', function () { savePaybacks(before); render(); toast('Undone: counted as income again'); });
+      return;
+    }
     toast((inE ? personTitle(inE) : 'A friend') + ' sent ' + money(first.amount) + ' back. Not counted as spending or income' + (res.auto.length > 1 ? ' (+' + (res.auto.length - 1) + ' more)' : '') + '.', function () { savePaybacks(before); render(); });
   }
   function paybackSuggestion(p) {
     var inE = state.entries.filter(function (x) { return x.id === p.inId; })[0], outE = state.entries.filter(function (x) { return x.id === p.outIds[0]; })[0];
     if (!inE || !outE) return null;
-    var row = el('div', 'due-card'), txt = el('div', 'due-txt');
-    txt.appendChild(el('b', null, '\u21A9\uFE0F ' + personTitle(inE) + ' sent ' + money(inE.amount) + ' back?'));
-    txt.appendChild(el('span', null, 'For the ' + money(outE.amount) + ' you paid on ' + dFmt.format(new Date(outE.ts)) + '. Your spend becomes ' + money(Math.round((outE.amount - inE.amount) * 100) / 100) + '.'));
+    var row = el('div', 'due-card'), txt = el('div', 'due-txt'), isRefund = p.kind === 'refund';
+    var left0 = Math.round((outE.amount - inE.amount) * 100) / 100;
+    if (isRefund) {
+      var shop = window.KharchaLedger.refundShop(inE) || window.KharchaLedger.refundShop(outE) || 'a shop';
+      txt.appendChild(el('b', null, '\u21A9\uFE0F ' + money(inE.amount) + ' refund from ' + shop + '?'));
+      txt.appendChild(el('span', null, 'For ' + cleanScopePrefix(outE.desc).slice(0, 40) + ' · ' + money(outE.amount) + ' on ' + dFmt.format(new Date(outE.ts)) + '. ' + (p.partial ? 'Your spend becomes ' + money(left0) + '.' : 'Neither is counted as spending or income.')));
+    } else {
+      txt.appendChild(el('b', null, '\u21A9\uFE0F ' + personTitle(inE) + ' sent ' + money(inE.amount) + ' back?'));
+      txt.appendChild(el('span', null, 'For the ' + money(outE.amount) + ' you paid on ' + dFmt.format(new Date(outE.ts)) + '. Your spend becomes ' + money(left0) + '.'));
+    }
     row.appendChild(txt);
-    var yes = el('button', 'primary small', 'Yes, money back'); yes.type = 'button';
+    var yes = el('button', 'primary small', isRefund ? 'Yes, a refund' : 'Yes, money back'); yes.type = 'button';
     yes.addEventListener('click', function () {
       yes.disabled = true;
+      if (!p.partial) {   // the whole amount came back: both drop out, nothing to edit
+        savePaybacks(loadPaybacks().list.concat([{ inId: inE.id, outIds: p.outIds.slice(), amount: inE.amount, partial: false, kind: p.kind || 'payback', ts: Date.now() }]));
+        state.paybackAsk = (state.paybackAsk || []).filter(function (x) { return x !== p; }); render();
+        toast('Matched: not counted as spending or income', function () { undoPayback(inE.id); });
+        return;
+      }
       var left = Math.round((outE.amount - inE.amount) * 100) / 100, oldDesc = outE.desc, oldAmt = outE.amount;
       var note = String(oldDesc).replace(/\s*\(\u21A9[^)]*\)\s*$/, '') + ' (\u21A9 ' + money(inE.amount) + ' back)';
       store.update(outE.id, { amount: left, desc: note.slice(0, 120), spent_at: new Date(outE.ts).toISOString(), method: outE.method || null }).then(function () {
-        var list = loadPaybacks().list.concat([{ inId: inE.id, outIds: [outE.id], amount: inE.amount, partial: true, origAmount: oldAmt, origDesc: oldDesc, ts: Date.now() }]);
+        var list = loadPaybacks().list.concat([{ inId: inE.id, outIds: [outE.id], amount: inE.amount, partial: true, kind: p.kind || 'payback', origAmount: oldAmt, origDesc: oldDesc, ts: Date.now() }]);
         savePaybacks(list); state.paybackAsk = (state.paybackAsk || []).filter(function (x) { return x !== p; }); render();
         toast('Got it: ' + money(inE.amount) + ' back, spend now ' + money(left), function () { undoPayback(inE.id); });
       }).catch(function () { yes.disabled = false; toast('Could not save. Try again.'); });
     });
-    var no = el('button', 'ghost', 'No, it\'s income'); no.type = 'button';
+    var no = el('button', 'ghost', isRefund ? 'Not a refund' : 'No, it\'s income'); no.type = 'button';
     no.addEventListener('click', function () {
       var d = loadJsonObj(PAYBACK_NO_KEY); d[inE.id] = 1; kv.set(PAYBACK_NO_KEY, JSON.stringify(d));
       state.paybackAsk = (state.paybackAsk || []).filter(function (x) { return x !== p; }); renderDue();

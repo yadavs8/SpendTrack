@@ -894,3 +894,42 @@ body.privacy .bk-amt, body.privacy .bk-tot b, body.privacy .bk-foot { filter: bl
 .bk-ttl { white-space: nowrap; }
 .bk-head { flex-wrap: wrap; row-gap: 2px; }
 .bk-all.hero .bk-spark { width: 54px; }
+
+/* v131: salary autopilot, bill reminders, refunds */
+.ap-nudges { display: grid; gap: 12px; margin: 0 0 14px; }
+.ap-salary { position: relative; overflow: hidden; padding: 18px 16px 14px; border-radius: 22px; color: #fff; background: linear-gradient(140deg, #4338ca 0%, #7c3aed 50%, #db2777 130%); box-shadow: 0 16px 36px -16px rgba(124, 58, 237, .7); animation: apSalIn .6s cubic-bezier(.16, 1, .3, 1); }
+.ap-salary::before { content: '✨'; position: absolute; right: 16px; top: 12px; font-size: 1.6rem; opacity: .35; animation: apTwinkle 2.4s ease-in-out infinite; }
+.ap-sal-x { position: absolute; right: 10px; top: 10px; width: 30px; height: 30px; border-radius: 50%; border: 0; background: rgba(255, 255, 255, .18); color: inherit; font-size: 1.1rem; line-height: 1; cursor: pointer; z-index: 1; }
+.ap-sal-amt { font-size: 2.3rem; font-weight: 900; letter-spacing: -.02em; font-variant-numeric: tabular-nums; margin: 2px 0 2px; }
+.ap-sal-steps { display: grid; gap: 8px; margin: 10px 0 8px; }
+.ap-sal-step { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; background: rgba(255, 255, 255, .14); border: 1px solid rgba(255, 255, 255, .18); animation: apStep .5s cubic-bezier(.16, 1, .3, 1) both; }
+.ap-sal-step:nth-child(2) { animation-delay: .12s; } .ap-sal-step:nth-child(3) { animation-delay: .24s; background: rgba(255, 255, 255, .24); }
+.ap-sal-ic { flex: none; font-size: 1.2rem; }
+.ap-sal-t { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.ap-sal-t b { font-size: .9rem; } .ap-sal-t small { font-size: .72rem; opacity: .85; line-height: 1.3; }
+.ap-sal-v { flex: none; font-variant-numeric: tabular-nums; font-size: .98rem; }
+.ap-sal-acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.ap-sal-go { flex: 1 1 auto; padding: 10px 14px; border-radius: 12px; border: 0; background: #fff; color: #5b21b6; font-weight: 800; cursor: pointer; }
+.ap-sal-ok { padding: 10px 16px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, .5); background: transparent; color: #fff; font-weight: 700; cursor: pointer; }
+.ap-salary .ap-foot { margin: 4px 0 8px; }
+.ap-remind { padding: 14px; border-radius: 20px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow-sm); }
+.ap-remind-h { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.ap-remind .ap-sal-x { position: static; background: rgba(100, 116, 139, .14); color: var(--muted); }
+.ap-remind-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 0; border: 0; border-top: 1px solid var(--line); background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.ap-remind-row:first-of-type { border-top: 0; }
+.ap-remind-row small { color: var(--muted); font-size: .74rem; }
+.ap-remind-row.late small, .ap-remind-row.due small { color: #dc2626; font-weight: 700; }
+.ap-remind-row.soon small { color: #b45309; font-weight: 700; }
+.ap-remind-amt { flex: none; font-variant-numeric: tabular-nums; }
+.ap-shortline { display: block; margin-top: 3px; font-size: .74rem; font-weight: 700; color: #dc2626; line-height: 1.3; }
+.ap-remind-row.short { background: linear-gradient(90deg, rgba(239, 68, 68, .07), transparent); border-radius: 12px; }
+:root[data-theme="dark"] .ap-shortline, :root[data-theme="dark"] .ap-remind-row.late small { color: #f87171; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .ap-shortline, :root:not([data-theme="light"]) .ap-remind-row.late small { color: #f87171; } }
+body.privacy .ap-sal-amt, body.privacy .ap-sal-v, body.privacy .ap-remind-amt, body.privacy .ap-shortline { filter: blur(7px); }
+@keyframes apSalIn { from { opacity: 0; transform: translateY(12px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes apStep { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: none; } }
+@keyframes apTwinkle { 0%, 100% { opacity: .2; transform: scale(.9) rotate(0); } 50% { opacity: .55; transform: scale(1.1) rotate(12deg); } }
+@media (prefers-reduced-motion: reduce) { .ap-salary, .ap-sal-step, .ap-salary::before { animation: none; } }
+/* v131: long toasts (refund matched, ...) stay a wide rounded bar instead of shrinking into a circle */
+.toast { width: max-content; max-width: min(calc(100vw - 32px), 520px); border-radius: 18px; line-height: 1.35; }
+.ap-salary::before { right: 52px; }

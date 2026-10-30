@@ -724,3 +724,25 @@ t('routeAccount: an SMS goes to its own bank\'s account; family accounts survive
   assert.ok(r.accts.some((a) => a.id === 'p'), 'the family account is kept');
   assert.deepStrictEqual(L.balanceFromSms([pn], accts[2], (e) => L.routeAccount(e, accts, {}, [], 'i', null), () => false), { ts: 6, balance: 245310.66 });
 });
+
+t('findRefunds: same shop + amount is matched, partial or shop-less ones are asked', () => {
+  const D = 864e5, now = new Date(2026, 9, 30, 12).getTime();
+  const isIn = (e) => e.kind === 'income', isOut = (e) => e.kind === 'expense';
+  const rows = [
+    { id: 'p1', amount: 1261.5, desc: '🏠 amazon shopping', raw: 'INR 1,261.50 spent using ICICI Bank Card XX1014 on 11-Oct-26 on AMAZON PAY IN G.', kind: 'expense', ts: now - 19 * D },
+    { id: 'r1', amount: 1261.5, desc: 'Refund', raw: 'Refund of INR 1,261.50 from AMAZON PAY IN G credited to ICICI Bank Card XX1014', kind: 'income', ts: now - 2 * D },
+    { id: 'p2', amount: 2400, desc: 'Myntra order', raw: 'ICICI Bank Acct XX602 debited Rs 2400 UPI MYNTRA DESIGNS', kind: 'expense', ts: now - 10 * D },
+    { id: 'r2', amount: 899, desc: 'Received', raw: 'ICICI Bank Acct XX602 credited Rs 899 refund from MYNTRA DESIGNS', kind: 'income', ts: now - D },
+    { id: 'p3', amount: 350, desc: 'Swiggy', kind: 'expense', ts: now - 5 * D },
+    { id: 'r3', amount: 350, desc: 'Received', raw: 'Rs 350 credited to your a/c. Txn reversed.', kind: 'income', ts: now - 4 * D },
+    { id: 's1', amount: 59581, desc: '💼 Salary', raw: 'credited with salary', kind: 'income', ts: now - D }
+  ];
+  const r = L.findRefunds(rows, [], {}, now, { isIn, isOut });
+  assert.deepStrictEqual(r.auto.map((p) => [p.inId, p.outIds[0], p.partial]), [['r1', 'p1', false]]);
+  const ask = Object.fromEntries(r.ask.map((p) => [p.inId, p]));
+  assert.strictEqual(ask.r2.outIds[0], 'p2'); assert.strictEqual(ask.r2.partial, true);
+  assert.strictEqual(ask.r3.outIds[0], 'p3'); assert.strictEqual(ask.r3.partial, false);
+  assert.ok(!ask.s1, 'a salary is not a refund');
+  assert.strictEqual(L.refundShop(rows[1]), 'Amazon');
+  assert.strictEqual(L.findRefunds(rows, [{ inId: 'r1', outIds: ['p1'] }], { r2: 1 }, now, { isIn, isOut }).auto.length, 0);
+});
