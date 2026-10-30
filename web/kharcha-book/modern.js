@@ -470,13 +470,18 @@
       bars.appendChild(col);
     });
     box.appendChild(bars);
-    var bank = K.getTopBank ? K.getTopBank() : null;
-    if (bank) {
-      var chip = el('button', 'hx-bank'); chip.type = 'button';
-      chip.appendChild(el('span', null, '\uD83C\uDFE6 ' + bank.name + ' balance'));
-      chip.appendChild(el('b', null, K.money(bank.balance)));
-      chip.addEventListener('click', function () { goStream('bank'); });
-      box.appendChild(chip);
+    // v129b: every bank (ICICI first, then yours, then the family account) with a bar and its 30-day balance trail
+    var bal = K.balancesCard ? K.balancesCard('hero', function () { goStream('bank'); }) : null;
+    if (bal) box.appendChild(bal);
+    else {
+      var bank = K.getTopBank ? K.getTopBank() : null;
+      if (bank) {
+        var chip = el('button', 'hx-bank'); chip.type = 'button';
+        chip.appendChild(el('span', null, '\uD83C\uDFE6 ' + bank.name + ' balance'));
+        chip.appendChild(el('b', null, K.money(bank.balance)));
+        chip.addEventListener('click', function () { goStream('bank'); });
+        box.appendChild(chip);
+      }
     }
   }
 

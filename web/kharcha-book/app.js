@@ -61,6 +61,7 @@
   function isIncome(e) { return isIncomeRaw(e) && !isPaybackIn(e) && !isNotMineBank(e); }
   // v126: alerts from a bank that isn't yours (a parent's account linked to your phone number) stay visible
   // but are never counted as your income, spending or cash. Default: PNB, which you said is your father's.
+  var FAMILY_OFF_KEY = 'kharcha_family_acct_off';
   var NOT_MINE_KEY = 'kharcha_not_mine_banks', notMineMemo = { raw: undefined, list: [] }, srcBankMemo = new WeakMap();
   function notMineBanks() {
     var raw = kv.get(NOT_MINE_KEY);
@@ -1020,6 +1021,87 @@
     return { name: a.name, balance: est.balance };
   }
 
+  /* ---------- v129b: every bank balance at a glance ---------- */
+  var BANK_LOOK = { icici: ['#f37021', 'IC'], hdfc: ['#004c8f', 'HD'], pnb: ['#a3195b', 'PN'], sbi: ['#2a73ba', 'SB'], axis: ['#97144d', 'AX'], kotak: ['#ed1c24', 'KO'], baroda: ['#f15a22', 'BB'], canara: ['#0091d5', 'CA'], idfc: ['#9c1d26', 'ID'], yes: ['#0060ab', 'YB'], union: ['#d71920', 'UB'], indusind: ['#8b1d41', 'IN'] };
+  function bankLook(name) {
+    var k = window.KharchaLedger.nameKey(name), hit = Object.keys(BANK_LOOK).filter(function (b) { return k.indexOf(b) >= 0; })[0];
+    return hit ? { key: hit, color: BANK_LOOK[hit][0], ab: BANK_LOOK[hit][1] } : { key: '', color: '#0d9488', ab: String(name || '?').replace(/[^A-Za-z]/g, '').slice(0, 2).toUpperCase() || '₹' };
+  }
+  // [{ id, name, balance, role, main, updated, fromSms, trail: [{ ts, balance }] }], main account first, then yours, then family.
+  function getBalances() {
+    var KL = window.KharchaLedger, accts = loadBank();
+    if (!KL || !accts.length) return [];
+    var pid = primaryAcctId(accts), since = Date.now() - 30 * 86400000;
+    return accts.map(function (a) {
+      var pr = bankPreds(a, accts), est = KL.bankEstimate(state.entries, a, pr.isIn, pr.isOut, loadTransfers());
+      var snaps = a.snapshots, last = snaps[snaps.length - 1];
+      var trail = snaps.filter(function (x) { return x.ts >= since; }).map(function (x) { return { ts: x.ts, balance: x.balance }; });
+      var before = snaps.filter(function (x) { return x.ts < since; }).pop();
+      if (before) trail.unshift({ ts: since, balance: before.balance });
+      if (!trail.length || Math.abs(trail[trail.length - 1].balance - est.balance) > 0.005) trail.push({ ts: Date.now(), balance: est.balance });
+      return { id: a.id, name: a.name, balance: est.balance, role: a.role || '', main: a.id === pid, updated: last.ts, fromSms: last.src === 'sms', moved: est.items.length, trail: trail, look: bankLook(a.name) };
+    }).sort(function (x, y) { return (y.main - x.main) || ((x.role === 'family') - (y.role === 'family')) || (y.balance - x.balance); });
+  }
+  function ago(ts) {
+    var m = Math.max(0, Math.round((Date.now() - ts) / 60000));
+    if (m < 60) return m <= 1 ? 'just now' : m + ' min ago';
+    var h = Math.round(m / 60); if (h < 24) return h + 'h ago';
+    var d = Math.round(h / 24); return d === 1 ? 'yesterday' : d + ' days ago';
+  }
+  function sparkline(trail, color) {
+    var ns = 'http://www.w3.org/2000/svg', W = 64, H = 22, svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H); svg.setAttribute('class', 'bk-spark'); svg.setAttribute('aria-hidden', 'true');
+    var pts = trail.length > 1 ? trail : [{ ts: 0, balance: trail[0] ? trail[0].balance : 0 }, { ts: 1, balance: trail[0] ? trail[0].balance : 0 }];
+    var t0 = pts[0].ts, t1 = pts[pts.length - 1].ts || 1, lo = Math.min.apply(null, pts.map(function (p) { return p.balance; })), hi = Math.max.apply(null, pts.map(function (p) { return p.balance; }));
+    var xy = pts.map(function (p, i) {
+      var x = t1 > t0 ? (p.ts - t0) / (t1 - t0) * (W - 4) + 2 : i / (pts.length - 1) * (W - 4) + 2;
+      var y = hi > lo ? H - 3 - (p.balance - lo) / (hi - lo) * (H - 6) : H / 2;
+      return x.toFixed(1) + ',' + y.toFixed(1);
+    });
+    var area = document.createElementNS(ns, 'polygon'); area.setAttribute('points', '2,' + H + ' ' + xy.join(' ') + ' ' + (W - 2) + ',' + H); area.setAttribute('fill', color); area.setAttribute('opacity', '0.16'); svg.appendChild(area);
+    var line = document.createElementNS(ns, 'polyline'); line.setAttribute('points', xy.join(' ')); line.setAttribute('fill', 'none'); line.setAttribute('stroke', color); line.setAttribute('stroke-width', '1.8'); line.setAttribute('stroke-linejoin', 'round'); line.setAttribute('stroke-linecap', 'round'); svg.appendChild(line);
+    var end = xy[xy.length - 1].split(','), dot = document.createElementNS(ns, 'circle'); dot.setAttribute('cx', end[0]); dot.setAttribute('cy', end[1]); dot.setAttribute('r', '2.4'); dot.setAttribute('fill', color); svg.appendChild(dot);
+    return svg;
+  }
+  // The balances card: on Home (inside the top card) and at the top of the Bank page.
+  function balancesCard(where, onPick) {
+    var list = getBalances(); if (!list.length) return null;
+    var box = el('div', 'bk-all ' + (where || 'page'));
+    var mine = list.filter(function (b) { return b.role !== 'family'; }), fam = list.filter(function (b) { return b.role === 'family'; });
+    var sum = function (l) { return l.reduce(function (t, b) { return t + b.balance; }, 0); };
+    var head = el('div', 'bk-head');
+    head.appendChild(el('span', 'bk-ttl', '🏦 Bank balances'));
+    var tot = el('span', 'bk-tot'); tot.appendChild(el('b', null, money(sum(mine)))); tot.appendChild(el('small', null, fam.length ? ' yours' : ' total'));
+    head.appendChild(tot); box.appendChild(head);
+    var max = Math.max.apply(null, list.map(function (b) { return Math.abs(b.balance); })) || 1;
+    list.forEach(function (b) {
+      var row = el('button', 'bk-row' + (b.main ? ' main' : '') + (b.role === 'family' ? ' fam' : '')); row.type = 'button';
+      row.style.setProperty('--bk', b.look.color);
+      var badge = el('span', 'bk-badge', b.look.ab); row.appendChild(badge);
+      var mid = el('span', 'bk-mid');
+      // short bank name in bold, the account's own label ("Salary account", "Mom's pension") on the small line
+      var short = b.look.key ? (b.look.key === 'baroda' ? 'Bank of Baroda' : b.look.key === 'yes' ? 'Yes Bank' : b.look.key.length <= 5 ? b.look.key.toUpperCase() : b.look.key.charAt(0).toUpperCase() + b.look.key.slice(1)) : b.name;
+      var rest = b.look.key ? b.name.replace(new RegExp(b.look.key, 'i'), '').replace(/^[\s·:\-]+|[\s·:\-]+$/g, '').replace(/^(bank|bak|bnk|a\/c|account)$/i, '') : '';
+      rest = rest ? rest.charAt(0).toUpperCase() + rest.slice(1).toLowerCase().replace(/\bmom's\b/, 'Mom\'s') : '';
+      var nm = el('span', 'bk-name'); nm.appendChild(el('b', null, short));
+      if (b.main) nm.appendChild(el('i', 'bk-tag main', '⭐ Main'));
+      if (b.role === 'family') nm.appendChild(el('i', 'bk-tag fam', '👵 Family'));
+      mid.appendChild(nm);
+      var bar = el('span', 'bk-bar'), fill = el('i'); fill.style.width = Math.max(3, Math.round(Math.abs(b.balance) / max * 100)) + '%'; bar.appendChild(fill); mid.appendChild(bar);
+      var stale = !b.fromSms && Date.now() - b.updated > 7 * 86400000;
+      mid.appendChild(el('small', 'bk-when' + (stale ? ' stale' : ''), (rest ? rest + ' · ' : '') + (b.fromSms ? '✉️ ' : '✏️ ') + ago(b.updated) + (stale ? ' · tap to update' : '')));
+      row.appendChild(mid);
+      var right = el('span', 'bk-right');
+      right.appendChild(el('b', 'bk-amt' + (b.balance < 0 ? ' neg' : ''), money(b.balance)));
+      right.appendChild(sparkline(b.trail, b.look.color));
+      row.appendChild(right);
+      row.addEventListener('click', function () { if (onPick) onPick(b); });
+      box.appendChild(row);
+    });
+    if (fam.length) box.appendChild(el('p', 'bk-foot', '👵 ' + fam.map(function (b) { return b.name; }).join(', ') + ': ' + money(sum(fam)) + '. Shown for you to look after; never counted in your income or spends.'));
+    return box;
+  }
+
   function groupByDay(list) {
     var map = new Map();
     list.slice().sort(byTimeDesc).forEach(function (e) {
@@ -1402,7 +1484,7 @@
     enterApp: enterApp,
     getSb: function () { return sb; },
     getEntries: function () { return state.entries; },
-    getMonthlySummary: getMonthlySummary, getMonthlyHistory: getMonthlyHistory, monthsWithAnyEntry: monthsWithAnyEntry, getPeriodSummary: getPeriodSummary, isBankIn: isBankIn, isBankOut: isBankOut, getBankTotals: getBankTotals, getTopBank: getTopBank, dayKey: dayKey, selMonth: function () { return state.sel; }, visibleEntries: function () { return visibleEntries(state.sel); }, isCashWithdrawal: isCashWithdrawal, getHomeFacts: getHomeFacts, isIncome: isIncome, getNetWorthParts: getNetWorthParts, getSpendSources: getSpendSources, backupData: backupData, inspectBackup: inspectBackup, restoreData: restoreData, loadRules: loadRules, kvGet: function (k) { return kv.get(k); }, kvSet: function (k, v) { kv.set(k, v); }, toast: function (m, u) { toast(m, u); }, confirmBox: function (o) { showConfirmModal(o); }, inputBox: function (o) { showInputModal(o); }, startOfDay: startOfDay,
+    getMonthlySummary: getMonthlySummary, getMonthlyHistory: getMonthlyHistory, monthsWithAnyEntry: monthsWithAnyEntry, getPeriodSummary: getPeriodSummary, isBankIn: isBankIn, isBankOut: isBankOut, getBankTotals: getBankTotals, getTopBank: getTopBank, getBalances: function () { return getBalances(); }, refreshBalances: function () { applyBalanceFromSms(); }, balancesCard: function (w, f) { return balancesCard(w, f); }, dayKey: dayKey, selMonth: function () { return state.sel; }, visibleEntries: function () { return visibleEntries(state.sel); }, isCashWithdrawal: isCashWithdrawal, getHomeFacts: getHomeFacts, isIncome: isIncome, getNetWorthParts: getNetWorthParts, getSpendSources: getSpendSources, backupData: backupData, inspectBackup: inspectBackup, restoreData: restoreData, loadRules: loadRules, kvGet: function (k) { return kv.get(k); }, kvSet: function (k, v) { kv.set(k, v); }, toast: function (m, u) { toast(m, u); }, confirmBox: function (o) { showConfirmModal(o); }, inputBox: function (o) { showInputModal(o); }, startOfDay: startOfDay,
     parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, parseSMSDate: parseSMSDate, findDuplicate: findDuplicate, categoryBreakdown: categoryBreakdown, monthCompare: monthCompare,
     isIncome: isIncome, isMotherSettlement: isMotherSettlement, isMotherPension: isMotherPension, isSalary: isSalary, isExpense: isExpense, isInvestment: isInvestment, getFamilySettlement: getFamilySettlement, getPersonalCashFlow: getPersonalCashFlow,
     isProjectEntry: isProjectEntry, isProjectMotherPaid: isProjectMotherPaid, getProjectSummary: getProjectSummary, projectNameOf: projectNameOf, cleanScopePrefix: cleanScopePrefix,
@@ -1461,7 +1543,7 @@
   /* ---------- Shared settings: one row in Supabase kharcha_settings, used by web + phone ----------
      Same keys and string values as localStorage, so feature code just swaps localStorage for kv.
      localStorage stays as the offline cache, and is all there is until the v4 SQL has been run. */
-  var SHARED_KEYS = ['kharcha_autopilot_bills', 'kharcha_autopilot_hide', 'kharcha_autopilot_keep', 'kharcha_not_mine_banks', 'kharcha_trip_mirror_map', 'kharcha_trip_phones', 'kharcha_paybacks', 'kharcha_payback_no', 'kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
+  var SHARED_KEYS = ['kharcha_family_acct_off', 'kharcha_autopilot_bills', 'kharcha_autopilot_hide', 'kharcha_autopilot_keep', 'kharcha_not_mine_banks', 'kharcha_trip_mirror_map', 'kharcha_trip_phones', 'kharcha_paybacks', 'kharcha_payback_no', 'kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
     'kharcha_is_trip_paused', 'kharcha_all_projects_list', 'kharcha_is_project_paused', 'kharcha_legacy_project_name',
     'kharcha_active_trip_name', 'kharcha_all_trips_list', 'kharcha_category_budgets', 'kharcha_merchant_memory',
     'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers', 'kharcha_loans', 'kharcha_wallets', 'kharcha_bank', 'kharcha_cycle', 'kharcha_rules', 'kharcha_acctmap', 'kharcha_primary_acct', 'kharcha_rule_skips', 'kharcha_transfers', 'kharcha_own', 'kharcha_xfer_dismissed', 'kharcha_goal', 'kharcha_receipts', 'kharcha_rules_seeded', 'kharcha_card', 'kharcha_dup_dismissed'];
@@ -3353,6 +3435,17 @@
         }
       }
     }
+    // v129b: a bank that isn't yours but whose SMS reach your phone (Papa's PNB, where Mom's pension comes) gets its
+    // own family balance card, built from its latest SMS balance. It is never counted in your income or spends.
+    var off = []; try { off = JSON.parse(kv.get(FAMILY_OFF_KEY) || '[]') || []; } catch (e) { off = []; }
+    notMineBanks().forEach(function (k) {
+      if (off.indexOf(k) >= 0 || accts.some(function (a) { return KL.nameKey(a.name).indexOf(k) >= 0; })) return;
+      var last = null;
+      state.entries.forEach(function (e) { if (srcBankOf(e) !== k || !e.raw) return; var v = KL.parseAvlBalance(e.raw); if (v != null && (!last || e.ts > last.ts)) last = { ts: e.ts, balance: v }; });
+      if (!last) return;
+      accts = accts.concat([{ id: newLoanId(), name: (k === 'pnb' ? 'PNB' : k.toUpperCase()) + (k === 'pnb' ? ' · Mom\'s pension' : ' · Family'), role: 'family', held: [], deposits: [], snapshots: [{ ts: last.ts, balance: last.balance, src: 'sms' }] }]);
+      saveBank(accts); accts = loadBank(); added = true;
+    });
     if (!accts.length) return;
     var map = loadJsonObj(ACCTMAP_KEY), rules = loadRules(), pid = primaryAcctId(accts), own2 = loadOwn(), updates = {}, any = added;
     accts.forEach(function (a) {
@@ -3719,7 +3812,14 @@
       intro.appendChild(el('p', null, 'Track your bank balance. Type what the bank shows today; after that the app adds the income you log and takes off the spending that left the account, so you always see an estimate. Update it now and then to correct any drift.'));
       root.appendChild(intro);
     }
-    accts.forEach(function (a) { root.appendChild(bankCard(a)); });
+    var allCard = accts.length ? balancesCard('page', function (b) {
+      var c = root.querySelector('.wal-card[data-acct="' + b.id + '"]'); if (!c) return;
+      if (!b.fromSms && Date.now() - b.updated > 7 * 86400000 && bankUi.mode[b.id] !== 'check') { bankUi.mode[b.id] = 'check'; renderBank(); c = root.querySelector('.wal-card[data-acct="' + b.id + '"]'); }
+      if (c) { c.scrollIntoView({ behavior: 'smooth', block: 'start' }); c.classList.add('flash'); setTimeout(function () { c.classList.remove('flash'); }, 1400); }
+    }) : null;
+    if (allCard) root.appendChild(allCard);
+    var order = getBalances().map(function (b) { return b.id; });
+    accts.slice().sort(function (x, y) { return order.indexOf(x.id) - order.indexOf(y.id); }).forEach(function (a) { root.appendChild(bankCard(a)); });
     if (accts.length > 1) root.appendChild(bankTransfers(accts));
     var nm = notMineCard(accts); if (nm) root.appendChild(nm);
     if (bankUi.add || !accts.length) root.appendChild(bankSetupForm());
@@ -3744,8 +3844,8 @@
     var keys = Object.keys(seen).concat(list.filter(function (k) { return !seen[k]; }));
     if (!keys.length) return null;
     var box = el('div', 'wal-card nm-card');
-    box.appendChild(el('div', 'in-k', '🚫 NOT YOUR BANK · NOT COUNTED'));
-    box.appendChild(el('p', 'hint', 'SMS from these banks reach your phone but the account isn\'t yours, so they never change your income, spends or balance.'));
+    box.appendChild(el('div', 'in-k', '👵 FAMILY ACCOUNT · NOT IN YOUR TOTALS'));
+    box.appendChild(el('p', 'hint', 'Its balance is shown above, from its own SMS. Its money in and out is never counted as your income or spends, so Mom\'s pension doesn\'t look like your salary.'));
     keys.forEach(function (k) {
       var rows = (seen[k] || []).slice().sort(function (a, b) { return b.ts - a.ts; });
       var name = k.toUpperCase(), inn = 0, out = 0, mk = monthKey(Date.now());
@@ -3755,7 +3855,7 @@
       tx.appendChild(el('b', null, '🏦 ' + name));
       tx.appendChild(el('small', null, rows.length + ' SMS · this month ' + money(inn) + ' in · ' + money(out) + ' out' + (rows.length ? (notMineOpen[k] ? ' · hide ▴' : ' · show ▾') : '')));
       tx.addEventListener('click', function () { notMineOpen[k] = !notMineOpen[k]; renderBank(); });
-      var flip = el('button', 'ghost nm-flip', 'Count as mine'); flip.type = 'button';
+      var flip = el('button', 'ghost nm-flip', 'Count in my totals'); flip.type = 'button';
       flip.addEventListener('click', function () {
         setNotMineBank(k, false); render(); renderBank();
         toast(name + ' is counted as yours again', function () { setNotMineBank(k, true); render(); renderBank(); });
@@ -3845,10 +3945,15 @@
     var est = KL.bankEstimate(state.entries, a, pr.isIn, pr.isOut, loadTransfers());
     var card = el('div', 'wal-card');
     var head = el('div', 'wal-head');
-    head.appendChild(el('span', 'wal-name', '🏦 ' + a.name));
+    head.appendChild(el('span', 'wal-name', (a.role === 'family' ? '👵 ' : '🏦 ') + a.name));
+    if (a.id === primaryAcctId(allAccts)) head.appendChild(el('span', 'bk-tag main', '⭐ Main'));
+    if (a.role === 'family') head.appendChild(el('span', 'bk-tag fam', 'Family · not in your spends'));
+    card.dataset.acct = a.id;
     var rm = el('button', 'udh-x', '×'); rm.type = 'button'; rm.setAttribute('aria-label', 'Stop tracking ' + a.name); rm.setAttribute('data-self-confirm', '');
     rm.addEventListener('click', function () {
-      showConfirmModal({ title: 'Stop tracking ' + a.name + '?', message: 'Only the balance card is removed. Your entries stay.', onConfirm: function () { saveBank(loadBank().filter(function (x) { return x.id !== a.id; })); renderBank(); render(); } });
+      showConfirmModal({ title: 'Stop tracking ' + a.name + '?', message: 'Only the balance card is removed. Your entries stay.', onConfirm: function () {
+        if (a.role === 'family') { var KLf = window.KharchaLedger, offs = []; try { offs = JSON.parse(kv.get(FAMILY_OFF_KEY) || '[]') || []; } catch (e) {} notMineBanks().forEach(function (k) { if (KLf.nameKey(a.name).indexOf(k) >= 0 && offs.indexOf(k) < 0) offs.push(k); }); kv.set(FAMILY_OFF_KEY, JSON.stringify(offs)); }
+        saveBank(loadBank().filter(function (x) { return x.id !== a.id; })); renderBank(); render(); } });
     });
     head.appendChild(rm); card.appendChild(head);
     card.appendChild(el('div', 'wal-bal' + (est.balance < 0 ? ' neg' : ''), money(est.balance)));

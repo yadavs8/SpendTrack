@@ -444,7 +444,7 @@
     return arr.filter(function (a) { return a && typeof a.id === 'string' && cleanName(a.name) && Array.isArray(a.snapshots); })
       .map(function (a) {
         return {
-          id: a.id, name: cleanName(a.name),
+          id: a.id, name: cleanName(a.name), role: a.role === 'family' ? 'family' : '',
           held: Array.isArray(a.held) ? a.held.filter(function (x) { return typeof x === 'string'; }) : [],
           deposits: Array.isArray(a.deposits) ? a.deposits.filter(function (d) { return d && isFinite(d.ts) && isFinite(d.amount) && d.amount > 0; })
             .map(function (d) { return { ts: Number(d.ts), amount: Number(d.amount), label: String(d.label || ''), ref: d.ref ? String(d.ref) : '' }; }) : [],
@@ -487,7 +487,7 @@
     (accts || []).forEach(function (a) {
       var autoOnly = a.snapshots.length && a.snapshots.every(function (x) { return x.src === 'sms'; });
       var k = nameKey(a.name);
-      if (autoOnly && (keepKeys || []).every(function (kk) { return k.indexOf(kk) < 0; })) { changed = true; return; }
+      if (autoOnly && a.role !== 'family' && (keepKeys || []).every(function (kk) { return k.indexOf(kk) < 0; })) { changed = true; return; }
       var snaps = a.snapshots.filter(function (x) {
         if (x.src !== 'sms') return true;
         var e = byTs[x.ts]; return !e || smsMatchesAccount(e, a);
@@ -774,7 +774,7 @@
       return hit ? hit.id : null;
     }
     var ek = bankKeyOfEntry(entry);
-    if (ek && !accts.some(function (a) { return nameKey(a.name).indexOf(ek) >= 0; })) return null; // another bank (e.g. a family member's account): not yours to count
+    if (ek) { var bk = acctByKey(accts, ek); return bk ? bk.id : null; }   // an HDFC SMS is HDFC's; a bank you don't track is no account's
     return ids.indexOf(primaryId) >= 0 ? primaryId : (ids[0] || null);
   }
 
