@@ -1128,6 +1128,16 @@
     });
     return { auto: auto, ask: ask };
   }
+  /* ---------- v132: card bills paid from the bank ----------
+     Paying the credit card through Amazon Pay, CRED or the bank shows as an ordinary UPI debit ("Amazon Pay Cred
+     credited"). It is not a new spend (the card swipes were), so such debits are offered as "Credit card bill". */
+  var CARD_PAY = /amazon\s*pay\s*cred|\bcred\s*club\b|\bcredclub\b|\bcred\.club\b|credit\s*card\s*(?:bill|payment|repayment|dues?)|card\s*(?:bill|repayment|dues)|\bcc\s*(?:bill|payment|repayment)\b|billdesk[^.]{0,24}card|\bcred\b(?!\s*(?:wallet|cash|coins?))/i;
+  function looksLikeCardBill(e) {
+    if (!e || e.synthetic || !(e.amount > 0) || e.kind === 'income' || e.kind === 'transfer' || e.method === 'credit_card') return false;
+    if (/^\s*\u{1F501}/u.test(e.desc || '') || /credit\s*card\s*bill/i.test(e.desc || '')) return false;   // already a card bill
+    return CARD_PAY.test(String(e.desc || '') + ' ' + String(e.raw || '').slice(0, 200));
+  }
+
   /* ---------- v131: refund matcher ----------
      A refund / reversal credit is paired with the purchase it undoes: same shop (a shared word such as AMAZON),
      before the refund, within 90 days. Same amount and same shop: matched by itself (both drop out of spending
@@ -1403,7 +1413,7 @@
     addPayment: addPayment, editLoan: editLoan, editPayment: editPayment, summarize: summarize,
     walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, parseWalletDesc: parseWalletDesc,
     parseWallets: parseWallets, walletState: walletState, walletReconcile: walletReconcile,
-    smartSearch: smartSearch, smsAccounts: smsAccounts, searchInsights: searchInsights, payeeName: payeeName, tripDiaryLabel: tripDiaryLabel, placeIn: placeIn, categoryOf: categoryOf, personOf: personOf, findPaybacks: findPaybacks, peopleLedger: peopleLedger, cleanBankAccounts: cleanBankAccounts, smsSourceBank: smsSourceBank, findRefunds: findRefunds, isRefundText: isRefundText, refundShop: refundShop, recurringSeries: recurringSeries, safeToSpend: safeToSpend, creepingSpends: creepingSpends, seriesKey: seriesKey, askQuery: askQuery, forecastMonth: forecastMonth, unusualSpends: unusualSpends,
+    smartSearch: smartSearch, smsAccounts: smsAccounts, searchInsights: searchInsights, payeeName: payeeName, tripDiaryLabel: tripDiaryLabel, placeIn: placeIn, categoryOf: categoryOf, personOf: personOf, findPaybacks: findPaybacks, peopleLedger: peopleLedger, cleanBankAccounts: cleanBankAccounts, smsSourceBank: smsSourceBank, findRefunds: findRefunds, isRefundText: isRefundText, looksLikeCardBill: looksLikeCardBill, refundShop: refundShop, recurringSeries: recurringSeries, safeToSpend: safeToSpend, creepingSpends: creepingSpends, seriesKey: seriesKey, askQuery: askQuery, forecastMonth: forecastMonth, unusualSpends: unusualSpends,
     payCycles: payCycles, lastWorkingDay: lastWorkingDay, nextPayday: nextPayday, parseBank: parseBank, parseAvlBalance: parseAvlBalance, balanceFromSms: balanceFromSms, bankEstimate: bankEstimate, parseTransfers: parseTransfers
   };
 });

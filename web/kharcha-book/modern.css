@@ -375,7 +375,7 @@ body.calm #add:not(.open) { display: none; }
 .quick-add-close { float: right; padding: 4px 12px; font-size: 0.8rem; }
 .actions-bar .csv-btn { font-size: 0; gap: 0; padding: 10px 12px; }
 .actions-bar .csv-btn svg { font-size: 1rem; }
-.due-box.due-fold .due-card { display: none; }
+.due-box.due-fold .due-card:not(.due-ask) { display: none; }
 .due-sum { width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); color: var(--ink); font: inherit; font-weight: 700; text-align: left; cursor: pointer; }
 #months-sec:not(.open) .months { display: none; }
 .fold-title { cursor: pointer; } .fold-title::after { content: ' \25BE'; } #months-sec.open .fold-title::after { content: ' \25B4'; }

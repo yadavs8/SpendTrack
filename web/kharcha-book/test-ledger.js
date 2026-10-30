@@ -746,3 +746,14 @@ t('findRefunds: same shop + amount is matched, partial or shop-less ones are ask
   assert.strictEqual(L.refundShop(rows[1]), 'Amazon');
   assert.strictEqual(L.findRefunds(rows, [{ inId: 'r1', outIds: ['p1'] }], { r2: 1 }, now, { isIn, isOut }).auto.length, 0);
 });
+
+t('looksLikeCardBill: Amazon Pay / CRED card payments, not swipes or CRED wallet', () => {
+  const raw = (x) => 'AD-ICICIT-S ICICI Bank Acct XX602 debited for Rs 62000.00 on 30-Oct-26; ' + x + ' credited. UPI:1234.';
+  assert.strictEqual(L.looksLikeCardBill({ amount: 62000, desc: 'Amazon', kind: 'expense', method: 'upi', raw: raw('Amazon Pay Cred') }), true);
+  assert.strictEqual(L.looksLikeCardBill({ amount: 9000, desc: 'CRED', kind: 'expense', method: 'upi', raw: raw('CRED Club') }), true);
+  assert.strictEqual(L.looksLikeCardBill({ amount: 4274.91, desc: 'credit card repayment', kind: 'expense', method: 'upi', raw: raw('Shop') }), true);
+  assert.strictEqual(L.looksLikeCardBill({ amount: 804, desc: 'Amazon', kind: 'expense', method: 'credit_card', raw: 'INR 804.00 spent using ICICI Bank Card XX1014 on AMAZON PAY IN E' }), false);
+  assert.strictEqual(L.looksLikeCardBill({ amount: 25, desc: '💰 Cred wallet', kind: 'income', raw: '₹25 has been credited to your CRED wallet' }), false);
+  assert.strictEqual(L.looksLikeCardBill({ amount: 62000, desc: '🔁 Credit card bill · ICICI ··1014', kind: 'transfer', raw: raw('Amazon Pay Cred') }), false);
+  assert.strictEqual(L.looksLikeCardBill({ amount: 499, desc: 'Amazon', kind: 'expense', method: 'upi', raw: raw('Amazon Pay Groceries') }), false);
+});

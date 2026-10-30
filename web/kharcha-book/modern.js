@@ -1386,7 +1386,7 @@
       var busy = false, openDue = false;
       var tidy = function () {
         if (busy) return; busy = true;
-        var cards = due.querySelectorAll('.due-card');
+        var cards = due.querySelectorAll('.due-card:not(.due-ask)');   // questions (card bill, refund, money back) always stay open
         var old = due.querySelector('.due-sum'); if (old) old.remove();
         due.classList.toggle('due-fold', cards.length > 1 && !openDue);
         if (cards.length > 1) {
