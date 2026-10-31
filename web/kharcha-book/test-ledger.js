@@ -777,3 +777,36 @@ t('kitchen: your milk and coffee amounts, typed items, monthly use', () => {
   assert.strictEqual(amul.qty, 5); assert.strictEqual(amul.amount, 360); assert.strictEqual(amul.perUnit, 72); assert.strictEqual(amul.everyDays, 1);
   assert.strictEqual(s.find((x) => x.id === 'coffee').qty, 10);
 });
+
+t('vendors: who sold it, what they sell, and what an amount means at that shop', () => {
+  const sms = (x) => ({ raw: 'AX-ICICIT-S ICICI Bank Acct XX602 debited for Rs 100.00 on 30-Oct-26; ' + x + ' credited. UPI:1.', desc: 'whatever' });
+  assert.deepStrictEqual(L.vendorOf(sms('Lavish kirana s')), { key: 'lavish kirana', name: 'Lavish Kirana' });
+  assert.strictEqual(L.vendorOf(sms('SANSKRITI S STO')).key, 'sanskriti');
+  assert.strictEqual(L.vendorOf(sms('VIJAY VEGETABLE')).key, 'vijay vegetable');
+  assert.strictEqual(L.vendorOf(sms('VIJAY HARDWARE')).key, 'vijay hardware');
+  assert.strictEqual(L.vendorOf({ desc: '🏠 Banana', amount: 40 }).key, 'banana');
+  assert.strictEqual(L.vendorKind('apna hair saloo').always, 'haircut');
+  assert.strictEqual(L.vendorKind('vijay').kind, 'veg'); assert.strictEqual(L.vendorKind('vijay hardware'), null);
+  assert.strictEqual(L.vendorKind('lavish kirana').kind, 'kirana');
+  const lav = L.vendorOf(sms('Lavish kirana s')), kind = L.vendorKind(lav.key);
+  // known pattern at a milk-selling shop
+  assert.strictEqual(L.vendorGuess(null, kind, 172).auto.map((l) => l.id).join(','), 'coffee,amul');
+  // learns: Rs 100 = 10 coffee here
+  const coffee = L.parseItemsText('10 coffee');
+  let pr = L.learnVendor({}, lav, 100, coffee);
+  assert.strictEqual(L.vendorGuess(pr[lav.key], kind, 100).auto[0].id, 'coffee');
+  // the same Rs 100 was rice once: two readings -> ask with both, coffee first
+  pr = L.learnVendor(pr, lav, 100, L.parseItemsText('rice 1kg 100'));
+  let g = L.vendorGuess(pr[lav.key], kind, 100);
+  assert.strictEqual(g.auto, null); assert.strictEqual(g.options.length, 2);
+  pr = L.learnVendor(L.learnVendor(L.learnVendor(pr, lav, 100, coffee), lav, 100, coffee), lav, 100, coffee);
+  g = L.vendorGuess(pr[lav.key], kind, 100);
+  assert.strictEqual(g.auto[0].id, 'coffee', 'four coffees to one rice: coffee is the usual');
+  // salon: always a haircut, money only
+  const sal = L.vendorGuess(null, L.vendorKind('apna hair saloo'), 50);
+  assert.strictEqual(sal.auto[0].id, 'haircut'); assert.strictEqual(sal.auto[0].amount, 50); assert.strictEqual(sal.auto[0].qty, null);
+  // a veg seller learned from 3 tags of sabzi only -> always sabzi
+  const vj = L.vendorOf(sms('VIJAY')); let pv = {};
+  [60, 30, 80].forEach((a) => { pv = L.learnVendor(pv, vj, a, [{ id: 'sabzi', name: 'Vegetables', icon: '🥬', qty: null, unit: 'kg', amount: a }]); });
+  assert.strictEqual(L.vendorGuess(pv[vj.key], L.vendorKind(vj.key), 55).auto[0].id, 'sabzi');
+});

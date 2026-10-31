@@ -1154,7 +1154,10 @@
     { id: 'tea', name: 'Tea', icon: '🍵', unit: 'pkt', words: ['tea', 'chai', 'chai patti', 'tea leaves'] },
     { id: 'dhaniya', name: 'Dhaniya / mirchi', icon: '🌿', unit: 'bunch', words: ['dhaniya', 'coriander', 'mirchi', 'chilli', 'chili', 'pudina', 'mint'] },
     { id: 'dryfruit', name: 'Dry fruits', icon: '🥜', unit: 'kg', words: ['makhana', 'kishmish', 'badam', 'almond', 'almonds', 'kaju', 'cashew', 'raisin', 'raisins', 'dry fruit', 'dry fruits', 'walnut', 'akhrot'] },
-    { id: 'snacks', name: 'Snacks', icon: '🍪', unit: 'pkt', words: ['biscuit', 'biscuits', 'namkeen', 'chips', 'snacks', 'maggi', 'noodles'] }
+    { id: 'snacks', name: 'Snacks', icon: '🍪', unit: 'pkt', words: ['biscuit', 'biscuits', 'namkeen', 'chips', 'snacks', 'maggi', 'noodles'] },
+    { id: 'grocery', name: 'Grocery (misc)', icon: '🛒', unit: 'pc', words: ['grocery', 'groceries', 'kirana', 'ration', 'saman', 'samaan'] },
+    { id: 'haircut', name: 'Haircut', icon: '💇', unit: 'pc', words: ['haircut', 'hair cut', 'salon', 'saloon', 'barber', 'shave', 'shaving', 'beard', 'trim'] },
+    { id: 'flowers', name: 'Flowers', icon: '💐', unit: 'pc', words: ['flower', 'flowers', 'phool', 'mala', 'maala'] }
   ];
   // What you told the app: these exact amounts at a kirana are always the same basket.
   var KITCHEN_PATTERNS = { 3600: [['amul', 1]], 7200: [['amul', 2]], 4000: [['a2', 1]], 8000: [['a2', 2]], 13600: [['coffee', 10], ['amul', 1]], 17200: [['coffee', 10], ['amul', 2]] };
@@ -1242,6 +1245,62 @@
         perUnit: x.priced > 0 ? Math.round(x.pricedP / x.priced) / 100 : null, perDay: x.qty > 0 ? Math.round(x.qty / days * 1000) / 1000 : null,
         everyDays: gap != null ? Math.round(gap * 10) / 10 : null, last: x.last, nextTs: gap != null && gap >= 1 ? Math.round(x.last + gap * 86400000) : null };
     }).sort(function (a, b) { return b.amount - a.amount; });
+  }
+
+  /* ---------- v134: vendors remember what they sell ----------
+     The shop is the best clue: "Lavish Kirana S" sells milk / coffee / rice, "Vijay Vegetable" sells sabzi, a salon is
+     a haircut. Each saved basket teaches its vendor: which items it sells and which basket each amount means there. */
+  function vendorOf(e) {
+    var raw = String(e && e.raw || ''), m = /;\s*([^;]{2,40}?)\s+credited/i.exec(raw) || /\b(?:paid to|to)\s+([A-Za-z][A-Za-z .&'-]{2,40}?)(?:\s+on\b|\s*[.;,(]|\s+ref|\s+upi|$)/i.exec(raw);
+    var name = m ? m[1] : String(e && e.desc || '').replace(/\([^)]*\)/g, ' ').replace(/^[^A-Za-z]+/, '').replace(/^[^:]{0,30}:\s+/, '');
+    name = name.replace(/[^A-Za-z0-9 &'.-]/g, ' ').replace(/\s+/g, ' ').trim();
+    var words = name.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(' ').filter(Boolean);
+    while (words.length > 1 && /^(s|st|sto|stor|store|g|ge|gen|k|ki|kir|kira|kiran|e|sh|sho|shop|c|co|p|pv|pvt|t)$/.test(words[words.length - 1])) words.pop();   // "SANSKRITI S STO" -> sanskriti
+    var key = words.slice(0, 3).join(' ');
+    if (key.length < 3) return null;
+    var nice = key.replace(/\b[a-z]/g, function (c) { return c.toUpperCase(); });
+    return { key: key, name: nice };
+  }
+  // What a vendor probably sells, from its name, before it has learned anything.
+  function vendorKind(name) {
+    var n = String(name || '').toLowerCase();
+    if (/sal+o+n|saloo|barber|hair|beauty|parlou?r/.test(n)) return { kind: 'salon', items: ['haircut'], always: 'haircut' };
+    if (/vegetable|sabzi|sabji|fruit|phal/.test(n) || /^vijay$/.test(n)) return { kind: 'veg', items: ['sabzi', 'fruits', 'adrak', 'pyaz', 'aloo', 'tamatar', 'banana', 'dhaniya'] };
+    if (/dairy|milk|doodh|bala ji|shivam janral/.test(n)) return { kind: 'milk', items: ['amul', 'a2', 'paneer', 'dahi', 'coffee'] };
+    if (/kirana|provision|general|grocer|mart\b|store|sanskriti|lavish|rajbir/.test(n)) return { kind: 'kirana', items: ['amul', 'a2', 'coffee', 'rice', 'atta', 'dal', 'sugar', 'tea', 'oil', 'snacks', 'grocery'] };
+    if (/flower|phool/.test(n)) return { kind: 'flowers', items: ['flowers'], always: 'flowers' };
+    return null;
+  }
+  function basketSig(lines) { return lines.map(function (l) { return l.id + ':' + (l.qty == null ? '' : l.qty); }).sort().join('|'); }
+  // Teach a vendor one saved basket. Returns a new profiles object.
+  function learnVendor(profiles, v, amount, lines) {
+    var all = Object.assign({}, profiles || {}), p = Object.assign({ name: v.name, n: 0, items: {}, baskets: {} }, all[v.key] || {});
+    p.items = Object.assign({}, p.items); p.baskets = Object.assign({}, p.baskets); p.name = p.name || v.name; p.n = (p.n || 0) + 1;
+    lines.forEach(function (l) { if (l.id !== 'other') p.items[l.id] = (p.items[l.id] || 0) + 1; });
+    var pk = String(toPaise(amount)), b = Object.assign({}, p.baskets[pk] || {}), sig = basketSig(lines);
+    b[sig] = { lines: lines.map(function (l) { return { id: l.id, name: l.name, icon: l.icon, qty: l.qty, unit: l.unit, amount: l.amount }; }), n: ((b[sig] && b[sig].n) || 0) + 1 };
+    var sigs = Object.keys(b).sort(function (x, y) { return b[y].n - b[x].n; }).slice(0, 4), keep = {};
+    sigs.forEach(function (k) { keep[k] = b[k]; }); p.baskets[pk] = keep;
+    var amts = Object.keys(p.baskets); if (amts.length > 60) delete p.baskets[amts[0]];
+    all[v.key] = p;
+    return all;
+  }
+  // For a spend at this vendor: { auto: lines|null, options: [{ lines, n, from }] } (most likely first).
+  function vendorGuess(profile, kind, amount, catalog) {
+    var pk = String(toPaise(amount)), out = [], b = profile && profile.baskets && profile.baskets[pk];
+    if (b) Object.keys(b).sort(function (x, y) { return b[y].n - b[x].n; }).forEach(function (k) { out.push({ lines: b[k].lines, n: b[k].n, from: 'vendor' }); });
+    var sellsMilk = (kind && kind.items.indexOf('amul') >= 0) || (profile && profile.items && (profile.items.amul || profile.items.coffee || profile.items.a2));
+    if (!out.length && sellsMilk) { var pat = itemsFromPattern(amount, catalog); if (pat) out.push({ lines: pat, n: 0, from: 'pattern' }); }
+    var always = (kind && kind.always) || null;
+    if (profile && profile.n >= 3) { var ids = Object.keys(profile.items || {}); if (ids.length === 1 && profile.items[ids[0]] >= 3) always = ids[0]; }
+    if (!out.length && always) {
+      var it = (catalog || KITCHEN_SEED).filter(function (c) { return c.id === always; })[0];
+      if (it) out.push({ lines: [itemLine(it, null, amount)], n: 0, from: 'always' });
+    }
+    var total = out.reduce(function (t, o) { return t + o.n; }, 0), auto = null;
+    if (out.length === 1) auto = out[0].lines;                                        // one way to read this amount here
+    else if (out.length > 1 && out[0].n >= 2 && out[0].n / total >= 0.75) auto = out[0].lines;   // clearly the usual one
+    return { auto: auto, options: out };
   }
 
   /* ---------- v132: card bills paid from the bank ----------
@@ -1529,7 +1588,7 @@
     addPayment: addPayment, editLoan: editLoan, editPayment: editPayment, summarize: summarize,
     walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, parseWalletDesc: parseWalletDesc,
     parseWallets: parseWallets, walletState: walletState, walletReconcile: walletReconcile,
-    smartSearch: smartSearch, smsAccounts: smsAccounts, searchInsights: searchInsights, payeeName: payeeName, tripDiaryLabel: tripDiaryLabel, placeIn: placeIn, categoryOf: categoryOf, personOf: personOf, findPaybacks: findPaybacks, peopleLedger: peopleLedger, cleanBankAccounts: cleanBankAccounts, smsSourceBank: smsSourceBank, findRefunds: findRefunds, isRefundText: isRefundText, looksLikeCardBill: looksLikeCardBill, KITCHEN_SEED: KITCHEN_SEED, kitchenItemFor: kitchenItemFor, parseItemsText: parseItemsText, itemsFromPattern: itemsFromPattern, summarizeItems: summarizeItems, refundShop: refundShop, recurringSeries: recurringSeries, safeToSpend: safeToSpend, creepingSpends: creepingSpends, seriesKey: seriesKey, askQuery: askQuery, forecastMonth: forecastMonth, unusualSpends: unusualSpends,
+    smartSearch: smartSearch, smsAccounts: smsAccounts, searchInsights: searchInsights, payeeName: payeeName, tripDiaryLabel: tripDiaryLabel, placeIn: placeIn, categoryOf: categoryOf, personOf: personOf, findPaybacks: findPaybacks, peopleLedger: peopleLedger, cleanBankAccounts: cleanBankAccounts, smsSourceBank: smsSourceBank, findRefunds: findRefunds, isRefundText: isRefundText, looksLikeCardBill: looksLikeCardBill, KITCHEN_SEED: KITCHEN_SEED, vendorOf: vendorOf, vendorKind: vendorKind, learnVendor: learnVendor, vendorGuess: vendorGuess, kitchenItemFor: kitchenItemFor, parseItemsText: parseItemsText, itemsFromPattern: itemsFromPattern, summarizeItems: summarizeItems, refundShop: refundShop, recurringSeries: recurringSeries, safeToSpend: safeToSpend, creepingSpends: creepingSpends, seriesKey: seriesKey, askQuery: askQuery, forecastMonth: forecastMonth, unusualSpends: unusualSpends,
     payCycles: payCycles, lastWorkingDay: lastWorkingDay, nextPayday: nextPayday, parseBank: parseBank, parseAvlBalance: parseAvlBalance, balanceFromSms: balanceFromSms, bankEstimate: bankEstimate, parseTransfers: parseTransfers
   };
 });

@@ -7191,6 +7191,11 @@
     var cancel = el('button', 'ghost', 'Cancel'); cancel.type = 'button';
     var del = el('button', 'danger', 'Delete'); del.type = 'button'; del.setAttribute('data-self-confirm', '');
     btns.appendChild(save); btns.appendChild(cancel); btns.appendChild(del);
+    if (window.__kitchen && isExpense(e)) {   // v134: any spend can say what it was; its shop learns it
+      var what = el('button', 'ghost', '🧺 What was it?'); what.type = 'button';
+      what.addEventListener('click', function () { window.__kitchen.openFill(e, null); });
+      btns.appendChild(what);
+    }
     f.appendChild(row1); f.appendChild(row2); f.appendChild(shiftRow); if (acctField) f.appendChild(acctField); if (xferBox) f.appendChild(xferBox); if (!isDemoMode) f.appendChild(receiptRow(e)); f.appendChild(msg); f.appendChild(btns);
 
     cancel.addEventListener('click', function () { state.editing = null; render(); });
