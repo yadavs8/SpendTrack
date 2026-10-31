@@ -339,3 +339,18 @@ Search "milk", "petrol", "swiggy" (or an amount) and you get a full panel, not j
   - **Yes, card bill** files it as "🔁 Credit card bill · ICICI ··1014": not a spend (the swipes already were), still money out of the bank, and "Bill paid" on the Credit card page. Undo is there.
   - **No, a spend** leaves it as it is (`kharcha_cardbill_no`).
 - Questions (card bill, refund, money back, duplicates, transfers) are never folded into the "N payments due this month" line.
+
+## 🧺 Kitchen: what each grocery spend was, and how much you use (v133)
+
+- **Known baskets fill themselves (✨).** At a kirana or milk shop: ₹36 / ₹72 = Amul cow milk ½ L / 1 L, ₹40 / ₹80 = A2 milk ½ L / 1 L, ₹136 = 10 coffee + Amul ½ L, ₹172 = 10 coffee + Amul 1 L. Not when the description names something else ("Banana ₹40").
+- **Everything else asks "🧺 What did you buy?"** from a Home card ("Fill now", one spend after another, with Skip), or from the "🧺 + items" badge on any grocery row.
+  - Tap item chips (your most used first), use ± for quantity, or type it: `adrak 40, sabzi 250g 30, 10 coffee, a2 1L` (Hindi names work too).
+  - Names already in the description are pre-filled ("milk and paneer").
+  - Whatever isn't filled is saved as "Other". Saving asks first.
+  - A basket made only of priced packs teaches the app that amount for next time.
+- **☰ → 🧺 Kitchen:** per month (this, last, two ago) groceries in total and how many spends are still to fill.
+  - Per item: quantity used, money, price per unit, about how much a day, how often you buy it, change vs last month, and price changes.
+  - **🛒 Likely to need soon** works this out from how often you buy each item.
+  - **🏷️ Pack prices** can be edited (when Amul goes up) or added.
+- Items are stored in a new `expense_items` table: one row per spend, only yours (RLS), and deleted with the spend. Catalogue and learned baskets are in `kharcha_item_catalog` / `kharcha_item_patterns`.
+- Home cards (salary, bills, kitchen) now live inside Home's own section, so they never show on another page.
