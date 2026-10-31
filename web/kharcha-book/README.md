@@ -371,3 +371,11 @@ Search "milk", "petrol", "swiggy" (or an amount) and you get a full panel, not j
 - **🏪 Your vendors** (Kitchen page): each shop with what it sells, what it learned from, and this month's spend. Tap to set "Sells" or "Always", × to forget what it learned (Undo). Stored in `kharcha_vendors`, synced.
 - **🧺 What was it?** in any spend's edit form, so any shop can learn, not only grocery ones.
 - A description that is only the shop's name is no longer read as an item.
+
+## "What did you buy?" fits the phone (v135)
+
+- The sheet has a fixed header and a fixed **Skip / Save items** bar; only the middle scrolls. It no longer squeezes everything into a short screen.
+- It sizes itself to the space **above the phone keyboard**, and whatever you type into scrolls into view. The type box sits near the top, right under the items.
+- 10 item chips, then **More ▾**. Item rows fit 320–360px phones. Inputs use 16px text, so phones don't zoom.
+- No blurred backdrop, which rendered badly in the Android app.
+- **Fix:** "Shree Bala Ji milk and paneer" pre-fills milk and paneer again. Only the shop's own words are ignored.
