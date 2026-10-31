@@ -1128,6 +1128,122 @@
     });
     return { auto: auto, ask: ask };
   }
+  /* ---------- v133: kitchen items (what a grocery spend was, and how much of it you use) ----------
+     Item: { id, name, icon, unit, pack: { size, price } }. A spend's items: [{ id, name, icon, qty, unit, amount }]. */
+  var KITCHEN_SEED = [
+    { id: 'amul', name: 'Amul cow milk', icon: '🥛', unit: 'L', pack: { size: 0.5, price: 36 }, words: ['amul', 'cow milk', 'full cream', 'doodh', 'milk'] },
+    { id: 'a2', name: 'A2 milk', icon: '🥛', unit: 'L', pack: { size: 0.5, price: 40 }, words: ['a2', 'a2 milk'] },
+    { id: 'coffee', name: 'Coffee packet', icon: '☕', unit: 'pkt', pack: { size: 1, price: 10 }, words: ['coffee', 'coffee packet', 'sachet'] },
+    { id: 'adrak', name: 'Adrak', icon: '🫚', unit: 'kg', words: ['adrak', 'ginger'] },
+    { id: 'sabzi', name: 'Vegetables', icon: '🥬', unit: 'kg', words: ['sabzi', 'sabji', 'vegetable', 'vegetables', 'veg', 'veggies'] },
+    { id: 'pyaz', name: 'Pyaz', icon: '🧅', unit: 'kg', words: ['pyaz', 'pyaaz', 'onion', 'onions'] },
+    { id: 'aloo', name: 'Aloo', icon: '🥔', unit: 'kg', words: ['aloo', 'alu', 'potato', 'potatoes'] },
+    { id: 'tamatar', name: 'Tamatar', icon: '🍅', unit: 'kg', words: ['tamatar', 'tomato', 'tomatoes'] },
+    { id: 'banana', name: 'Banana', icon: '🍌', unit: 'dozen', words: ['banana', 'bananas', 'kela'] },
+    { id: 'fruits', name: 'Fruits', icon: '🍎', unit: 'kg', words: ['fruit', 'fruits', 'apple', 'apples', 'seb', 'papaya', 'orange', 'oranges', 'grapes', 'anar'] },
+    { id: 'paneer', name: 'Paneer', icon: '🧀', unit: 'kg', words: ['paneer'] },
+    { id: 'dahi', name: 'Dahi', icon: '🥣', unit: 'kg', words: ['dahi', 'curd', 'yogurt'] },
+    { id: 'eggs', name: 'Eggs', icon: '🥚', unit: 'pc', words: ['egg', 'eggs', 'anda', 'ande'] },
+    { id: 'bread', name: 'Bread', icon: '🍞', unit: 'pkt', words: ['bread', 'pav'] },
+    { id: 'atta', name: 'Atta', icon: '🌾', unit: 'kg', words: ['atta', 'aata', 'flour'] },
+    { id: 'rice', name: 'Rice', icon: '🍚', unit: 'kg', words: ['rice', 'chawal'] },
+    { id: 'dal', name: 'Dal', icon: '🫘', unit: 'kg', words: ['dal', 'daal', 'lentil', 'lentils', 'rajma', 'chana'] },
+    { id: 'ghee', name: 'Ghee', icon: '🧈', unit: 'kg', words: ['ghee'] },
+    { id: 'oil', name: 'Oil', icon: '🫗', unit: 'L', words: ['oil', 'tel', 'mustard oil', 'refined'] },
+    { id: 'sugar', name: 'Sugar', icon: '🍬', unit: 'kg', words: ['sugar', 'chini', 'cheeni'] },
+    { id: 'tea', name: 'Tea', icon: '🍵', unit: 'pkt', words: ['tea', 'chai', 'chai patti', 'tea leaves'] },
+    { id: 'dhaniya', name: 'Dhaniya / mirchi', icon: '🌿', unit: 'bunch', words: ['dhaniya', 'coriander', 'mirchi', 'chilli', 'chili', 'pudina', 'mint'] },
+    { id: 'dryfruit', name: 'Dry fruits', icon: '🥜', unit: 'kg', words: ['makhana', 'kishmish', 'badam', 'almond', 'almonds', 'kaju', 'cashew', 'raisin', 'raisins', 'dry fruit', 'dry fruits', 'walnut', 'akhrot'] },
+    { id: 'snacks', name: 'Snacks', icon: '🍪', unit: 'pkt', words: ['biscuit', 'biscuits', 'namkeen', 'chips', 'snacks', 'maggi', 'noodles'] }
+  ];
+  // What you told the app: these exact amounts at a kirana are always the same basket.
+  var KITCHEN_PATTERNS = { 3600: [['amul', 1]], 7200: [['amul', 2]], 4000: [['a2', 1]], 8000: [['a2', 2]], 13600: [['coffee', 10], ['amul', 1]], 17200: [['coffee', 10], ['amul', 2]] };
+  var UNIT_OF = { kg: 'kg', kgs: 'kg', kilo: 'kg', g: 'g', gm: 'g', gms: 'g', gram: 'g', grams: 'g', l: 'L', ltr: 'L', litre: 'L', liter: 'L', litres: 'L', liters: 'L', ml: 'ml',
+    pc: 'pc', pcs: 'pc', piece: 'pc', pieces: 'pc', dozen: 'dozen', dz: 'dozen', pkt: 'pkt', packet: 'pkt', packets: 'pkt', pack: 'pkt', packs: 'pkt', bunch: 'bunch', gaddi: 'bunch' };
+  function toItemUnit(qty, unit, item) {
+    if ((unit === 'pkt' || unit === 'pc') && item.pack && item.unit !== unit) return qty * item.pack.size;   // "2 packet" of milk = 2 x 500 ml
+    if (unit === 'g' && item.unit === 'kg') return qty / 1000;
+    if (unit === 'ml' && item.unit === 'L') return qty / 1000;
+    if (unit === 'dozen' && item.unit === 'pc') return qty * 12;
+    if (unit === 'pc' && item.unit === 'dozen') return qty / 12;
+    return qty;
+  }
+  function kitchenItemFor(name, catalog) {
+    var n = ' ' + String(name || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim() + ' ', best = null, len = 0;
+    (catalog || KITCHEN_SEED).forEach(function (it) {
+      [it.name.toLowerCase()].concat(it.words || []).forEach(function (w) { if (n.indexOf(' ' + w + ' ') >= 0 && w.length > len) { best = it; len = w.length; } });
+    });
+    return best;
+  }
+  function itemLine(it, qty, amount) {
+    return { id: it.id, name: it.name, icon: it.icon || '🛒', qty: qty == null ? null : Math.round(qty * 1000) / 1000, unit: it.unit, amount: amount == null ? null : Math.round(amount * 100) / 100 };
+  }
+  // "doodh 1L, 10 coffee, adrak 40, sabzi 250g 30" -> item lines. Priced packs fill their own amount.
+  function parseItemsText(text, catalog) {
+    var out = [];
+    String(text || '').split(/[,;\n+]|\s&\s|\band\b|\baur\b/i).forEach(function (part) {
+      var t = part.trim().toLowerCase(); if (!t) return;
+      var keep = [];                                          // words like "a2" are names, not numbers
+      t = t.replace(/\b([a-z]+\d+[a-z]*)\b/g, function (w) { keep.push(w); return ' zzk' + (keep.length - 1) + 'q '; }).replace(/zzk(\d+)q/g, function (m0, i) { return 'zzk' + 'abcdefghij'.charAt(Number(i)) + 'q'; });
+      var amount = null, qty = null, unit = null, m;
+      if ((m = /(?:₹|rs\.?|inr)\s*(\d+(?:\.\d+)?)/.exec(t))) { amount = Number(m[1]); t = t.replace(m[0], ' '); }
+      if ((m = /(\d+(?:\.\d+)?)\s*(kgs?|kilo|gms?|grams?|g|ltr|litres?|liters?|l|ml|pcs?|pieces?|dozen|dz|pkt|packets?|packs?|bunch|gaddi)\b/.exec(t))) { qty = Number(m[1]); unit = UNIT_OF[m[2]]; t = t.replace(m[0], ' '); }
+      else if ((m = /\b(half|aadha|adha)\b/.exec(t))) { qty = 0.5; t = t.replace(m[0], ' '); }
+      var nums = t.match(/\d+(?:\.\d+)?/g) || [];
+      if (qty == null && nums.length >= 2) { qty = Number(nums[0]); if (amount == null) amount = Number(nums[nums.length - 1]); }
+      else if (nums.length === 1) {
+        var lead = /^\s*(\d+(?:\.\d+)?)\s+[a-z]/.test(t);
+        if (lead && qty == null) qty = Number(nums[0]); else if (amount == null) amount = Number(nums[0]); else if (qty == null) qty = Number(nums[0]);
+      }
+      var name = t.replace(/\d+(?:\.\d+)?/g, ' ').replace(/\b(x|for|of|rs|rupees?)\b/g, ' ').replace(/zzk([a-j])q/g, function (m0, c) { return keep['abcdefghij'.indexOf(c)] || ''; }).replace(/\s+/g, ' ').trim();
+      if (!name) return;
+      var it = kitchenItemFor(name, catalog);
+      if (!it) it = { id: name.replace(/[^a-z0-9]+/g, '-').slice(0, 24), name: name.charAt(0).toUpperCase() + name.slice(1), icon: '🛒', unit: unit && unit !== 'g' && unit !== 'ml' ? unit : (unit === 'g' ? 'kg' : unit === 'ml' ? 'L' : 'pc'), fresh: true };
+      var q;
+      if (qty == null) q = it.pack ? it.pack.size : null;     // "adrak 40": the money is known, the weight isn't
+      else if (unit) q = toItemUnit(qty, unit, it);
+      else q = it.pack ? qty * it.pack.size : qty;           // "10 coffee", "2 amul": packs
+      if (amount == null && it.pack) amount = q / it.pack.size * it.pack.price;
+      var line = itemLine(it, q, amount); if (it.fresh) line.fresh = { name: it.name, icon: it.icon, unit: it.unit };
+      out.push(line);
+    });
+    return out;
+  }
+  // A grocery amount you've seen before (or told the app about) -> its basket; null when unknown.
+  function itemsFromPattern(amount, catalog, learned) {
+    var p = toPaise(amount), pat = (learned && learned[p]) || KITCHEN_PATTERNS[p];
+    if (!pat) return null;
+    var cat = catalog || KITCHEN_SEED, out = [];
+    for (var i = 0; i < pat.length; i++) {
+      var it = cat.filter(function (c) { return c.id === pat[i][0]; })[0]; if (!it || !it.pack) return null;
+      out.push(itemLine(it, pat[i][1] * it.pack.size, pat[i][1] * it.pack.price));
+    }
+    var sum = out.reduce(function (t, l) { return t + toPaise(l.amount); }, 0);
+    return sum === p ? out : null;
+  }
+  // How much of each item: quantity, money, price per unit, how often you buy it and when you'll likely need it next.
+  function summarizeItems(rows, fromTs, toTs, nowMs) {
+    var by = {};
+    rows.forEach(function (r) {
+      if (r.ts < fromTs || r.ts >= toTs) return;
+      (r.items || []).forEach(function (l) {
+        var k = l.id + '|' + l.unit, x = by[k] = by[k] || { id: l.id, name: l.name, icon: l.icon, unit: l.unit, qty: 0, paise: 0, priced: 0, buys: [], last: 0 };
+        var q = Number(l.qty) || 0; x.qty += q;
+        if (l.amount != null) { x.paise += toPaise(l.amount); if (q > 0) { x.priced += q; x.pricedP = (x.pricedP || 0) + toPaise(l.amount); } }
+        if (x.buys.indexOf(r.ts) < 0) x.buys.push(r.ts);
+        if (r.ts > x.last) x.last = r.ts;
+      });
+    });
+    var days = Math.max(1, Math.min(toTs, nowMs || toTs) - fromTs) / 86400000;
+    return Object.keys(by).map(function (k) {
+      var x = by[k], b = x.buys.sort(function (p, q) { return p - q; }), gap = null;
+      if (b.length >= 2) gap = (b[b.length - 1] - b[0]) / 86400000 / (b.length - 1);
+      return { id: x.id, name: x.name, icon: x.icon, unit: x.unit, qty: Math.round(x.qty * 1000) / 1000, amount: x.paise / 100, buys: b.length,
+        perUnit: x.priced > 0 ? Math.round(x.pricedP / x.priced) / 100 : null, perDay: x.qty > 0 ? Math.round(x.qty / days * 1000) / 1000 : null,
+        everyDays: gap != null ? Math.round(gap * 10) / 10 : null, last: x.last, nextTs: gap != null && gap >= 1 ? Math.round(x.last + gap * 86400000) : null };
+    }).sort(function (a, b) { return b.amount - a.amount; });
+  }
+
   /* ---------- v132: card bills paid from the bank ----------
      Paying the credit card through Amazon Pay, CRED or the bank shows as an ordinary UPI debit ("Amazon Pay Cred
      credited"). It is not a new spend (the card swipes were), so such debits are offered as "Credit card bill". */
@@ -1413,7 +1529,7 @@
     addPayment: addPayment, editLoan: editLoan, editPayment: editPayment, summarize: summarize,
     walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, parseWalletDesc: parseWalletDesc,
     parseWallets: parseWallets, walletState: walletState, walletReconcile: walletReconcile,
-    smartSearch: smartSearch, smsAccounts: smsAccounts, searchInsights: searchInsights, payeeName: payeeName, tripDiaryLabel: tripDiaryLabel, placeIn: placeIn, categoryOf: categoryOf, personOf: personOf, findPaybacks: findPaybacks, peopleLedger: peopleLedger, cleanBankAccounts: cleanBankAccounts, smsSourceBank: smsSourceBank, findRefunds: findRefunds, isRefundText: isRefundText, looksLikeCardBill: looksLikeCardBill, refundShop: refundShop, recurringSeries: recurringSeries, safeToSpend: safeToSpend, creepingSpends: creepingSpends, seriesKey: seriesKey, askQuery: askQuery, forecastMonth: forecastMonth, unusualSpends: unusualSpends,
+    smartSearch: smartSearch, smsAccounts: smsAccounts, searchInsights: searchInsights, payeeName: payeeName, tripDiaryLabel: tripDiaryLabel, placeIn: placeIn, categoryOf: categoryOf, personOf: personOf, findPaybacks: findPaybacks, peopleLedger: peopleLedger, cleanBankAccounts: cleanBankAccounts, smsSourceBank: smsSourceBank, findRefunds: findRefunds, isRefundText: isRefundText, looksLikeCardBill: looksLikeCardBill, KITCHEN_SEED: KITCHEN_SEED, kitchenItemFor: kitchenItemFor, parseItemsText: parseItemsText, itemsFromPattern: itemsFromPattern, summarizeItems: summarizeItems, refundShop: refundShop, recurringSeries: recurringSeries, safeToSpend: safeToSpend, creepingSpends: creepingSpends, seriesKey: seriesKey, askQuery: askQuery, forecastMonth: forecastMonth, unusualSpends: unusualSpends,
     payCycles: payCycles, lastWorkingDay: lastWorkingDay, nextPayday: nextPayday, parseBank: parseBank, parseAvlBalance: parseAvlBalance, balanceFromSms: balanceFromSms, bankEstimate: bankEstimate, parseTransfers: parseTransfers
   };
 });

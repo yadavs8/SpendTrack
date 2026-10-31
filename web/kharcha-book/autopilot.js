@@ -494,7 +494,8 @@
     var sp = salaryPlan(p); if (sp) box.appendChild(salaryCard(sp, homeNudges));
     var nl = billNudges(p); if (nl.length) box.appendChild(remindersCard(nl, homeNudges));
     if (!box.children.length) return;
-    var anchor = $('ans-card') || sw; anchor.parentNode.insertBefore(box, anchor);
+    var home = $('spends-view');   // inside Home's own section, so it can never show on another page
+    if (home) home.insertBefore(box, home.firstChild); else { var anchor = $('ans-card') || sw; anchor.parentNode.insertBefore(box, anchor); }
   }
 
   function render() {

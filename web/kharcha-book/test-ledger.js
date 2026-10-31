@@ -757,3 +757,23 @@ t('looksLikeCardBill: Amazon Pay / CRED card payments, not swipes or CRED wallet
   assert.strictEqual(L.looksLikeCardBill({ amount: 62000, desc: '🔁 Credit card bill · ICICI ··1014', kind: 'transfer', raw: raw('Amazon Pay Cred') }), false);
   assert.strictEqual(L.looksLikeCardBill({ amount: 499, desc: 'Amazon', kind: 'expense', method: 'upi', raw: raw('Amazon Pay Groceries') }), false);
 });
+
+t('kitchen: your milk and coffee amounts, typed items, monthly use', () => {
+  const ids = (l) => l.map((x) => x.id + ':' + x.qty + x.unit + '=' + x.amount).join(' ');
+  assert.strictEqual(ids(L.itemsFromPattern(136)), 'coffee:10pkt=100 amul:0.5L=36');
+  assert.strictEqual(ids(L.itemsFromPattern(172)), 'coffee:10pkt=100 amul:1L=72');
+  assert.strictEqual(ids(L.itemsFromPattern(72)), 'amul:1L=72');
+  assert.strictEqual(ids(L.itemsFromPattern(40)), 'a2:0.5L=40');
+  assert.strictEqual(L.itemsFromPattern(165), null);
+  assert.strictEqual(ids(L.parseItemsText('adrak 40, sabzi 250g 30, 10 coffee, a2 1L')), 'adrak:nullkg=40 sabzi:0.25kg=30 coffee:10pkt=100 a2:1L=80');
+  assert.strictEqual(ids(L.parseItemsText('doodh 2 packet and paneer 200g 90')), 'amul:1L=72 paneer:0.2kg=90');
+  assert.strictEqual(ids(L.parseItemsText('2 amul')), 'amul:1L=72');
+  const fresh = L.parseItemsText('lauki 1kg 40');
+  assert.strictEqual(fresh[0].name, 'Lauki'); assert.ok(fresh[0].fresh);
+  const D = 864e5, t0 = new Date(2026, 9, 1).getTime();
+  const rows = [1, 2, 3, 4].map((d) => ({ ts: t0 + d * D, items: L.itemsFromPattern(72) })).concat([{ ts: t0 + 5 * D, items: L.itemsFromPattern(172) }]);
+  const s = L.summarizeItems(rows, t0, t0 + 31 * D, t0 + 6 * D);
+  const amul = s.find((x) => x.id === 'amul');
+  assert.strictEqual(amul.qty, 5); assert.strictEqual(amul.amount, 360); assert.strictEqual(amul.perUnit, 72); assert.strictEqual(amul.everyDays, 1);
+  assert.strictEqual(s.find((x) => x.id === 'coffee').qty, 10);
+});

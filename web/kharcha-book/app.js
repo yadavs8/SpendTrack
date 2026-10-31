@@ -1484,7 +1484,7 @@
     enterApp: enterApp,
     getSb: function () { return sb; },
     getEntries: function () { return state.entries; },
-    getMonthlySummary: getMonthlySummary, getMonthlyHistory: getMonthlyHistory, monthsWithAnyEntry: monthsWithAnyEntry, getPeriodSummary: getPeriodSummary, isBankIn: isBankIn, isBankOut: isBankOut, getBankTotals: getBankTotals, getTopBank: getTopBank, getBalances: function () { return getBalances(); }, accountOf: function (e) { var KL = window.KharchaLedger, accts = loadBank(); if (!KL || !accts.length || !e) return null; var id = KL.routeAccount(e, accts, loadJsonObj(ACCTMAP_KEY), loadRules(), primaryAcctId(accts), loadOwn()); return accts.filter(function (a) { return a.id === id; })[0] || null; }, recurringKey: function (d) { return recurringKey(d); }, refreshBalances: function () { applyBalanceFromSms(); }, runTidy: function () { return tidyUp(); }, balancesCard: function (w, f) { return balancesCard(w, f); }, dayKey: dayKey, selMonth: function () { return state.sel; }, visibleEntries: function () { return visibleEntries(state.sel); }, isCashWithdrawal: isCashWithdrawal, getHomeFacts: getHomeFacts, isIncome: isIncome, getNetWorthParts: getNetWorthParts, getSpendSources: getSpendSources, backupData: backupData, inspectBackup: inspectBackup, restoreData: restoreData, loadRules: loadRules, kvGet: function (k) { return kv.get(k); }, kvSet: function (k, v) { kv.set(k, v); }, toast: function (m, u) { toast(m, u); }, confirmBox: function (o) { showConfirmModal(o); }, inputBox: function (o) { showInputModal(o); }, startOfDay: startOfDay,
+    getMonthlySummary: getMonthlySummary, getMonthlyHistory: getMonthlyHistory, monthsWithAnyEntry: monthsWithAnyEntry, getPeriodSummary: getPeriodSummary, isBankIn: isBankIn, isBankOut: isBankOut, getBankTotals: getBankTotals, getTopBank: getTopBank, getBalances: function () { return getBalances(); }, accountOf: function (e) { var KL = window.KharchaLedger, accts = loadBank(); if (!KL || !accts.length || !e) return null; var id = KL.routeAccount(e, accts, loadJsonObj(ACCTMAP_KEY), loadRules(), primaryAcctId(accts), loadOwn()); return accts.filter(function (a) { return a.id === id; })[0] || null; }, recurringKey: function (d) { return recurringKey(d); }, refreshBalances: function () { applyBalanceFromSms(); }, rerender: function () { render(); }, runTidy: function () { return tidyUp(); }, balancesCard: function (w, f) { return balancesCard(w, f); }, dayKey: dayKey, selMonth: function () { return state.sel; }, visibleEntries: function () { return visibleEntries(state.sel); }, isCashWithdrawal: isCashWithdrawal, getHomeFacts: getHomeFacts, isIncome: isIncome, getNetWorthParts: getNetWorthParts, getSpendSources: getSpendSources, backupData: backupData, inspectBackup: inspectBackup, restoreData: restoreData, loadRules: loadRules, kvGet: function (k) { return kv.get(k); }, kvSet: function (k, v) { kv.set(k, v); }, toast: function (m, u) { toast(m, u); }, confirmBox: function (o) { showConfirmModal(o); }, inputBox: function (o) { showInputModal(o); }, startOfDay: startOfDay,
     parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, parseSMSDate: parseSMSDate, findDuplicate: findDuplicate, categoryBreakdown: categoryBreakdown, monthCompare: monthCompare,
     isIncome: isIncome, isMotherSettlement: isMotherSettlement, isMotherPension: isMotherPension, isSalary: isSalary, isExpense: isExpense, isInvestment: isInvestment, getFamilySettlement: getFamilySettlement, getPersonalCashFlow: getPersonalCashFlow,
     isProjectEntry: isProjectEntry, isProjectMotherPaid: isProjectMotherPaid, getProjectSummary: getProjectSummary, projectNameOf: projectNameOf, cleanScopePrefix: cleanScopePrefix,
@@ -1543,7 +1543,7 @@
   /* ---------- Shared settings: one row in Supabase kharcha_settings, used by web + phone ----------
      Same keys and string values as localStorage, so feature code just swaps localStorage for kv.
      localStorage stays as the offline cache, and is all there is until the v4 SQL has been run. */
-  var SHARED_KEYS = ['kharcha_cardbill_no', 'kharcha_salary_seen', 'kharcha_family_acct_off', 'kharcha_autopilot_bills', 'kharcha_autopilot_hide', 'kharcha_autopilot_keep', 'kharcha_not_mine_banks', 'kharcha_trip_mirror_map', 'kharcha_trip_phones', 'kharcha_paybacks', 'kharcha_payback_no', 'kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
+  var SHARED_KEYS = ['kharcha_item_catalog', 'kharcha_item_patterns', 'kharcha_cardbill_no', 'kharcha_salary_seen', 'kharcha_family_acct_off', 'kharcha_autopilot_bills', 'kharcha_autopilot_hide', 'kharcha_autopilot_keep', 'kharcha_not_mine_banks', 'kharcha_trip_mirror_map', 'kharcha_trip_phones', 'kharcha_paybacks', 'kharcha_payback_no', 'kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
     'kharcha_is_trip_paused', 'kharcha_all_projects_list', 'kharcha_is_project_paused', 'kharcha_legacy_project_name',
     'kharcha_active_trip_name', 'kharcha_all_trips_list', 'kharcha_category_budgets', 'kharcha_merchant_memory',
     'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers', 'kharcha_loans', 'kharcha_wallets', 'kharcha_bank', 'kharcha_cycle', 'kharcha_rules', 'kharcha_acctmap', 'kharcha_primary_acct', 'kharcha_rule_skips', 'kharcha_transfers', 'kharcha_own', 'kharcha_xfer_dismissed', 'kharcha_goal', 'kharcha_receipts', 'kharcha_rules_seeded', 'kharcha_card', 'kharcha_dup_dismissed'];
@@ -4191,6 +4191,7 @@
     var rulesSec = $('rules-sec');
     var insightsSec = $('insights-sec');
     var autopilotSec = $('autopilot-sec');
+    var kitchenSec = $('kitchen-sec');
     var cardSec = $('card-sec');
     var phoneSec = $('phone-sec');
 
@@ -4209,19 +4210,21 @@
     if (rulesSec) rulesSec.hidden = (stream !== 'rules');
     if (insightsSec) insightsSec.hidden = (stream !== 'insights');
     if (autopilotSec) autopilotSec.hidden = (stream !== 'autopilot');
+    if (kitchenSec) kitchenSec.hidden = (stream !== 'kitchen');
     if (cardSec) cardSec.hidden = (stream !== 'card');
     if (phoneSec) phoneSec.hidden = (stream !== 'phone');
     if (stream === 'phone') { try { document.dispatchEvent(new Event('kharcha:phone')); } catch (e) {} }
     if (stream === 'card') { try { document.dispatchEvent(new Event('kharcha:card')); } catch (e) {} }
     if (stream === 'insights') { try { document.dispatchEvent(new Event('kharcha:insights')); } catch (e) {} }
     if (stream === 'autopilot') { try { document.dispatchEvent(new Event('kharcha:autopilot')); } catch (e) {} }
+    if (stream === 'kitchen') { try { document.dispatchEvent(new Event('kharcha:kitchen')); } catch (e) {} }
     if (stream === 'rules') renderRules();
     if (stream === 'bank') renderBank();
     if (stream === 'wallet') renderWallet();
     if (stream === 'monthly') renderMonthly();
 
     var heroEl = $('st-hero');
-    var isDedicatedStream = ['trips', 'projects', 'investments', 'udhaar', 'wallet', 'bank', 'rules', 'monthly', 'insights', 'autopilot', 'card', 'phone'].indexOf(stream) >= 0;
+    var isDedicatedStream = ['trips', 'projects', 'investments', 'udhaar', 'wallet', 'bank', 'rules', 'monthly', 'insights', 'autopilot', 'kitchen', 'card', 'phone'].indexOf(stream) >= 0;
     if (heroEl) heroEl.hidden = isDedicatedStream;
     var stk = $('sticky-month-bar');
     if (stk) stk.style.display = isDedicatedStream ? 'none' : '';
@@ -7032,6 +7035,7 @@
     var how = methodLabel(e);
     if (how) dSpan.appendChild(el('small', 'method-badge method-' + e.method, (METHOD_ICONS[e.method] || '') + ' ' + how));
     if (hasReceipt(e.id)) dSpan.appendChild(el('small', 'method-badge', '📎'));
+    if (window.__kitchen) window.__kitchen.decorate(dSpan, e);   // v133: what a grocery spend was
     if (isNotMineBank(e)) dSpan.appendChild(el('small', 'method-badge nm-badge', '🚫 Not your bank · not counted'));
     var tripSplit = parseTripSplit(e.desc) || (Array.isArray(e.splitAmong) ? e.splitAmong : null);
     if (tripSplit && tripSplit.length) {

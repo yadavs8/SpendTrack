@@ -83,7 +83,7 @@
   };
   var NAV_OF = { spends: 'home', incomings: 'income', trips: 'trips' };   // everything else lives under More
   var MORE_GROUPS = [
-    ['My money', [['autopilot', '🤖', 'Autopilot', 'Safe to spend, bills'], ['monthly', '📊', 'Monthly', 'Savings'], ['bank', '🏦', 'Bank', 'Balance, cash'], ['card', '💳', 'Credit card', 'Owed, spends'], ['insights', '✨', 'Insights', 'Week, goals, net worth'], ['wallet', '👛', 'Wallet', 'Amazon Pay'], ['rules', '⚙️', 'Auto rules', 'Payees, monthly bills']]],
+    ['My money', [['autopilot', '🤖', 'Autopilot', 'Safe to spend, bills'], ['kitchen', '🧺', 'Kitchen', 'Milk, items, monthly use'], ['monthly', '📊', 'Monthly', 'Savings'], ['bank', '🏦', 'Bank', 'Balance, cash'], ['card', '💳', 'Credit card', 'Owed, spends'], ['insights', '✨', 'Insights', 'Week, goals, net worth'], ['wallet', '👛', 'Wallet', 'Amazon Pay'], ['rules', '⚙️', 'Auto rules', 'Payees, monthly bills']]],
     ['People', [['udhaar', '🤝', 'Udhaar', 'Who owes you'], ['settlement', '👵', 'Settle', "Mother's money"]]],
     ['Plans', [['investments', '📈', 'Invest', 'SIPs and savings'], ['projects', '🔨', 'Projects', 'Home work costs']]],
     ['Account', [['__confirm', '🛡️', 'Ask before save & delete', 'On'], ['phone', '📡', 'Phone connection', 'SMS, sync, settings'], ['__settings', '⚙️', 'Phone settings', 'SMS access, sync, lock'], ['__signout', '🚪', 'Sign out', '']]]
@@ -410,7 +410,7 @@
     var key = NAV_OF[stream] || 'more';
     // Tool screens and Trips have their own numbers: the month card would only be noise there.
     var heroEl = document.querySelector('.hero');
-    var tool = ['trips', 'projects', 'investments', 'udhaar', 'wallet', 'bank', 'rules', 'monthly', 'insights', 'autopilot', 'card', 'phone'].indexOf(stream) >= 0;
+    var tool = ['trips', 'projects', 'investments', 'udhaar', 'wallet', 'bank', 'rules', 'monthly', 'insights', 'autopilot', 'kitchen', 'card', 'phone'].indexOf(stream) >= 0;
     if (heroEl) heroEl.hidden = tool;
     var stk = $('sticky-month-bar'); if (stk) stk.style.display = tool ? 'none' : '';
     if (backbar) {
