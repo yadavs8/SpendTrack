@@ -354,3 +354,20 @@ Search "milk", "petrol", "swiggy" (or an amount) and you get a full panel, not j
   - **🏷️ Pack prices** can be edited (when Amul goes up) or added.
 - Items are stored in a new `expense_items` table: one row per spend, only yours (RLS), and deleted with the spend. Catalogue and learned baskets are in `kharcha_item_catalog` / `kharcha_item_patterns`.
 - Home cards (salary, bills, kitchen) now live inside Home's own section, so they never show on another page.
+
+## Vendors remember what they sell (v134)
+
+- **The shop decides, not the description.** The vendor is read from the bank SMS ("; LAVISH KIRANA S credited" → Lavish Kirana, "SANSKRITI S STO" → Sanskriti). Different shops stay different (Vijay ≠ Vijay Hardware).
+- **Before learning anything,** the name gives a first guess:
+  - salon / saloon / barber → always 💇 Haircut (filled by itself)
+  - vegetable / fruit / Vijay → 🥬 vegetables & fruit first
+  - kirana / store / Sanskriti / Lavish / Rajbir → milk, coffee, rice, atta, dal…
+  - dairy / Shree Bala Ji / Shivam → milk & paneer
+- **Every saved basket teaches its shop:**
+  - which items it sells (shown first next time)
+  - which basket each amount means **at that shop**: ₹100 at Lavish = 10 coffee fills itself next time
+  - when the same amount has meant two things (coffee or rice), it asks with both as one-tap choices ("1× here"), until one is clearly the usual (75%+)
+  - a shop that has only ever sold one thing (3+ times) fills it by itself
+- **🏪 Your vendors** (Kitchen page): each shop with what it sells, what it learned from, and this month's spend. Tap to set "Sells" or "Always", × to forget what it learned (Undo). Stored in `kharcha_vendors`, synced.
+- **🧺 What was it?** in any spend's edit form, so any shop can learn, not only grocery ones.
+- A description that is only the shop's name is no longer read as an item.

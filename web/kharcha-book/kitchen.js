@@ -11,6 +11,7 @@
   function el(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
   function KL() { return window.KharchaLedger; }
   function money(v) { return K.money(Math.round(v * 100) / 100); }
+  var VENDOR_KEY = 'kharcha_vendors';
   var CAT_KEY = 'kharcha_item_catalog', PAT_KEY = 'kharcha_item_patterns', LOCAL_KEY = 'kharcha_items_local', SKIP_KEY = 'kharcha_items_skip';
   var dFmt = new Intl.DateTimeFormat('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
   var tFmt = new Intl.DateTimeFormat('en-IN', { hour: 'numeric', minute: '2-digit' });
@@ -80,10 +81,30 @@
     return c.key === 'milk' || c.key === 'grocery' || c.key === 'veg' || SHOPISH.test(String(e.desc || '')) || !!KL().kitchenItemFor(e.desc, catalog());
   }
   // { items, auto } or null. Auto = one of your known baskets, at a shop, with no other item named in the description.
+  /* ---------- vendors (v134): the shop decides what a payment was ---------- */
+  function vendors() { var v = jsonKv(VENDOR_KEY, {}); return v && typeof v === 'object' && !Array.isArray(v) ? v : {}; }
+  function vendorInfo(e) {
+    var v = KL().vendorOf(e); if (!v) return null;
+    var prof = vendors()[v.key] || null, kind = KL().vendorKind(v.key);
+    if (prof && (prof.sells || prof.always)) kind = { kind: (kind && kind.kind) || 'custom', items: prof.sells && prof.sells.length ? prof.sells : ((kind && kind.items) || []), always: prof.always || null };
+    return { v: v, prof: prof, kind: kind };
+  }
+  function tracked(e, vi) {
+    if (!e || e.synthetic || !(e.amount > 0) || !K.isExpense(e) || (K.isTripEntry && K.isTripEntry(e))) return false;
+    vi = vi === undefined ? vendorInfo(e) : vi;
+    return isGrocery(e) || !!(vi && (vi.kind || (vi.prof && vi.prof.n)));
+  }
+  // { items, auto } or null. Saved items first; then what this vendor taught the app; then your known milk baskets.
   function itemsFor(e) {
     if (!e) return null;
     if (saved[e.id]) return { items: saved[e.id], auto: false };
-    if (!isGrocery(e)) return null;
+    var vi = vendorInfo(e);
+    if (!tracked(e, vi)) return null;
+    if (vi && (vi.prof || vi.kind)) {
+      var g = KL().vendorGuess(vi.prof, vi.kind, e.amount, catalog());
+      if (g.auto) return { items: g.auto, auto: true, vendor: vi.v.name };
+      if (g.options.length) return null;                  // this shop has more than one reading of this amount: ask
+    }
     var named = KL().kitchenItemFor(String(e.desc || '').replace(/[^\w\s]/g, ' '), catalog());
     if (named && ['amul', 'a2', 'coffee'].indexOf(named.id) < 0) return null;
     var guess = KL().itemsFromPattern(e.amount, catalog(), learned());
@@ -92,9 +113,9 @@
   function skipped() { try { return JSON.parse(localStorage.getItem(SKIP_KEY) || '{}') || {}; } catch (e) { return {}; } }
   function pending() {
     var since = Date.now() - 30 * 86400000, sk = skipped();
-    return K.getEntries().filter(function (e) { return e.ts > since && !sk[e.id] && isGrocery(e) && !itemsFor(e); }).sort(function (a, b) { return b.ts - a.ts; });
+    return K.getEntries().filter(function (e) { return e.ts > since && !sk[e.id] && tracked(e) && !itemsFor(e); }).sort(function (a, b) { return b.ts - a.ts; });
   }
-  function shopOf(e) { return K.cleanScopePrefix ? K.cleanScopePrefix(e.desc).replace(/\s*\(.*$/, '').trim() : e.desc; }
+  function shopOf(e) { var v = KL().vendorOf(e); if (v && e.raw) return v.name; return K.cleanScopePrefix ? K.cleanScopePrefix(e.desc).replace(/\s*\(.*$/, '').trim() : e.desc; }
 
   /* ---------- "What did you buy?" ---------- */
   function openFill(e, queue) {
@@ -102,7 +123,10 @@
     var have = saved[e.id] || (itemsFor(e) || {}).items;
     if (have) lines = JSON.parse(JSON.stringify(have));
     else {   // the description already names items ("milk and paneer"): start with those
-      KL().parseItemsText(String(K.cleanScopePrefix ? K.cleanScopePrefix(e.desc) : e.desc).replace(/\(.*$/, ''), cat).forEach(function (l) { if (!l.fresh) { l.amount = l.amount != null && l.amount <= total ? l.amount : null; lines.push(l); } });
+      var dtext = String(K.cleanScopePrefix ? K.cleanScopePrefix(e.desc) : e.desc).replace(/\(.*$/, ''), vk = KL().vendorOf(e);
+      // a description that is only the shop's name ("Lavish Kirana Store") says nothing about what was bought
+      if (vk) { var dk = KL().vendorOf({ desc: dtext }); if (dk && (dk.key === vk.key || vk.key.indexOf(dk.key) === 0 || dk.key.indexOf(vk.key) === 0)) dtext = ''; }
+      KL().parseItemsText(dtext, cat).forEach(function (l) { if (!l.fresh && l.id !== 'grocery') { l.amount = l.amount != null && l.amount <= total ? l.amount : null; lines.push(l); } });
       var open0 = lines.filter(function (l) { return l.amount == null; }), known0 = lines.reduce(function (t, l) { return t + (l.amount || 0); }, 0);
       if (open0.length === 1 && total - known0 > 0) open0[0].amount = Math.round((total - known0) * 100) / 100;
     }
@@ -122,14 +146,21 @@
       var x = el('button', 'kt-x', '×'); x.type = 'button'; x.setAttribute('aria-label', 'Close'); x.addEventListener('click', close); head.appendChild(x);
       card.appendChild(head);
       // one-tap guess: a basket you've told the app about with this amount
-      var g = KL().itemsFromPattern(total, cat, learned());
-      if (g && !lines.length) {
+      var vi = vendorInfo(e);
+      if (vi && vi.prof && vi.prof.n) {
+        var top = Object.keys(vi.prof.items || {}).sort(function (a, b) { return vi.prof.items[b] - vi.prof.items[a]; }).slice(0, 5)
+          .map(function (id) { var it = cat.filter(function (c) { return c.id === id; })[0]; return it ? it.icon + ' ' + it.name : ''; }).filter(Boolean);
+        if (top.length) card.appendChild(el('p', 'kt-vendor', '🏪 At ' + vi.v.name + ' you usually buy ' + top.join(', ')));
+      } else if (vi && vi.kind) card.appendChild(el('p', 'kt-vendor', '🏪 ' + vi.v.name + ' · ' + ({ salon: 'salon', veg: 'vegetables & fruit', milk: 'milk & dairy', kirana: 'kirana / grocery', flowers: 'flowers' }[vi.kind.kind] || 'your shop')));
+      var opts = vi ? KL().vendorGuess(vi.prof, vi.kind, total, cat).options : [];
+      if (!opts.length) { var g0 = KL().itemsFromPattern(total, cat, learned()); if (g0) opts = [{ lines: g0, n: 0 }]; }
+      if (!lines.length) opts.forEach(function (o) {
         var gb = el('button', 'kt-guess'); gb.type = 'button';
-        gb.appendChild(el('span', null, '✨ ' + g.map(function (l) { return l.icon + ' ' + qtyText(l); }).join(' + ')));
+        gb.appendChild(el('span', null, '✨ ' + o.lines.map(function (l) { return l.icon + ' ' + l.name + (qtyText(l) ? ' ' + qtyText(l) : ''); }).join(' + ') + (o.n ? ' · ' + o.n + '× here' : '')));
         gb.appendChild(el('b', null, 'Use this'));
-        gb.addEventListener('click', function () { lines = g; paint(); });
+        gb.addEventListener('click', function () { lines = JSON.parse(JSON.stringify(o.lines)); paint(); });
         card.appendChild(gb);
-      }
+      });
       // the lines
       var list = el('div', 'kt-lines');
       if (!lines.length) list.appendChild(el('p', 'kt-hint', 'Tap what you bought below, or type it.'));
@@ -161,7 +192,14 @@
       card.appendChild(bar);
       // add: chips + typing
       var chips = el('div', 'kt-chips');
-      usage.slice(0, 14).forEach(function (it) {
+      var vfirst = [];
+      if (vi) {
+        var counts = (vi.prof && vi.prof.items) || {};
+        vfirst = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; }).concat((vi.kind && vi.kind.items) || []);
+      }
+      var ranked = vfirst.map(function (id) { return usage.filter(function (u) { return u.id === id; })[0]; }).filter(Boolean)
+        .concat(usage).filter(function (it, i, a) { return a.indexOf(it) === i; });
+      ranked.slice(0, 16).forEach(function (it) {
         var c = el('button', 'kt-chip'); c.type = 'button'; c.textContent = (it.icon || '🛒') + ' ' + it.name + (it.pack ? ' ₹' + it.pack.price : '');
         c.addEventListener('click', function () {
           var ex = lines.filter(function (l) { return l.id === it.id; })[0];
@@ -214,7 +252,9 @@
         addToCatalog(out);
         save.disabled = true;
         store(e.id, out).then(function () {
-          rememberBasket(total, out.filter(function (l) { return l.id !== 'other'; }).length === out.length ? out : []);
+          var vv = e.raw ? KL().vendorOf(e) : null;   // only a bank SMS names the shop for sure
+          if (vv) K.kvSet(VENDOR_KEY, JSON.stringify(KL().learnVendor(vendors(), vv, total, out)));   // this shop learns this basket
+          else rememberBasket(total, out.filter(function (l) { return l.id !== 'other'; }).length === out.length ? out : []);
           K.toast('🧺 Saved: ' + out.map(function (l) { return l.icon + ' ' + l.name; }).join(', '));
           refresh(); next();
         }, function () { save.disabled = false; K.toast('Could not save. Try again.'); });
@@ -247,7 +287,7 @@
   /* ---------- on a spend row: what it was ---------- */
   function decorate(dSpan, e) {
     var got = itemsFor(e);
-    if (!got && !isGrocery(e)) return;
+    if (!got && !tracked(e)) return;
     var b = el('span', 'kt-badge' + (got ? (got.auto ? ' auto' : ' done') : ' ask')); b.setAttribute('role', 'button'); b.tabIndex = 0;   // the row is a button already
     b.textContent = got ? (got.auto ? '✨ ' : '') + got.items.filter(function (l) { return l.id !== 'other'; }).map(function (l) { return l.icon + ' ' + qtyText(l); }).join(' · ') || '🛍️ Other' : '🧺 + items';
     b.addEventListener('click', function (ev) { ev.stopPropagation(); ev.preventDefault(); openFill(e, null); });
@@ -344,6 +384,8 @@
       ic.appendChild(r);
     });
     root.appendChild(ic);
+    // your vendors: what each one sells (learned, or set by you)
+    var vc = vendorsCard(r0); if (vc) root.appendChild(vc);
     // prices you told the app
     var pc = el('section', 'ap-card');
     var ph = el('div', 'ap-h'); ph.appendChild(el('span', null, '🏷️ Pack prices')); ph.appendChild(el('small', null, 'tap to change')); pc.appendChild(ph);
@@ -378,6 +420,55 @@
     });
     pc.appendChild(addP);
     root.appendChild(pc);
+  }
+  function vendorsCard(r0) {
+    var prof = vendors(), seen = {}, cat = catalog();
+    K.getEntries().forEach(function (e) {
+      if (!(e.ts >= r0[0] && e.ts < r0[1]) || !tracked(e)) return;
+      var v = KL().vendorOf(e); if (!v || !e.raw) return;
+      var x = seen[v.key] = seen[v.key] || { key: v.key, name: (prof[v.key] && prof[v.key].name) || v.name, n: 0, sum: 0 };
+      x.n++; x.sum += Number(e.amount);
+    });
+    Object.keys(prof).forEach(function (k) { if (!seen[k]) seen[k] = { key: k, name: prof[k].name || k, n: 0, sum: 0 }; });
+    var list = Object.keys(seen).map(function (k) { return seen[k]; }).sort(function (a, b) { return b.sum - a.sum; });
+    if (!list.length) return null;
+    var card = el('section', 'ap-card');
+    var h = el('div', 'ap-h'); h.appendChild(el('span', null, '🏪 Your vendors')); h.appendChild(el('small', null, 'tap to set what they sell')); card.appendChild(h);
+    list.slice(0, 15).forEach(function (x) {
+      var p = prof[x.key] || {}, kind = KL().vendorKind(x.key), ids = Object.keys(p.items || {}).sort(function (a, b) { return p.items[b] - p.items[a]; });
+      if (p.sells && p.sells.length) ids = p.sells.concat(ids); else if (!ids.length && kind) ids = kind.items;
+      ids = ids.filter(function (id, i, a) { return a.indexOf(id) === i; }).slice(0, 5);
+      var icons = ids.map(function (id) { var it = cat.filter(function (c) { return c.id === id; })[0]; return it ? it.icon : ''; }).join(' ');
+      var row = el('div', 'kt-vrow');
+      var b = el('button', 'kt-vmain'); b.type = 'button';
+      var t = el('span', 'kt-vt'); t.appendChild(el('b', null, x.name));
+      t.appendChild(el('small', null, (icons || '❔') + (p.always ? ' · always ' + ((cat.filter(function (c) { return c.id === p.always; })[0] || {}).name || p.always) : '') + (p.n ? ' · learned from ' + p.n : kind ? ' · guessed from the name' : '')));
+      b.appendChild(t);
+      b.appendChild(el('span', 'kt-vs', x.n ? x.n + ' · ' + money(x.sum) : ''));
+      b.addEventListener('click', function () { editVendor(x, p, ids); });
+      row.appendChild(b);
+      if (prof[x.key]) {
+        var fx = el('button', 'kt-rm', '×'); fx.type = 'button'; fx.setAttribute('aria-label', 'Remove what the app learned about ' + x.name);
+        fx.addEventListener('click', function () { var all = vendors(), was = JSON.stringify(all); delete all[x.key]; K.kvSet(VENDOR_KEY, JSON.stringify(all)); render(); K.toast('Forgot ' + x.name, function () { K.kvSet(VENDOR_KEY, was); render(); }); });
+        row.appendChild(fx);
+      }
+      card.appendChild(row);
+    });
+    card.appendChild(el('p', 'ap-muted', 'Every basket you save teaches its shop. Same amount, same shop: filled by itself next time. Two different things for the same amount: it asks with both.'));
+    return card;
+  }
+  function editVendor(x, p, ids) {
+    var cat = catalog(), nameOf = function (id) { return ((cat.filter(function (c) { return c.id === id; })[0]) || {}).name || id; };
+    K.inputBox({ title: '🏪 ' + x.name, message: 'What does this shop sell? Items you buy here come first when you fill a spend. "Always" fills every payment here by itself (a salon is always a haircut).',
+      fields: [{ label: 'Sells (comma separated)', value: ids.map(nameOf).join(', '), placeholder: 'e.g. milk, coffee, rice' }, { label: 'Always (optional, one item)', value: p.always ? nameOf(p.always) : '', placeholder: 'e.g. Haircut, Vegetables' }],
+      confirmText: 'Save',
+      onConfirm: function (v) {
+        var pick = function (txt) { var it = KL().kitchenItemFor(String(txt || '').trim(), cat); return it ? it.id : null; };
+        var sells = String(v[0] || '').split(',').map(pick).filter(Boolean), always = String(v[1] || '').trim() ? pick(v[1]) : null;
+        var all = vendors(), cur = Object.assign({ name: x.name, n: 0, items: {}, baskets: {} }, all[x.key] || {});
+        cur.sells = sells.filter(function (id, i, a) { return a.indexOf(id) === i; }); cur.always = always;
+        all[x.key] = cur; K.kvSet(VENDOR_KEY, JSON.stringify(all)); K.toast(x.name + ' saved'); render();
+      } });
   }
   function refresh() { if (K.rerender) K.rerender(); else { homeNudge(); render(); } }
 

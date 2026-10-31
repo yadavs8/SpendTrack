@@ -994,3 +994,13 @@ body.privacy .kt-money, body.privacy .kt-amt, body.privacy .kt-hero .ap-big { fi
 @keyframes ktUp { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .kt-sheet { animation: none; } }
 .kt-q.unk { color: var(--muted); font-weight: 600; }
+
+/* v134: vendors */
+.kt-vendor { margin: -2px 0 10px; padding: 8px 10px; border-radius: 12px; background: rgba(13, 148, 136, .08); color: #0f766e; font-size: .8rem; font-weight: 600; line-height: 1.35; }
+:root[data-theme="dark"] .kt-vendor { color: #5eead4; } @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .kt-vendor { color: #5eead4; } }
+.kt-vrow { display: flex; align-items: center; gap: 6px; border-top: 1px solid var(--line); }
+.ap-card .kt-vrow:first-of-type { border-top: 0; }
+.kt-vmain { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 9px 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.kt-vt { flex: 1; min-width: 0; display: grid; gap: 2px; } .kt-vt b { font-size: .9rem; } .kt-vt small { color: var(--muted); font-size: .74rem; }
+.kt-vs { flex: none; font-size: .78rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--muted); }
+body.privacy .kt-vs { filter: blur(6px); }
