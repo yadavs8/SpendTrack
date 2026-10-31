@@ -125,19 +125,38 @@
     else {   // the description already names items ("milk and paneer"): start with those
       var dtext = String(K.cleanScopePrefix ? K.cleanScopePrefix(e.desc) : e.desc).replace(/\(.*$/, ''), vk = KL().vendorOf(e);
       // a description that is only the shop's name ("Lavish Kirana Store") says nothing about what was bought
-      if (vk) { var dk = KL().vendorOf({ desc: dtext }); if (dk && (dk.key === vk.key || vk.key.indexOf(dk.key) === 0 || dk.key.indexOf(vk.key) === 0)) dtext = ''; }
+      if (vk) vk.key.split(' ').forEach(function (w) { if (w.length >= 2) dtext = dtext.replace(new RegExp('\\b' + w + '\\b', 'ig'), ' '); });   // the shop's own name says nothing about what was bought
       KL().parseItemsText(dtext, cat).forEach(function (l) { if (!l.fresh && l.id !== 'grocery') { l.amount = l.amount != null && l.amount <= total ? l.amount : null; lines.push(l); } });
       var open0 = lines.filter(function (l) { return l.amount == null; }), known0 = lines.reduce(function (t, l) { return t + (l.amount || 0); }, 0);
       if (open0.length === 1 && total - known0 > 0) open0[0].amount = Math.round((total - known0) * 100) / 100;
     }
-    var back = el('div', 'modal-backdrop kt-back'), card = el('div', 'modal-card kt-sheet');
+    var back = el('div', 'kt-back'), card = el('div', 'kt-sheet'), body = null, moreChips = false;
+    card.setAttribute('role', 'dialog'); card.setAttribute('aria-label', 'What did you buy?');
     back.appendChild(card); document.body.appendChild(back);
-    function close() { back.remove(); document.removeEventListener('keydown', onKey); }
+    // fit the space that is really visible: the phone keyboard takes the bottom of the screen
+    var vv = window.visualViewport;
+    function fit() {
+      var h = vv ? vv.height : window.innerHeight, top = vv ? vv.offsetTop : 0;
+      back.style.top = top + 'px'; back.style.height = h + 'px'; card.style.maxHeight = Math.max(240, h - 10) + 'px';
+    }
+    fit();
+    if (vv) { vv.addEventListener('resize', fit); vv.addEventListener('scroll', fit); }
+    window.addEventListener('resize', fit);
+    card.addEventListener('focusin', function (ev) {   // what you type into stays in view above the keyboard
+      var t = ev.target; if (!t || !/INPUT|TEXTAREA/.test(t.tagName)) return;
+      setTimeout(function () { try { t.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (er) { t.scrollIntoView(); } }, 280);
+    });
+    document.documentElement.classList.add('kt-open');
+    function close() {
+      back.remove(); document.removeEventListener('keydown', onKey); document.documentElement.classList.remove('kt-open');
+      if (vv) { vv.removeEventListener('resize', fit); vv.removeEventListener('scroll', fit); } window.removeEventListener('resize', fit);
+    }
     function onKey(ev) { if (ev.key === 'Escape') close(); }
     document.addEventListener('keydown', onKey);
     back.addEventListener('click', function (ev) { if (ev.target === back) close(); });
     var usage = usageRank();
     function paint() {
+      var keepScroll = body ? body.scrollTop : 0;
       card.textContent = '';
       var head = el('div', 'kt-head');
       var ht = el('div'); ht.appendChild(el('b', null, '🧺 What did you buy?'));
@@ -145,13 +164,14 @@
       head.appendChild(ht);
       var x = el('button', 'kt-x', '×'); x.type = 'button'; x.setAttribute('aria-label', 'Close'); x.addEventListener('click', close); head.appendChild(x);
       card.appendChild(head);
+      body = el('div', 'kt-body'); card.appendChild(body);
       // one-tap guess: a basket you've told the app about with this amount
       var vi = vendorInfo(e);
       if (vi && vi.prof && vi.prof.n) {
         var top = Object.keys(vi.prof.items || {}).sort(function (a, b) { return vi.prof.items[b] - vi.prof.items[a]; }).slice(0, 5)
           .map(function (id) { var it = cat.filter(function (c) { return c.id === id; })[0]; return it ? it.icon + ' ' + it.name : ''; }).filter(Boolean);
-        if (top.length) card.appendChild(el('p', 'kt-vendor', '🏪 At ' + vi.v.name + ' you usually buy ' + top.join(', ')));
-      } else if (vi && vi.kind) card.appendChild(el('p', 'kt-vendor', '🏪 ' + vi.v.name + ' · ' + ({ salon: 'salon', veg: 'vegetables & fruit', milk: 'milk & dairy', kirana: 'kirana / grocery', flowers: 'flowers' }[vi.kind.kind] || 'your shop')));
+        if (top.length) body.appendChild(el('p', 'kt-vendor', '🏪 At ' + vi.v.name + ' you usually buy ' + top.join(', ')));
+      } else if (vi && vi.kind) body.appendChild(el('p', 'kt-vendor', '🏪 ' + vi.v.name + ' · ' + ({ salon: 'salon', veg: 'vegetables & fruit', milk: 'milk & dairy', kirana: 'kirana / grocery', flowers: 'flowers' }[vi.kind.kind] || 'your shop')));
       var opts = vi ? KL().vendorGuess(vi.prof, vi.kind, total, cat).options : [];
       if (!opts.length) { var g0 = KL().itemsFromPattern(total, cat, learned()); if (g0) opts = [{ lines: g0, n: 0 }]; }
       if (!lines.length) opts.forEach(function (o) {
@@ -159,11 +179,11 @@
         gb.appendChild(el('span', null, '✨ ' + o.lines.map(function (l) { return l.icon + ' ' + l.name + (qtyText(l) ? ' ' + qtyText(l) : ''); }).join(' + ') + (o.n ? ' · ' + o.n + '× here' : '')));
         gb.appendChild(el('b', null, 'Use this'));
         gb.addEventListener('click', function () { lines = JSON.parse(JSON.stringify(o.lines)); paint(); });
-        card.appendChild(gb);
+        body.appendChild(gb);
       });
       // the lines
       var list = el('div', 'kt-lines');
-      if (!lines.length) list.appendChild(el('p', 'kt-hint', 'Tap what you bought below, or type it.'));
+      if (!lines.length) list.appendChild(el('p', 'kt-hint', 'Type what you bought, or tap an item below.'));
       lines.forEach(function (l, i) {
         var it = cat.filter(function (c) { return c.id === l.id; })[0] || l;
         var r = el('div', 'kt-line');
@@ -185,12 +205,12 @@
         r.appendChild(rm);
         list.appendChild(r);
       });
-      card.appendChild(list);
+      body.appendChild(list);
       var filled = lines.reduce(function (t, l) { return t + (l.amount || 0); }, 0), left = Math.round((total - filled) * 100) / 100;
       var bar = el('div', 'kt-left' + (left < 0 ? ' over' : left === 0 ? ' done' : ''));
       bar.textContent = left === 0 ? '✓ All ' + money(total) + ' filled' : left > 0 ? money(left) + ' of ' + money(total) + ' not filled yet' + (lines.length ? ' · saved as "Other"' : '') : money(-left) + ' more than the payment';
-      card.appendChild(bar);
-      // add: chips + typing
+      body.appendChild(bar);
+      // add: typing first (stays near the top, above the keyboard), then item chips
       var chips = el('div', 'kt-chips');
       var vfirst = [];
       if (vi) {
@@ -199,7 +219,7 @@
       }
       var ranked = vfirst.map(function (id) { return usage.filter(function (u) { return u.id === id; })[0]; }).filter(Boolean)
         .concat(usage).filter(function (it, i, a) { return a.indexOf(it) === i; });
-      ranked.slice(0, 16).forEach(function (it) {
+      (moreChips ? ranked : ranked.slice(0, 10)).forEach(function (it) {
         var c = el('button', 'kt-chip'); c.type = 'button'; c.textContent = (it.icon || '🛒') + ' ' + it.name + (it.pack ? ' ₹' + it.pack.price : '');
         c.addEventListener('click', function () {
           var ex = lines.filter(function (l) { return l.id === it.id; })[0];
@@ -211,7 +231,11 @@
         });
         chips.appendChild(c);
       });
-      card.appendChild(chips);
+      if (!moreChips && ranked.length > 10) {
+        var mc = el('button', 'kt-chip more', 'More ▾'); mc.type = 'button';
+        mc.addEventListener('click', function () { moreChips = true; paint(); });
+        chips.appendChild(mc);
+      }
       var tw = el('div', 'kt-type');
       var inp = el('input', 'input'); inp.placeholder = 'Or type: adrak 40, sabzi 250g 30, 10 coffee'; inp.setAttribute('aria-label', 'Type what you bought');
       var add = el('button', 'kt-add', 'Add'); add.type = 'button';
@@ -229,7 +253,7 @@
       }
       add.addEventListener('click', addTyped);
       inp.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); addTyped(); } });
-      tw.appendChild(inp); tw.appendChild(add); card.appendChild(tw);
+      tw.appendChild(inp); tw.appendChild(add); body.appendChild(tw); body.appendChild(chips);
       // actions
       var acts = el('div', 'kt-acts');
       if (queue) {
@@ -261,6 +285,7 @@
       });
       acts.appendChild(save);
       card.appendChild(acts);
+      body.scrollTop = keepScroll;
     }
     function next() {
       close();
