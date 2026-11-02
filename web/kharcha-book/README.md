@@ -379,3 +379,13 @@ Search "milk", "petrol", "swiggy" (or an amount) and you get a full panel, not j
 - 10 item chips, then **More ▾**. Item rows fit 320–360px phones. Inputs use 16px text, so phones don't zoom.
 - No blurred backdrop, which rendered badly in the Android app.
 - **Fix:** "Shree Bala Ji milk and paneer" pre-fills milk and paneer again. Only the shop's own words are ignored.
+
+## 📷 Read an order screenshot (v136)
+
+- In **What did you buy?**, tap **📷 Read order screenshot** and pick the order screen from Blinkit, Zepto, Instamart, BigBasket, Amazon and so on (up to 4 images for long orders).
+  - The text is read **on your phone** with Tesseract (free, open source). The image never leaves the phone.
+  - The reader (~6 MB) downloads once from the jsDelivr CDN and is cached after that.
+- It fills every item with its price, size and count (500 ml x 2 → 1 L, 5 kg atta, 2 coffee packets), maps known items (milk, atta, pyaz, coffee…), and keeps new products under their own names.
+- It skips the bill lines (MRP, discounts, handling, delivery) and uses the paid price, not the struck MRP.
+- It shows the screenshot's **bill total** next to the payment ("✓ matches this payment"). Any difference (fees) is saved as "Other". Check the items, then Save.
+- It handles the reader's usual slips (₹ read as £ / X / %, "1kg x 1" read as "lkgx1"). The parser is tested on real reader output.

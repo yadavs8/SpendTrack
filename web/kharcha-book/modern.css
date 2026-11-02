@@ -1023,3 +1023,10 @@ html.kt-open, html.kt-open body { overflow: hidden; }
 .kt-line .kt-step { width: 28px; height: 28px; }
 .kt-line .kt-amt { width: 58px; box-sizing: border-box; padding: 6px 6px; }
 .kt-line .kt-rm { width: 22px; }
+
+/* v136: read an order screenshot */
+.kt-shot { margin: 0 0 12px; }
+.kt-shot-b { width: 100%; padding: 11px 14px; border-radius: 14px; border: 1.5px dashed rgba(124, 58, 237, .5); background: linear-gradient(135deg, rgba(124, 58, 237, .08), rgba(2, 132, 199, .06)); color: #6d28d9; font: inherit; font-weight: 800; font-size: .9rem; cursor: pointer; }
+.kt-shot-b:disabled { opacity: .85; cursor: progress; }
+:root[data-theme="dark"] .kt-shot-b { color: #c4b5fd; } @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .kt-shot-b { color: #c4b5fd; } }
+.kt-shot-note { margin: 8px 2px 0; font-size: .8rem; line-height: 1.35; color: var(--muted); }

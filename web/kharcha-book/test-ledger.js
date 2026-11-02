@@ -810,3 +810,36 @@ t('vendors: who sold it, what they sell, and what an amount means at that shop',
   [60, 30, 80].forEach((a) => { pv = L.learnVendor(pv, vj, a, [{ id: 'sabzi', name: 'Vegetables', icon: '🥬', qty: null, unit: 'kg', amount: a }]); });
   assert.strictEqual(L.vendorGuess(pv[vj.key], L.vendorKind(vj.key), 55).auto[0].id, 'sabzi');
 });
+
+t('parseOrderText: an order screen read from a screenshot', () => {
+  const blinkit = ['Order summary', 'Arrived in 9 minutes', '5 items in this order',
+    'Amul Taaza Toned Fresh Milk', '500 ml x 2', '₹54',
+    'Tata Salt, Vacuum Evaporated Iodised', '1 kg x 1', '₹28',
+    'Aashirvaad Shudh Chakki Atta', '5 kg x 1', '₹240 ₹285',
+    'Fresh Onion (Pyaz)', '1 kg', '₹39',
+    'Nescafe Classic Coffee Sachet 2 x ₹20',
+    'Bill details', 'MRP ₹434', 'Product discount -₹45', 'Item total ₹389', 'Handling charge ₹2', 'Delivery charges FREE', 'Bill total ₹391'].join('\n');
+  const r = L.parseOrderText(blinkit);
+  assert.strictEqual(r.total, 391);
+  const by = Object.fromEntries(r.lines.map((l) => [l.id, l]));
+  assert.strictEqual(r.lines.length, 5, r.lines.map((l) => l.name + '=' + l.amount).join(', '));
+  assert.strictEqual(by.amul.qty, 1); assert.strictEqual(by.amul.amount, 54);
+  assert.strictEqual(by.atta.amount, 240, 'paid price, not the struck MRP'); assert.strictEqual(by.atta.qty, 5);
+  assert.strictEqual(by.pyaz.qty, 1); assert.strictEqual(by.pyaz.amount, 39);
+  assert.strictEqual(by.coffee.amount, 20); assert.strictEqual(by.coffee.qty, 2);
+  assert.ok(r.lines.some((l) => /Tata Salt/.test(l.name) && l.amount === 28));
+  // OCR often reads the rupee sign as % or F; Zepto puts count first
+  const zepto = L.parseOrderText('2 x Amul Gold Full Cream Milk 500 ml %68\nBanana Robusta 6 pcs F49\nItem Total %117\nTo Pay %117');
+  assert.strictEqual(zepto.total, 117);
+  assert.deepStrictEqual(zepto.lines.map((l) => [l.id, l.amount, l.qty]), [['amul', 68, 1], ['banana', 49, 0.5]]);
+});
+
+t('parseOrderText: the real text the reader got from a Blinkit order screen', () => {
+  const ocr = ['Order summary', '5 items in this order', 'Amul Taaza Toned Fresh Milk %54', '500 ml x 2', 'Tata Salt Vacuum Evaporated £28', 'lkgx1',
+    'Aashirvaad Shudh Chakki Atta £240', '5kgx1', 'Fresh Onion (Pyaz) £39', 'lkgx1', 'Nescafe Classic Coffee Sachet £20', '1 pack x 2',
+    'Bill details', 'MRP 3434', 'Product discount -X45', 'Item total 389', 'Handling charge 2', 'Delivery charges FREE', 'Bill total X391'].join('\n');
+  const r = L.parseOrderText(ocr);
+  assert.strictEqual(r.total, 391);
+  assert.deepStrictEqual(r.lines.map((l) => [l.id, l.qty, l.amount]),
+    [['amul', 1, 54], ['tata-salt-vacuum-evapora', 1, 28], ['atta', 5, 240], ['pyaz', 1, 39], ['coffee', 2, 20]]);
+});
