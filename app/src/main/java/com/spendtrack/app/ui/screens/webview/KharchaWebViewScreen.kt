@@ -196,14 +196,24 @@ fun KharchaWebViewScreen(
                     // <input type="file">: receipt photos, "Restore backup". Without this the WebView
                     // silently ignores the tap -- one reason a second (Chrome) copy of the app was needed.
                     override fun onShowFileChooser(view: WebView, callback: android.webkit.ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean {
-                        val activity = view.context as? androidx.activity.ComponentActivity
+                        // The WebView's context can be a wrapper around the activity (as for the contact picker):
+                        // unwrap it, or the picker never opens and the page just sees nothing happen.
+                        var ctx: android.content.Context = view.context
+                        while (ctx is android.content.ContextWrapper && ctx !is androidx.activity.ComponentActivity) ctx = ctx.baseContext
+                        val activity = ctx as? androidx.activity.ComponentActivity
                         if (activity == null) { callback.onReceiveValue(null); return false }
                         val launcher = arrayOfNulls<androidx.activity.result.ActivityResultLauncher<Intent>>(1)
                         launcher[0] = activity.activityResultRegistry.register(
                             "kharcha_file_" + System.nanoTime(),
                             androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
                         ) { result ->
-                            val uris = FileChooserParams.parseResult(result.resultCode, result.data)
+                            val data = result.data
+                            var uris = FileChooserParams.parseResult(result.resultCode, data)
+                            // Many gallery apps hand the picked image(s) back in ClipData, which parseResult ignores.
+                            if ((uris == null || uris.isEmpty()) && result.resultCode == android.app.Activity.RESULT_OK && data != null) {
+                                val clip = data.clipData
+                                uris = if (clip != null && clip.itemCount > 0) Array(clip.itemCount) { clip.getItemAt(it).uri } else data.data?.let { arrayOf(it) }
+                            }
                             callback.onReceiveValue(uris)
                             launcher[0]?.unregister()
                         }

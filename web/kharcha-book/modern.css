@@ -1030,3 +1030,4 @@ html.kt-open, html.kt-open body { overflow: hidden; }
 .kt-shot-b:disabled { opacity: .85; cursor: progress; }
 :root[data-theme="dark"] .kt-shot-b { color: #c4b5fd; } @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .kt-shot-b { color: #c4b5fd; } }
 .kt-shot-note { margin: 8px 2px 0; font-size: .8rem; line-height: 1.35; color: var(--muted); }
+.kt-shot-chrome { display: block; margin-top: 8px; padding: 10px 12px; border-radius: 12px; background: #1a73e8; color: #fff; font-weight: 800; font-size: .86rem; text-align: center; text-decoration: none; }
