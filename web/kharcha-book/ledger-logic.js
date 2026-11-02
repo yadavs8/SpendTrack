@@ -1247,6 +1247,73 @@
     }).sort(function (a, b) { return b.amount - a.amount; });
   }
 
+  /* ---------- v136: an order screenshot's text -> items with prices ----------
+     Works on the text read from a Blinkit / Zepto / Instamart / BigBasket / Amazon order screen: product names, sizes,
+     "x 2" counts and prices; bill lines (delivery, handling, discounts, MRP) are skipped; the bill total is kept. */
+  var ORDER_SKIP = /\b(sub\s*total|item\s*total|total|bill|delivery|handling|platform|convenience|packag|surge|small\s*cart|fee|charges?|discount|saving|saved|savings|you\s*save|coupon|offer|promo|tax|gst|cgst|sgst|tip|donation|feeding\s*india|wallet|cashback|paid|payment|refund|order\s*(id|no|number|placed|summary|details)|invoice|address|deliver(ed|y)|arriv|rate|help|support|reorder|download|mrp\s*$|qty\s*$|items?\s+in\s+(this\s+)?order|\d+\s+items?\b)/i;
+  var ORDER_TOTAL = /\b(bill\s*total|grand\s*total|to\s*pay|total\s*paid|amount\s*paid|order\s*total|total\s*amount|net\s*payable|paid\s*via|total)\b/i;
+  var PRICE_RE = /(?:₹|rs\.?|inr|%|&|\bf(?=\d))\s*(\d{1,5}(?:,\d{3})*(?:\.\d{1,2})?)\b/gi;   // OCR often reads ₹ as % & or F
+  function orderPrices(line) {
+    var out = [], m; PRICE_RE.lastIndex = 0;
+    while ((m = PRICE_RE.exec(line))) { var v = Number(m[1].replace(/,/g, '')); if (v > 0 && v < 100000) out.push({ v: v, at: m.index, len: m[0].length }); }
+    if (!out.length) { var t = /(\d{1,5}(?:\.\d{1,2})?)\s*$/.exec(line.trim()); if (t && !/\b(ml|l|ltr|kg|g|gm|gms|pc|pcs|pack|pkt|x)\s*\d*\s*$/i.test(line.trim().slice(0, t.index + 1)) && /[a-z]{3}/i.test(line)) out.push({ v: Number(t[1]), at: line.trim().length - t[0].length, len: t[0].length, bare: true }); }
+    return out;
+  }
+  // the reader's usual slips on these screens: ₹ read as £ / X / % / &, "1kg" as "lkg", "1kg x 1" as "1kgx1"
+  function fixOcrLine(l) {
+    return String(l).replace(/[£€¥]/g, '₹').replace(/(^|[\s(-])[X%&F](?=\d)/g, '$1₹').replace(/₹\s+/g, '₹')
+      .replace(/(^|\s)[lI|](?=\s?(?:kg|g|gm|gms|ml|l|ltr|pc|pcs|pack|pkt|dozen)\b)/gi, '$11').replace(/(^|\s)[lI|](?=\s?(?:kg|g|gm|ml|ltr|pc|pcs|pack|pkt)x\d)/gi, '$11')
+      .replace(/(\d)\s*(kg|gm|gms|g|ml|ltr|l|pcs|pc|pack|pkt|dozen)\s*[x×]\s*(\d)/gi, '$1 $2 x $3');
+  }
+  var SIZE_RE = /(\d+(?:\.\d+)?)\s*(kg|gm|gms|g|ml|ltr|litre|l|pcs|pc|pieces|pack|pkt|dozen)\b/i;
+  var COUNT_RE = /(?:^|\s)(?:x|×|qty[:.]?)\s*(\d{1,2})\b|\b(\d{1,2})\s*(?:x|×)\s/i;
+  function orderItem(nm, size, count, price, catalog) {
+    var it = kitchenItemFor(nm, catalog) || kitchenItemFor(nm + ' ' + (size || ''), catalog);
+    var line = { name: nm.replace(/\b[a-z]/g, function (c) { return c.toUpperCase(); }).slice(0, 34), amount: price, count: count || 1, size: size || '' };
+    if (it) {
+      var q = null, sm = SIZE_RE.exec(size || '');
+      if (sm) q = toItemUnit(Number(sm[1]), UNIT_OF[sm[2].toLowerCase()] || sm[2].toLowerCase(), it) * (count || 1);
+      else if (it.pack) q = it.pack.size * (count || 1);
+      else if (it.unit === 'pc' || it.unit === 'pkt') q = count || 1;
+      line.id = it.id; line.icon = it.icon; line.unit = it.unit; line.qty = q == null ? null : Math.round(q * 1000) / 1000; line.item = it.name;
+    } else {
+      line.id = nm.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24); line.icon = '🛒'; line.unit = 'pc'; line.qty = count || 1; line.fresh = { name: line.name, icon: '🛒', unit: 'pc' };
+    }
+    return line;
+  }
+  function parseOrderText(text, catalog) {
+    var raw = String(text || '').replace(/\r/g, '').split('\n').map(function (l) { return fixOcrLine(l.replace(/[|•·]/g, ' ').replace(/\s+/g, ' ').trim()); }).filter(Boolean);
+    var items = [], total = null, itemTotal = null, names = [], pendSize = '', pendCount = null, inBill = false, sinceItem = 99;
+    raw.forEach(function (ln) {
+      sinceItem++;
+      var prices = orderPrices(ln), lastP = prices.length ? prices[prices.length - 1].v : (/(\d{1,5}(?:\.\d{1,2})?)\s*$/.exec(ln) || [])[1];
+      if (/bill\s*total|grand\s*total|to\s*pay|total\s*paid|amount\s*paid|order\s*total|net\s*payable|total\s*amount/i.test(ln)) { if (lastP != null) total = Number(lastP); return; }
+      if (/item\s*total|sub\s*total/i.test(ln)) { if (lastP != null) itemTotal = Number(lastP); return; }
+      if (/^(bill|payment|price)\s*(details|summary|breakup)/i.test(ln)) { inBill = true; return; }
+      if (inBill || ORDER_SKIP.test(ln)) { if (!prices.length) names = []; return; }
+      var before = prices.length ? ln.slice(0, prices[0].at).trim() : ln;
+      var sz = SIZE_RE.exec(before), ct = COUNT_RE.exec(before + ' ');
+      var words = before.replace(new RegExp(SIZE_RE.source, 'ig'), ' ').replace(/(?:^|\s)(?:x|×|qty[:.]?)\s*\d+|\b\d+\s*(?:x|×)(?=\s)/ig, ' ').replace(/[^A-Za-z\s&'-]/g, ' ').replace(/\s+/g, ' ').trim();
+      var isName = words.length >= 3 && /[A-Za-z]{3}/.test(words);
+      if (!isName && !prices.length) {          // a size / count line ("500 ml x 2", "1kg x 1"): it belongs to the item next to it
+        var last = items[items.length - 1];
+        if (last && sinceItem === 1 && !last.size) { last.size = sz ? sz[0] : ''; if (ct) last.count = Number(ct[1] || ct[2]); }
+        else { if (sz) pendSize = sz[0]; if (ct) pendCount = Number(ct[1] || ct[2]); }
+        return;
+      }
+      if (isName && !prices.length) { names.push(words); if (names.length > 2) names.shift(); if (sz) pendSize = sz[0]; if (ct) pendCount = Number(ct[1] || ct[2]); return; }
+      var price = Math.min.apply(null, prices.map(function (p) { return p.v; }));   // the struck MRP sits next to the price you paid
+      var nm = (isName ? words : names.join(' ')).trim();
+      if (nm.length >= 3) {
+        items.push({ nm: nm, size: (sz && sz[0]) || pendSize, count: ct ? Number(ct[1] || ct[2]) : pendCount, price: price });
+        sinceItem = 0;
+      }
+      names = []; pendSize = ''; pendCount = null;
+    });
+    var lines = items.map(function (x) { return orderItem(x.nm, x.size, x.count, x.price, catalog); });
+    return { lines: lines, total: total != null ? total : itemTotal };
+  }
+
   /* ---------- v134: vendors remember what they sell ----------
      The shop is the best clue: "Lavish Kirana S" sells milk / coffee / rice, "Vijay Vegetable" sells sabzi, a salon is
      a haircut. Each saved basket teaches its vendor: which items it sells and which basket each amount means there. */
@@ -1588,7 +1655,7 @@
     addPayment: addPayment, editLoan: editLoan, editPayment: editPayment, summarize: summarize,
     walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, parseWalletDesc: parseWalletDesc,
     parseWallets: parseWallets, walletState: walletState, walletReconcile: walletReconcile,
-    smartSearch: smartSearch, smsAccounts: smsAccounts, searchInsights: searchInsights, payeeName: payeeName, tripDiaryLabel: tripDiaryLabel, placeIn: placeIn, categoryOf: categoryOf, personOf: personOf, findPaybacks: findPaybacks, peopleLedger: peopleLedger, cleanBankAccounts: cleanBankAccounts, smsSourceBank: smsSourceBank, findRefunds: findRefunds, isRefundText: isRefundText, looksLikeCardBill: looksLikeCardBill, KITCHEN_SEED: KITCHEN_SEED, vendorOf: vendorOf, vendorKind: vendorKind, learnVendor: learnVendor, vendorGuess: vendorGuess, kitchenItemFor: kitchenItemFor, parseItemsText: parseItemsText, itemsFromPattern: itemsFromPattern, summarizeItems: summarizeItems, refundShop: refundShop, recurringSeries: recurringSeries, safeToSpend: safeToSpend, creepingSpends: creepingSpends, seriesKey: seriesKey, askQuery: askQuery, forecastMonth: forecastMonth, unusualSpends: unusualSpends,
+    smartSearch: smartSearch, smsAccounts: smsAccounts, searchInsights: searchInsights, payeeName: payeeName, tripDiaryLabel: tripDiaryLabel, placeIn: placeIn, categoryOf: categoryOf, personOf: personOf, findPaybacks: findPaybacks, peopleLedger: peopleLedger, cleanBankAccounts: cleanBankAccounts, smsSourceBank: smsSourceBank, findRefunds: findRefunds, isRefundText: isRefundText, looksLikeCardBill: looksLikeCardBill, KITCHEN_SEED: KITCHEN_SEED, parseOrderText: parseOrderText, vendorOf: vendorOf, vendorKind: vendorKind, learnVendor: learnVendor, vendorGuess: vendorGuess, kitchenItemFor: kitchenItemFor, parseItemsText: parseItemsText, itemsFromPattern: itemsFromPattern, summarizeItems: summarizeItems, refundShop: refundShop, recurringSeries: recurringSeries, safeToSpend: safeToSpend, creepingSpends: creepingSpends, seriesKey: seriesKey, askQuery: askQuery, forecastMonth: forecastMonth, unusualSpends: unusualSpends,
     payCycles: payCycles, lastWorkingDay: lastWorkingDay, nextPayday: nextPayday, parseBank: parseBank, parseAvlBalance: parseAvlBalance, balanceFromSms: balanceFromSms, bankEstimate: bankEstimate, parseTransfers: parseTransfers
   };
 });

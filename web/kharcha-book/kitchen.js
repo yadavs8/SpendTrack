@@ -117,6 +117,51 @@
   }
   function shopOf(e) { var v = KL().vendorOf(e); if (v && e.raw) return v.name; return K.cleanScopePrefix ? K.cleanScopePrefix(e.desc).replace(/\s*\(.*$/, '').trim() : e.desc; }
 
+  /* ---------- v136: read an order screenshot, on the phone and free (Tesseract, open source) ----------
+     The reader (about 6 MB) downloads once from the jsDelivr CDN and is cached; the image never leaves the phone. */
+  var TESS = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/', tessP = null;
+  function loadTess() {
+    if (window.Tesseract) return Promise.resolve(window.Tesseract);
+    if (tessP) return tessP;
+    tessP = new Promise(function (res, rej) {
+      var sc = document.createElement('script'); sc.src = TESS + 'tesseract.min.js'; sc.async = true;
+      sc.onload = function () { window.Tesseract ? res(window.Tesseract) : rej(new Error('reader missing')); };
+      sc.onerror = function () { tessP = null; rej(new Error('Could not download the reader. Check the internet and try again.')); };
+      document.head.appendChild(sc);
+    });
+    return tessP;
+  }
+  // Small screenshots read better a little bigger and in grey.
+  function prepImage(file) {
+    return new Promise(function (res) {
+      var url = URL.createObjectURL(file), img = new Image();
+      img.onload = function () {
+        try {
+          var scale = img.width < 1000 ? 2 : 1, c = document.createElement('canvas');
+          c.width = img.width * scale; c.height = img.height * scale;
+          var g = c.getContext('2d'); g.filter = 'grayscale(1) contrast(1.25)'; g.drawImage(img, 0, 0, c.width, c.height);
+          URL.revokeObjectURL(url); res(c);
+        } catch (e) { URL.revokeObjectURL(url); res(file); }
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); res(file); };
+      img.src = url;
+    });
+  }
+  function readScreenshots(files, onStep) {
+    var worker = null, texts = [], n = files.length;
+    return loadTess().then(function (T) {
+      onStep('Starting the reader…');
+      return T.createWorker('eng', 1, {
+        workerPath: TESS + 'worker.min.js', corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1',
+        langPath: 'https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng@1.0.0/4.0.0_best_int',
+        logger: function (m) { if (m && m.status === 'recognizing text') onStep('Reading' + (n > 1 ? ' ' + (texts.length + 1) + ' of ' + n : '') + '… ' + Math.round((m.progress || 0) * 100) + '%'); }
+      });
+    }).then(function (w) {
+      worker = w;
+      return files.reduce(function (p, f) { return p.then(function () { return prepImage(f); }).then(function (img) { return worker.recognize(img); }).then(function (r) { texts.push((r && r.data && r.data.text) || ''); }); }, Promise.resolve());
+    }).then(function () { if (worker) worker.terminate(); return texts.join('\n'); }, function (err) { if (worker) worker.terminate(); throw err; });
+  }
+
   /* ---------- "What did you buy?" ---------- */
   function openFill(e, queue) {
     var cat = catalog(), total = Number(e.amount), lines = [];
@@ -130,7 +175,7 @@
       var open0 = lines.filter(function (l) { return l.amount == null; }), known0 = lines.reduce(function (t, l) { return t + (l.amount || 0); }, 0);
       if (open0.length === 1 && total - known0 > 0) open0[0].amount = Math.round((total - known0) * 100) / 100;
     }
-    var back = el('div', 'kt-back'), card = el('div', 'kt-sheet'), body = null, moreChips = false;
+    var back = el('div', 'kt-back'), card = el('div', 'kt-sheet'), body = null, moreChips = false, reading = '', shotNote = '';
     card.setAttribute('role', 'dialog'); card.setAttribute('aria-label', 'What did you buy?');
     back.appendChild(card); document.body.appendChild(back);
     // fit the space that is really visible: the phone keyboard takes the bottom of the screen
@@ -253,7 +298,31 @@
       }
       add.addEventListener('click', addTyped);
       inp.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') { ev.preventDefault(); addTyped(); } });
-      tw.appendChild(inp); tw.appendChild(add); body.appendChild(tw); body.appendChild(chips);
+      tw.appendChild(inp); tw.appendChild(add);
+      // 📷 an order screenshot (Blinkit, Zepto, Instamart, BigBasket, Amazon…) fills the items and prices by itself
+      var shot = el('div', 'kt-shot');
+      var file = el('input'); file.type = 'file'; file.accept = 'image/*'; file.multiple = true; file.hidden = true;
+      var sb2 = el('button', 'kt-shot-b', reading ? '⏳ ' + reading : '📷 Read order screenshot'); sb2.type = 'button'; sb2.disabled = !!reading;
+      sb2.addEventListener('click', function () { file.click(); });
+      file.addEventListener('change', function () {
+        var fs = Array.prototype.slice.call(file.files || []).slice(0, 4); if (!fs.length) return;
+        reading = window.Tesseract ? 'Reading…' : 'Getting the free reader (first time only, ~6 MB)…'; paint();
+        readScreenshots(fs, function (msg) { reading = msg; var b = card.querySelector('.kt-shot-b'); if (b) b.textContent = '⏳ ' + msg; }).then(function (text) {
+          reading = ''; window.__ktLastOcr = text;
+          var r = KL().parseOrderText(text, cat);
+          if (!r.lines.length) { shotNote = 'Could not find items with prices in that screenshot. Try one that shows the item list with prices.'; paint(); return; }
+          var keep = lines.filter(function (l) { return l.amount != null; });
+          lines = keep.concat(r.lines.map(function (l) { return { id: l.id, name: l.item ? l.item : l.name, icon: l.icon, qty: l.qty, unit: l.unit, amount: l.amount, fresh: l.fresh }; }));
+          var got = r.lines.reduce(function (t, l) { return t + l.amount; }, 0);
+          shotNote = '📷 Read ' + r.lines.length + ' item' + (r.lines.length === 1 ? '' : 's') + ' · ' + money(got) +
+            (r.total != null ? ' · bill total ' + money(r.total) + (Math.abs(r.total - total) < 1 ? ' ✓ matches this payment' : ' (this payment is ' + money(total) + ')') : '') + '. Check them, then Save.';
+          paint();
+        }, function (err) { reading = ''; shotNote = '⚠️ ' + ((err && err.message) || 'Could not read the screenshot.'); paint(); });
+      });
+      shot.appendChild(sb2); shot.appendChild(file);
+      if (shotNote) shot.appendChild(el('p', 'kt-shot-note', shotNote));
+      body.appendChild(shot); body.appendChild(tw);
+      body.appendChild(chips);
       // actions
       var acts = el('div', 'kt-acts');
       if (queue) {
