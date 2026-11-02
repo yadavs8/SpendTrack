@@ -389,3 +389,9 @@ Search "milk", "petrol", "swiggy" (or an amount) and you get a full panel, not j
 - It skips the bill lines (MRP, discounts, handling, delivery) and uses the paid price, not the struck MRP.
 - It shows the screenshot's **bill total** next to the payment ("✓ matches this payment"). Any difference (fees) is saved as "Other". Check the items, then Save.
 - It handles the reader's usual slips (₹ read as £ / X / %, "1kg x 1" read as "lkgx1"). The parser is tested on real reader output.
+
+## Order screenshots inside the Android app (v137)
+
+- **App fix (new APK):** the file picker now unwraps the WebView's context to find the activity, as the contact picker does. Without that it could fail before the gallery even opened. It also reads images that gallery apps return in ClipData, which the old code ignored.
+- **Web side, works with the current app too:** "Read order screenshot" picks one image at a time (tap again to add more), so galleries return it the normal way.
+- If no image comes back, the sheet says so instead of doing nothing. Inside the app it offers **🌐 Open this in Chrome**, which opens the same spend's "What did you buy?" in Chrome (`#fill=<id>`), where picking always works.

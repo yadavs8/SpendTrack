@@ -162,6 +162,21 @@
     }).then(function () { if (worker) worker.terminate(); return texts.join('\n'); }, function (err) { if (worker) worker.terminate(); throw err; });
   }
 
+  // The picker can fail without a word inside the Android app; say so instead of doing nothing.
+  function watchPick(gotIt, fail) {
+    var left = false, done = false;
+    function onVis() { if (document.hidden) left = true; else if (left) setTimeout(check, 1500); }
+    function check() {
+      if (done) return; done = true; document.removeEventListener('visibilitychange', onVis); window.removeEventListener('focus', onFocus);
+      if (gotIt()) return;
+      fail(left ? '⚠️ No image came back from the gallery. Try again and pick one screenshot.' : '⚠️ The photo picker didn\'t open here.');
+    }
+    function onFocus() { if (left) setTimeout(check, 1500); }
+    document.addEventListener('visibilitychange', onVis); window.addEventListener('focus', onFocus);
+    if (window.KharchaNative) setTimeout(function () { if (!left && !document.hidden && !gotIt()) check(); }, 2500);   // in the app the gallery hides the page; still visible = it never opened
+    setTimeout(function () { if (!done) { done = true; document.removeEventListener('visibilitychange', onVis); window.removeEventListener('focus', onFocus); } }, 120000);
+  }
+
   /* ---------- "What did you buy?" ---------- */
   function openFill(e, queue) {
     var cat = catalog(), total = Number(e.amount), lines = [];
@@ -301,10 +316,17 @@
       tw.appendChild(inp); tw.appendChild(add);
       // 📷 an order screenshot (Blinkit, Zepto, Instamart, BigBasket, Amazon…) fills the items and prices by itself
       var shot = el('div', 'kt-shot');
-      var file = el('input'); file.type = 'file'; file.accept = 'image/*'; file.multiple = true; file.hidden = true;
-      var sb2 = el('button', 'kt-shot-b', reading ? '⏳ ' + reading : '📷 Read order screenshot'); sb2.type = 'button'; sb2.disabled = !!reading;
-      sb2.addEventListener('click', function () { file.click(); });
+      // one image at a time: with "multiple", many gallery apps hand the picture back where the Android app can't see it
+      var file = el('input'); file.type = 'file'; file.accept = 'image/*'; file.hidden = true;
+      var sb2 = el('button', 'kt-shot-b', reading ? '⏳ ' + reading : (lines.length && shotNote ? '📷 Add another screenshot' : '📷 Read order screenshot')); sb2.type = 'button'; sb2.disabled = !!reading;
+      var picked = false;
+      sb2.addEventListener('click', function () {
+        picked = false; shotNote = ''; var nn = card.querySelector('.kt-shot-note'); if (nn) nn.remove();
+        file.click();
+        watchPick(function () { return picked; }, function (why) { if (!picked) { shotNote = why; paint(); } });
+      });
       file.addEventListener('change', function () {
+        picked = true;
         var fs = Array.prototype.slice.call(file.files || []).slice(0, 4); if (!fs.length) return;
         reading = window.Tesseract ? 'Reading…' : 'Getting the free reader (first time only, ~6 MB)…'; paint();
         readScreenshots(fs, function (msg) { reading = msg; var b = card.querySelector('.kt-shot-b'); if (b) b.textContent = '⏳ ' + msg; }).then(function (text) {
@@ -320,7 +342,15 @@
         }, function (err) { reading = ''; shotNote = '⚠️ ' + ((err && err.message) || 'Could not read the screenshot.'); paint(); });
       });
       shot.appendChild(sb2); shot.appendChild(file);
-      if (shotNote) shot.appendChild(el('p', 'kt-shot-note', shotNote));
+      if (shotNote) {
+        shot.appendChild(el('p', 'kt-shot-note', shotNote));
+        if (/didn't open|came back/.test(shotNote) && window.KharchaNative) {   // the Android app's picker failed: same screen in Chrome
+          var url = location.origin + location.pathname + '#fill=' + encodeURIComponent(e.id);
+          var go = el('a', 'kt-shot-chrome', '🌐 Open this in Chrome and read it there');
+          go.href = 'intent://' + location.host + location.pathname + '#fill=' + encodeURIComponent(e.id) + '#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=' + encodeURIComponent(url) + ';end';
+          shot.appendChild(go);
+        }
+      }
       body.appendChild(shot); body.appendChild(tw);
       body.appendChild(chips);
       // actions
@@ -567,6 +597,13 @@
   function refresh() { if (K.rerender) K.rerender(); else { homeNudge(); render(); } }
 
   window.__kitchen = { decorate: decorate, itemsFor: itemsFor, openFill: openFill, pending: pending, render: render };
-  document.addEventListener('kharcha:render', function () { load(); homeNudge(); render(); });
+  var deepFill = (/#fill=([^&]+)/.exec(location.hash) || [])[1];
+  document.addEventListener('kharcha:render', function () {
+    load(); homeNudge(); render();
+    if (deepFill) {
+      var id = decodeURIComponent(deepFill), en = K.getEntries().filter(function (x) { return x.id === id; })[0];
+      if (en) { deepFill = null; try { history.replaceState(null, '', location.pathname + location.search); } catch (er) {} setTimeout(function () { openFill(en, null); }, 300); }
+    }
+  });
   document.addEventListener('kharcha:kitchen', function () { load(); render(); });
 })();
