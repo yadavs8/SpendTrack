@@ -131,34 +131,149 @@
     });
     return tessP;
   }
-  // Small screenshots read better a little bigger and in grey.
+  // Screenshots read best big, grey and dark-on-light: dark-mode screens (white text on black) are flipped first.
+  // Keeps the flipped grey of every pixel too, so a price can be read again on its own (see readPrices).
   function prepImage(file) {
     return new Promise(function (res) {
       var url = URL.createObjectURL(file), img = new Image();
       img.onload = function () {
         try {
-          var scale = img.width < 1000 ? 2 : 1, c = document.createElement('canvas');
-          c.width = img.width * scale; c.height = img.height * scale;
-          var g = c.getContext('2d'); g.filter = 'grayscale(1) contrast(1.25)'; g.drawImage(img, 0, 0, c.width, c.height);
-          URL.revokeObjectURL(url); res(c);
-        } catch (e) { URL.revokeObjectURL(url); res(file); }
+          var scale = img.width < 1400 ? Math.min(2.5, 1800 / img.width) : 1, c = document.createElement('canvas');
+          c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+          var g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(img, 0, 0, c.width, c.height);
+          var d = g.getImageData(0, 0, c.width, c.height), px = d.data, sum = 0, n = 0, lum = new Uint8ClampedArray(c.width * c.height);
+          for (var i = 0; i < px.length; i += 4 * 37) { sum += 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]; n++; }
+          var dark = sum / Math.max(1, n) < 110;
+          for (var j = 0, k = 0; j < px.length; j += 4, k++) {
+            var y = 0.299 * px[j] + 0.587 * px[j + 1] + 0.114 * px[j + 2];
+            if (dark) y = 255 - y;
+            lum[k] = y;
+            y = y < 150 ? Math.max(0, y * 0.6) : Math.min(255, y * 1.15);   // firmer text, cleaner background
+            px[j] = px[j + 1] = px[j + 2] = y;
+          }
+          g.putImageData(d, 0, 0);
+          URL.revokeObjectURL(url); res({ canvas: c, lum: lum, w: c.width, h: c.height });
+        } catch (e) { URL.revokeObjectURL(url); res({ canvas: file }); }
       };
-      img.onerror = function () { URL.revokeObjectURL(url); res(file); };
+      img.onerror = function () { URL.revokeObjectURL(url); res({ canvas: file }); };
       img.src = url;
     });
   }
+  // a row's size and count: "1 ltr x 1", "200 g x1", "100 pcsx1", "5 pcs x 20"
+  var SIZE_ROW = /^(?:\d+(?:\.\d+)?\s*(?:kg|gms?|g|ml|ltr|litre|l|pcs|pc|pes|pack|pkt|dozen)|[TIil|1][1lI|]{0,2}tr)\s*[x×]\s*\d/i;
+  function median(a) { a = a.slice().sort(function (p, q) { return p - q; }); return a[Math.floor(a.length / 2)]; }
+  // The strongest ink of a box: the price you paid is bold black (bold white in dark mode); a struck MRP is lighter grey.
+  function inkBox(pp, x0, y0, x1, y1) {
+    var w = x1 - x0, h = y1 - y0, mn = 255, ink = new Uint8Array(w * h), x, y;
+    for (y = 0; y < h; y++) for (x = 0; x < w; x++) { var v = pp.lum[(y0 + y) * pp.w + x0 + x]; if (v < mn) mn = v; }
+    var cut = Math.min(mn + 30, 120);
+    for (y = 0; y < h; y++) for (x = 0; x < w; x++) ink[y * w + x] = pp.lum[(y0 + y) * pp.w + x0 + x] <= cut ? 1 : 0;
+    return { w: w, h: h, ink: ink };
+  }
+  // letters = runs of columns with ink, each with the rows it covers
+  function glyphsOf(b) {
+    var out = [], cur = null;
+    for (var x = 0; x <= b.w; x++) {
+      var r0 = -1, r1 = -1;
+      if (x < b.w) for (var y = 0; y < b.h; y++) if (b.ink[y * b.w + x]) { if (r0 < 0) r0 = y; r1 = y; }
+      if (r0 >= 0) { if (!cur) cur = { c0: x, c1: x, r0: r0, r1: r1 }; else { cur.c1 = x; cur.r0 = Math.min(cur.r0, r0); cur.r1 = Math.max(cur.r1, r1); } }
+      else if (cur) { if (cur.c1 - cur.c0 >= 1 && cur.r1 - cur.r0 >= 4) out.push(cur); cur = null; }
+    }
+    return out;
+  }
+  // ₹ is the letter the reader doesn't know (it comes out as 2, 3, 7, #, T, ¥...). Its shape gives it away:
+  // two full-width bars at the top and no flat base (a 2 has a flat base, a 7 has one bar, a 3 has no full bars).
+  function isRupee(b, g) {
+    var W = g.c1 - g.c0 + 1, H = g.r1 - g.r0 + 1, bands = 0, inBand = false, base = 0;
+    if (W < 4 || H < 8 || W > H * 1.1) return false;
+    function span(y) { var a = -1, z = -1; for (var x = g.c0; x <= g.c1; x++) if (b.ink[y * b.w + x]) { if (a < 0) a = x; z = x; } return a < 0 ? 0 : (z - a + 1) / W; }
+    for (var y = g.r0; y <= g.r0 + Math.round(H * 0.55); y++) { var full = span(y) >= 0.75; if (full && !inBand) bands++; inBand = full; }
+    for (var yy = g.r1 - Math.max(1, Math.round(H * 0.12)); yy <= g.r1; yy++) base = Math.max(base, span(yy));
+    return bands >= 2 && base < 0.6;
+  }
+  function inkCanvas(b, c0, c1, r0, r1) {
+    var w = c1 - c0 + 1, h = r1 - r0 + 1, k = h < 48 ? Math.min(4, 48 / h) : 1, pad = 24, c = document.createElement('canvas');
+    c.width = Math.round(w * k) + pad * 2; c.height = Math.round(h * k) + pad * 2;
+    var g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.fillStyle = '#000';
+    for (var y = 0; y < h; y++) for (var x = 0; x < w; x++) if (b.ink[(r0 + y) * b.w + c0 + x]) g.fillRect(pad + Math.floor(x * k), pad + Math.floor(y * k), Math.ceil(k), Math.ceil(k));
+    return c;
+  }
+  // One price box read again: split into words, a leading ₹ found by its shape, the digits after it read as digits only.
+  function readStrip(worker, pp, box) {
+    var b = inkBox(pp, box[0], box[1], box[2], box[3]), gs = glyphsOf(b);
+    if (!gs.length) return Promise.resolve('');
+    var hs = gs.map(function (g) { return g.r1 - g.r0 + 1; }).sort(function (p, q) { return p - q; }), th = hs[Math.floor(hs.length / 2)], words = [], cur = null;
+    gs.forEach(function (g) { if (cur && g.c0 - cur[cur.length - 1].c1 < th * 0.45) cur.push(g); else { cur = [g]; words.push(cur); } });
+    return words.reduce(function (p, wd) {
+      return p.then(function (acc) {
+        var rup = wd.length >= 2 && isRupee(b, wd[0]), rest = rup ? wd.slice(1) : wd;
+        var r0 = Math.min.apply(null, rest.map(function (g) { return g.r0; })), r1 = Math.max.apply(null, rest.map(function (g) { return g.r1; }));
+        var cv = inkCanvas(b, rest[0].c0, rest[rest.length - 1].c1, r0, r1);
+        function read(psm) {
+          return worker.setParameters({ tessedit_char_whitelist: rup ? '0123456789.,' : '', tessedit_pageseg_mode: psm }).then(function () { return worker.recognize(cv); })
+            .then(function (x) { return ((x && x.data && x.data.text) || '').replace(/\s+/g, '').replace(/[⟦⟧]/g, ''); });
+        }
+        return read('7').then(function (t) { return t || read('13'); }).then(function (t) { return t ? acc.concat((rup ? '₹' : '') + t) : acc; });
+      });
+    }, Promise.resolve([])).then(function (ws) { return worker.setParameters({ tessedit_char_whitelist: '' }).then(function () { return ws.join(' '); }); });
+  }
+  // Uses where the words sit: bits of product photos left of the text column are dropped, and each row's price
+  // (the words past a wide gap on the right) is read a second time on its own. Gives the text with it as "⟦…⟧".
+  function readPrices(worker, pp, data) {
+    var tall = pp.h > pp.w * 1.6;          // a phone screenshot: its top strip is the clock and battery, not the order
+    var lines = (data.lines || []).filter(function (l) { return l.words && l.words.length && !(tall && l.bbox.y1 < pp.h * 0.035); }), W = pp.w, colXs = [], rows = [];
+    lines.forEach(function (l) {
+      var ws = l.words;
+      for (var i = 0; i < ws.length; i++) if (SIZE_ROW.test(ws.slice(i).map(function (w) { return w.text; }).join(' '))) { colXs.push(ws[i].bbox.x0); l._size = true; break; }
+    });
+    var colX = colXs.length >= 2 ? median(colXs) : 0, slack = W * 0.015;
+    lines.forEach(function (l) {
+      var ws = l.words.filter(function (w) { return String(w.text).trim() && !(w.bbox.x1 < colX - slack && (w.confidence < 80 || !/[A-Za-z0-9]{2}/.test(w.text))); });
+      if (!ws.length) return;
+      var row = { text: ws.map(function (w) { return w.text; }).join(' '), box: null, size: l._size };
+      var sorted = ws.slice().sort(function (p, q) { return p.bbox.x0 - q.bbox.x0; }), px0 = null;
+      for (var i = 1; i < sorted.length; i++) if (sorted[i].bbox.x0 - sorted[i - 1].bbox.x1 > W * 0.08 && sorted[i].bbox.x0 > W * 0.45) { px0 = sorted[i].bbox.x0; break; }
+      if (px0 == null && l._size) px0 = Math.round(W * 0.6);
+      if (px0 != null) {
+        var lh = l.bbox.y1 - l.bbox.y0, y0 = Math.max(0, Math.round(l.bbox.y0 - lh * 0.4)), y1 = Math.min(pp.h, Math.round(l.bbox.y1 + lh * 0.4));
+        row.box = [Math.max(0, Math.round(px0 - W * 0.012)), y0, W, y1];
+        row.gap = px0 !== Math.round(W * 0.6);
+      }
+      rows.push(row);
+    });
+    // a size row with no price words of its own: only worth a look when the name above has no price either
+    rows.forEach(function (r, i) { if (r.box && !r.gap && i && rows[i - 1].box && rows[i - 1].gap) r.box = null; });
+    if (!rows.some(function (r) { return r.box; })) return Promise.resolve(rows.map(function (r) { return r.text; }).join('\n'));
+    return Promise.resolve().then(function () {
+      return rows.reduce(function (p, r) {
+        if (!r.box) return p;
+        return p.then(function () { return readStrip(worker, pp, r.box).then(function (t) { if (t) r.text += ' ⟦' + t + '⟧'; }, function () {}); });
+      }, Promise.resolve());
+    }).then(function () { return worker.setParameters({ tessedit_pageseg_mode: '3', tessedit_char_whitelist: '' }); })
+      .then(function () { return rows.map(function (r) { return r.text; }).join('\n'); });
+  }
   function readScreenshots(files, onStep) {
-    var worker = null, texts = [], n = files.length;
+    var worker = null, texts = [], n = files.length, checking = false;
     return loadTess().then(function (T) {
       onStep('Starting the reader…');
       return T.createWorker('eng', 1, {
         workerPath: TESS + 'worker.min.js', corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1',
         langPath: 'https://cdn.jsdelivr.net/npm/@tesseract.js-data/eng@1.0.0/4.0.0_best_int',
-        logger: function (m) { if (m && m.status === 'recognizing text') onStep('Reading' + (n > 1 ? ' ' + (texts.length + 1) + ' of ' + n : '') + '… ' + Math.round((m.progress || 0) * 100) + '%'); }
+        logger: function (m) { if (m && m.status === 'recognizing text' && !checking) onStep('Reading' + (n > 1 ? ' ' + (texts.length + 1) + ' of ' + n : '') + '… ' + Math.round((m.progress || 0) * 100) + '%'); }
       });
     }).then(function (w) {
       worker = w;
-      return files.reduce(function (p, f) { return p.then(function () { return prepImage(f); }).then(function (img) { return worker.recognize(img); }).then(function (r) { texts.push((r && r.data && r.data.text) || ''); }); }, Promise.resolve());
+      return files.reduce(function (p, f) {
+        return p.then(function () { return prepImage(f); }).then(function (pp) {
+          checking = false;
+          return worker.recognize(pp.canvas, {}, { blocks: true }).then(function (r) {
+            var d = (r && r.data) || {};
+            if (!pp.lum) return d.text || '';
+            checking = true; onStep('Checking the prices…');
+            return readPrices(worker, pp, d).catch(function () { return d.text || ''; });
+          });
+        }).then(function (t) { texts.push(t || ''); });
+      }, Promise.resolve());
     }).then(function () { if (worker) worker.terminate(); return texts.join('\n'); }, function (err) { if (worker) worker.terminate(); throw err; });
   }
 
@@ -246,11 +361,11 @@
       if (!lines.length) list.appendChild(el('p', 'kt-hint', 'Type what you bought, or tap an item below.'));
       lines.forEach(function (l, i) {
         var it = cat.filter(function (c) { return c.id === l.id; })[0] || l;
-        var r = el('div', 'kt-line');
+        var r = el('div', 'kt-line' + (String(l.name || '').length > 14 ? ' kt-wrap' : ''));   // a long shop name gets its own line
         r.appendChild(el('span', 'kt-ic', l.icon || '🛒'));
         var nm = el('span', 'kt-nm'); nm.appendChild(el('b', null, l.name)); r.appendChild(nm);
         var step = it.pack ? it.pack.size : (l.unit === 'kg' || l.unit === 'L' ? 0.25 : 1);
-        var minus = el('button', 'kt-step', '−'); minus.type = 'button';
+        var minus = el('button', 'kt-step kt-minus', '−'); minus.type = 'button';
         var q = el('span', 'kt-q' + (qtyText(l) ? '' : ' unk'), qtyText(l) || 'qty?');
         var plus = el('button', 'kt-step', '+'); plus.type = 'button';
         function setQ(nq) { l.qty = Math.max(step, Math.round(nq * 1000) / 1000); if (it.pack) l.amount = Math.round(l.qty / it.pack.size * it.pack.price * 100) / 100; paint(); }
@@ -331,13 +446,16 @@
         reading = window.Tesseract ? 'Reading…' : 'Getting the free reader (first time only, ~6 MB)…'; paint();
         readScreenshots(fs, function (msg) { reading = msg; var b = card.querySelector('.kt-shot-b'); if (b) b.textContent = '⏳ ' + msg; }).then(function (text) {
           reading = ''; window.__ktLastOcr = text;
-          var r = KL().parseOrderText(text, cat);
+          var had = lines.filter(function (l) { return l.amount != null; }).length;
+          var r = KL().parseOrderText(text, cat, had ? null : total);   // a first screenshot of this payment: its total settles unsure prices
           if (!r.lines.length) { shotNote = 'Could not find items with prices in that screenshot. Try one that shows the item list with prices.'; paint(); return; }
           var keep = lines.filter(function (l) { return l.amount != null; });
           lines = keep.concat(r.lines.map(function (l) { return { id: l.id, name: l.item ? l.item : l.name, icon: l.icon, qty: l.qty, unit: l.unit, amount: l.amount, fresh: l.fresh }; }));
-          var got = r.lines.reduce(function (t, l) { return t + l.amount; }, 0);
+          var got = r.lines.reduce(function (t, l) { return t + (l.amount || 0); }, 0), guessed = r.lines.filter(function (l) { return l.guess; });
           shotNote = '📷 Read ' + r.lines.length + ' item' + (r.lines.length === 1 ? '' : 's') + ' · ' + money(got) +
-            (r.total != null ? ' · bill total ' + money(r.total) + (Math.abs(r.total - total) < 1 ? ' ✓ matches this payment' : ' (this payment is ' + money(total) + ')') : '') + '. Check them, then Save.';
+            (r.total != null ? ' · bill total ' + money(r.total) + (Math.abs(r.total - total) < 1 ? ' ✓ matches this payment' : ' (this payment is ' + money(total) + ')')
+              : !had && Math.abs(got - total) < 1 ? ' ✓ adds up to this payment' : '') +
+            (guessed.length ? '. The price of ' + guessed.map(function (l) { return l.item || l.name; }).join(', ') + ' was unclear, so it is worked out from the total' : '') + '. Check them, then Save.';
           paint();
         }, function (err) { reading = ''; shotNote = '⚠️ ' + ((err && err.message) || 'Could not read the screenshot.'); paint(); });
       });

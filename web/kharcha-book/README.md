@@ -395,3 +395,18 @@ Search "milk", "petrol", "swiggy" (or an amount) and you get a full panel, not j
 - **App fix (new APK):** the file picker now unwraps the WebView's context to find the activity, as the contact picker does. Without that it could fail before the gallery even opened. It also reads images that gallery apps return in ClipData, which the old code ignored.
 - **Web side, works with the current app too:** "Read order screenshot" picks one image at a time (tap again to add more), so galleries return it the normal way.
 - If no image comes back, the sheet says so instead of doing nothing. Inside the app it offers **🌐 Open this in Chrome**, which opens the same spend's "What did you buy?" in Chrome (`#fill=<id>`), where picking always works.
+
+## Order screenshots read right (v138)
+
+Tested on a real dark-mode Blinkit "Repeat Order" list: 11 items, product photo beside each name, struck MRP beside each price. It now reads all 11 names and paid prices (₹1,399) exactly.
+
+- **Dark mode:** white-on-black screens are flipped to dark-on-light before reading.
+- **Product photos:** the bits the reader "saw" in the photos left of the names (low-confidence words left of the text column) are dropped, so they no longer end up in item names.
+- **Each price read a second time, on its own:**
+  - Only the strongest ink at the right of a row is kept, so the grey struck MRP disappears.
+  - The ₹ sign, which the reader doesn't know (it came out as 2, 3, 7, #, T, ¥, £), is found by its shape: two bars on top and no flat base. Only the digits after it are read, as digits.
+- **The name sits on the line above "1 ltr x 1 ₹249 ₹195":** it is taken from there, with the junk in front trimmed ("md Mangaldeep…" → "Mangaldeep…").
+- **The payment settles what is still unclear:** if one price can't be read, it is worked out from the bill total (or this payment), and the note says which one. Unsure readings (743 = ₹743 or ₹43?) are picked so the items add up.
+- The phone's status bar (clock, battery) and buttons like "Repeat Order" / "View cart" are ignored.
+- "Cotton Phool Diya Batti" is no longer taken for flowers, and "Coriander Seeds" not for fresh dhaniya. Mustard oil still maps to Oil.
+- Long product names get a full line above their − qty + ₹ controls, so similar items ("Whole Farm … Coriander Seeds" and "… Mustard Seeds") can be told apart.

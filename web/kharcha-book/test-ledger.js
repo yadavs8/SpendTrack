@@ -843,3 +843,24 @@ t('parseOrderText: the real text the reader got from a Blinkit order screen', ()
   assert.deepStrictEqual(r.lines.map((l) => [l.id, l.qty, l.amount]),
     [['amul', 1, 54], ['tata-salt-vacuum-evapora', 1, 28], ['atta', 5, 240], ['pyaz', 1, 39], ['coffee', 2, 20]]);
 });
+
+t('parseOrderText: a dark-mode Blinkit list (photos beside each name, struck MRP, ₹ misread)', () => {
+  // what the reader got from the real screenshot, then the same with each price read again on its own (⟦…⟧)
+  const plain = ["1231 @ = a oo @ » NON R30 %Kil@78%", "« Ww", "Roff Cera Clean Advance Tile Floor Cleaner", "TItr x 1 F249 #195", "# Patanjali Mustard Oil Kachi Ghani (Cold Pressed)", "© 11tr x 1 $240 £232", "| 3+", "8 Matchbox by Homelites", "y", "Tage } 5 pcs x 20 200", "Mao :", "LS: wee ** Cotton Phool Diya Batti by Shubhkart", "A, J. 100 pcsx1 ¥17", "a Whole Farm Premium Coriander Seeds", "on 200g x1 Fo TN", "= Whole Farm Premium Black Small Mustard Seeds", "on | 4 200g x1 7 ¥43", "md Mangaldeep 5 In 1 Wet Dhoop", "HA i 100 pcs x 1 75 ¥69", "ay BE om", "RS", "ox Cotton Long Diya Batti by Sohum", "a 100 pcs x 1 40 #19", "Tp iL ~ ge", "| wou N Catch - Cumin Seeds / Jeera Seeds", "food 100g x1 ¥F5T65", "LE Tn", "pe Organic Box - Seeds Mix", "v stils | 250 g x 1 £799 #199", "=", "= Organic Box Anjeer", "ANJEER", "250g x1 F999 ¥299", "E=E3", "Repeat Order", "VIEW CART ON NEXT STEP"].join('\n');
+  const checked = ["@ = a oo @ » NON R30 %Kil@78%", "Ww", "Roff Cera Clean Advance Tile Floor Cleaner", "TItr x 1 F249 #195 ⟦F195⟧", "Patanjali Mustard Oil Kachi Ghani (Cold Pressed)", "11tr x 1 $240 £232 ⟦3232⟧", "Matchbox by Homelites", "y", "5 pcs x 20 200 ⟦2200⟧", ":", "Cotton Phool Diya Batti by Shubhkart", "100 pcsx1 ¥17 ⟦217⟧", "Whole Farm Premium Coriander Seeds", "200g x1 Fo TN ⟦¥71⟧", "Whole Farm Premium Black Small Mustard Seeds", "200g x1 7 ¥43 ⟦¥43⟧", "Mangaldeep 5 In 1 Wet Dhoop", "100 pcs x 1 75 ¥69 ⟦¥69⟧", "Cotton Long Diya Batti by Sohum", "100 pcs x 1 40 #19 ⟦19⟧", "Catch - Cumin Seeds / Jeera Seeds", "100g x1 ¥F5T65 ⟦¥55⟧", "Organic Box - Seeds Mix", "250 g x 1 £799 #199 ⟦199⟧", "Organic Box Anjeer", "250g x1 F999 ¥299 ⟦¥299⟧", "Repeat Order", "VIEW CART ON NEXT STEP"].join('\n');
+  const want = [195, 232, 200, 17, 71, 43, 69, 19, 55, 199, 299];
+  const r = L.parseOrderText(checked);
+  assert.deepStrictEqual(r.lines.map((l) => l.amount), want);
+  assert.deepStrictEqual(r.lines.map((l) => l.name.slice(0, 18)), ['Roff Cera Clean Ad', 'Patanjali Mustard ', 'Matchbox By Homeli', 'Cotton Phool Diya ', 'Whole Farm Premium', 'Whole Farm Premium', 'Mangaldeep 5 In 1 ', 'Cotton Long Diya B', 'Catch - Cumin Seed', 'Organic Box - Seed', 'Organic Box Anjeer']);
+  assert.strictEqual(r.lines[1].id, 'oil'); assert.strictEqual(r.lines[1].qty, 1);
+  assert.notStrictEqual(r.lines[3].id, 'flowers', 'diya batti is not flowers');
+  assert.notStrictEqual(r.lines[4].id, 'dhaniya', 'coriander seeds are not fresh dhaniya');
+  assert.strictEqual(r.lines[4].size, '200 g');
+  // without the second read, the payment's total fills the one price that could not be read
+  const p = L.parseOrderText(plain, null, 1399);
+  assert.strictEqual(p.lines.length, 11);
+  assert.deepStrictEqual(p.lines.map((l, i) => i === 4 || i === 8 ? null : l.amount), want.map((v, i) => i === 4 || i === 8 ? null : v));
+  assert.ok(p.lines[4].guess); assert.strictEqual(p.lines.reduce((t, l) => t + l.amount, 0), 1399);
+  // the reader's ₹ slips
+  assert.deepStrictEqual(L.parseOrderText('Amul Butter\n100 g x 1 ⟦3200⟧\nTata Tea Gold\n250 g x 1 ⟦T232⟧\nParle G\n1 pack x 1 ⟦743⟧ $50 ₹43').lines.map((l) => l.amount), [200, 232, 43]);
+});
