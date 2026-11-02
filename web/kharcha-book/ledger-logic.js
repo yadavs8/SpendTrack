@@ -1171,9 +1171,12 @@
     if (unit === 'pc' && item.unit === 'dozen') return qty / 12;
     return qty;
   }
+  // a word that means some other thing: "Phool Diya Batti" is pooja wicks, not flowers; "Coriander Seeds" is a spice, not fresh dhaniya
+  var KITCHEN_NOT = { flowers: /\b(diya|batti|wicks?|agarbatti|dhoop|incense|cotton)\b/, dhaniya: /\b(seeds?|powder|whole|sabut|masala)\b/, oil: /\b(cleaner|hair|body|massage|engine|lamp)\b/ };
   function kitchenItemFor(name, catalog) {
     var n = ' ' + String(name || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim() + ' ', best = null, len = 0;
     (catalog || KITCHEN_SEED).forEach(function (it) {
+      if (KITCHEN_NOT[it.id] && KITCHEN_NOT[it.id].test(n)) return;
       [it.name.toLowerCase()].concat(it.words || []).forEach(function (w) { if (n.indexOf(' ' + w + ' ') >= 0 && w.length > len) { best = it; len = w.length; } });
     });
     return best;
@@ -1250,8 +1253,7 @@
   /* ---------- v136: an order screenshot's text -> items with prices ----------
      Works on the text read from a Blinkit / Zepto / Instamart / BigBasket / Amazon order screen: product names, sizes,
      "x 2" counts and prices; bill lines (delivery, handling, discounts, MRP) are skipped; the bill total is kept. */
-  var ORDER_SKIP = /\b(sub\s*total|item\s*total|total|bill|delivery|handling|platform|convenience|packag|surge|small\s*cart|fee|charges?|discount|saving|saved|savings|you\s*save|coupon|offer|promo|tax|gst|cgst|sgst|tip|donation|feeding\s*india|wallet|cashback|paid|payment|refund|order\s*(id|no|number|placed|summary|details)|invoice|address|deliver(ed|y)|arriv|rate|help|support|reorder|download|mrp\s*$|qty\s*$|items?\s+in\s+(this\s+)?order|\d+\s+items?\b)/i;
-  var ORDER_TOTAL = /\b(bill\s*total|grand\s*total|to\s*pay|total\s*paid|amount\s*paid|order\s*total|total\s*amount|net\s*payable|paid\s*via|total)\b/i;
+  var ORDER_SKIP = /\b(sub\s*total|item\s*total|total|bill|delivery|handling|platform|convenience|packag|surge|small\s*cart|fee|charges?|discount|saving|saved|savings|you\s*save|coupon|offer|promo|tax|gst|cgst|sgst|tip|donation|feeding\s*india|wallet|cashback|paid|payment|refund|order\s*(id|no|number|placed|summary|details)|invoice|address|deliver(ed|y)|arriv|rate|help|support|reorder|repeat\s*order|view\s*cart|add\s*to\s*cart|go\s*to\s*cart|checkout|buy\s*again|next\s*step|download|mrp\s*$|qty\s*$|items?\s+in\s+(this\s+)?order|\d+\s+items?\b)/i;
   var PRICE_RE = /(?:₹|rs\.?|inr|%|&|\bf(?=\d))\s*(\d{1,5}(?:,\d{3})*(?:\.\d{1,2})?)\b/gi;   // OCR often reads ₹ as % & or F
   function orderPrices(line) {
     var out = [], m; PRICE_RE.lastIndex = 0;
@@ -1259,9 +1261,10 @@
     if (!out.length) { var t = /(\d{1,5}(?:\.\d{1,2})?)\s*$/.exec(line.trim()); if (t && !/\b(ml|l|ltr|kg|g|gm|gms|pc|pcs|pack|pkt|x)\s*\d*\s*$/i.test(line.trim().slice(0, t.index + 1)) && /[a-z]{3}/i.test(line)) out.push({ v: Number(t[1]), at: line.trim().length - t[0].length, len: t[0].length, bare: true }); }
     return out;
   }
-  // the reader's usual slips on these screens: ₹ read as £ / X / % / &, "1kg" as "lkg", "1kg x 1" as "1kgx1"
+  // the reader's usual slips on these screens: ₹ read as £ ¥ # $ T X % & or F, "1 ltr" as "TItr" / "11tr", "1kg" as "lkg", "1kg x 1" as "1kgx1"
   function fixOcrLine(l) {
-    return String(l).replace(/[£€¥]/g, '₹').replace(/(^|[\s(-])[X%&F](?=\d)/g, '$1₹').replace(/₹\s+/g, '₹')
+    return String(l).replace(/[£€¥]/g, '₹').replace(/(^|[\s(-])[X%&FT#$](?=\d)/g, '$1₹').replace(/₹\s+/g, '₹').replace(/₹[₹F#$T]+(?=\d)/g, '₹')
+      .replace(/(^|\s)[TIi|1][1lI|]{0,2}tr(?=\s|[x×]|$)/g, '$11 ltr').replace(/(\d)\s*pes\b/gi, '$1 pcs')
       .replace(/(^|\s)[lI|](?=\s?(?:kg|g|gm|gms|ml|l|ltr|pc|pcs|pack|pkt|dozen)\b)/gi, '$11').replace(/(^|\s)[lI|](?=\s?(?:kg|g|gm|ml|ltr|pc|pcs|pack|pkt)x\d)/gi, '$11')
       .replace(/(\d)\s*(kg|gm|gms|g|ml|ltr|l|pcs|pc|pack|pkt|dozen)\s*[x×]\s*(\d)/gi, '$1 $2 x $3');
   }
@@ -1269,7 +1272,9 @@
   var COUNT_RE = /(?:^|\s)(?:x|×|qty[:.]?)\s*(\d{1,2})\b|\b(\d{1,2})\s*(?:x|×)\s/i;
   function orderItem(nm, size, count, price, catalog) {
     var it = kitchenItemFor(nm, catalog) || kitchenItemFor(nm + ' ' + (size || ''), catalog);
-    var line = { name: nm.replace(/\b[a-z]/g, function (c) { return c.toUpperCase(); }).slice(0, 34), amount: price, count: count || 1, size: size || '' };
+    var nice = nm.replace(/\b[a-z]/g, function (c) { return c.toUpperCase(); });
+    if (nice.length > 48) nice = nice.slice(0, 48).replace(/\s+\S*$/, '');            // cut at a word, not in the middle of one
+    var line = { name: nice, amount: price, count: count || 1, size: size || '' };
     if (it) {
       var q = null, sm = SIZE_RE.exec(size || '');
       if (sm) q = toItemUnit(Number(sm[1]), UNIT_OF[sm[2].toLowerCase()] || sm[2].toLowerCase(), it) * (count || 1);
@@ -1281,10 +1286,80 @@
     }
     return line;
   }
-  function parseOrderText(text, catalog) {
-    var raw = String(text || '').replace(/\r/g, '').split('\n').map(function (l) { return fixOcrLine(l.replace(/[|•·]/g, ' ').replace(/\s+/g, ' ').trim()); }).filter(Boolean);
+  /* v138: the screen reader also reads each row's price on its own, struck MRP left out, and adds it as "⟦…⟧".
+     The ₹ there is often read as a symbol (#195, T232), dropped (71) or read as a digit (3200 = ₹200, 743 = ₹43). */
+  function hintPrices(h) {
+    var out = [];
+    (String(h || '').match(/(?:^|[^\d.,:\/-])[₹#$T¥£€%&FX]?\d[\d,]*(?:\.\d{1,2})?(?![\d:\/])/g) || []).forEach(function (tok) {
+      tok = tok.replace(/^[^₹#$T¥£€%&FX\d]/, '');
+      var sym = /^\D/.test(tok), dg = tok.replace(/^\D/, '').replace(/,/g, ''), v = Number(dg);
+      if (!(v > 0 && v < 100000) || (!sym && dg.length < 2)) return;     // a lone "2" there is a count, not a price
+      var c = [v]; if (!sym && /^[237]\d{2,}$/.test(dg)) c.push(Number(dg.slice(1)));
+      out.push({ c: c, n: dg.replace(/\..*/, '').length });
+    });
+    return out;
+  }
+  function pickPrice(prices, hint) {
+    var a = prices.map(function (p) { return p.v; }), marked = prices.filter(function (p) { return !p.bare; }).map(function (p) { return p.v; });
+    var hs = hintPrices(hint), alts = [];
+    hs.forEach(function (t) { t.c.forEach(function (v) { if (alts.indexOf(v) < 0) alts.push(v); }); });
+    a.forEach(function (v) { if (alts.indexOf(v) < 0) alts.push(v); });
+    function done(v) { return { v: v, alts: alts.filter(function (x) { return x !== v; }) }; }
+    for (var i = hs.length - 1; i >= 0; i--) for (var j = hs[i].c.length - 1; j >= 0; j--) if (a.indexOf(hs[i].c[j]) >= 0) return done(hs[i].c[j]);   // both reads agree
+    if (marked.length >= 2) return done(Math.min.apply(null, marked));   // "₹249 ₹195": the struck MRP sits next to the price you paid
+    if (hs.length) {
+      var t = hs[hs.length - 1];
+      if (t.c.length < 2) return done(t.c[0]);
+      if (t.n >= 4) return done(t.c[1]);                                    // "3200": ₹200, not ₹3,200
+      var mx = a.length ? Math.max.apply(null, a) : null;
+      return done(mx != null && t.c[0] > mx && t.c[1] < mx ? t.c[1] : t.c[0]);
+    }
+    if (a.length) return done(Math.min.apply(null, marked.length ? marked : a));
+    return null;
+  }
+  var JUNK_TOKEN = /^(?:[^A-Za-z]+|[a-z]{1,3}|[A-Z]{1,2}[^A-Za-z]*|[A-Za-z][^A-Za-z]+)$/;
+  function shopItemName(s) {
+    var w = String(s).split(' ').filter(Boolean);
+    while (w.length > 1 && JUNK_TOKEN.test(w[0])) w.shift();             // bits of the product photo before the name: "md", "LS:", "8"
+    while (w.length > 1 && JUNK_TOKEN.test(w[w.length - 1]) && !/^(?:&|-)$/.test(w[w.length - 1])) w.pop();
+    return w.join(' ').replace(/^[^A-Za-z]+|[^A-Za-z)]+$/g, '').trim();
+  }
+  function bestName(names) {
+    if (names.length < 2) return names[0] || '';
+    var a = names[names.length - 2], b = names[names.length - 1];
+    if (a.length >= 20 && b.split(' ').length <= 2 && /^[a-z(]/.test(b)) return a + ' ' + b;      // a long name wrapped onto a second line
+    if (b.split(' ').length === 1 && a.split(' ').length > 1) return a;                           // a word printed on the pack ("ANJEER")
+    return b;
+  }
+  // the bill total (or this payment) settles the prices the reader was unsure of
+  function settleToTotal(items, tgt) {
+    var known = 0, nulls = [];
+    items.forEach(function (x) { if (x.price == null) nulls.push(x); else known += x.price; });
+    if (nulls.length) {
+      if (nulls.length === 1 && tgt - known >= 1 && tgt - known < tgt) { nulls[0].price = Math.round((tgt - known) * 100) / 100; nulls[0].guess = true; }
+      return;
+    }
+    if (Math.abs(known - tgt) < 0.5) return;
+    var opts = items.map(function (x) { return [x.price].concat((x.alts || []).filter(function (v) { return v > 0 && v < tgt; })); });
+    var combos = opts.reduce(function (n, o) { return n * o.length; }, 1);
+    if (combos <= 1 || combos > 20000) return;
+    var best = null;
+    (function walk(i, sum, changed, pick) {
+      if (best && changed >= best.changed) return;
+      if (i === opts.length) { if (Math.abs(sum - tgt) < 0.5) best = { changed: changed, pick: pick.slice() }; return; }
+      for (var k = 0; k < opts[i].length; k++) { pick.push(opts[i][k]); walk(i + 1, sum + opts[i][k], changed + (k ? 1 : 0), pick); pick.pop(); }
+    })(0, 0, 0, []);
+    if (best) items.forEach(function (x, i) { x.price = best.pick[i]; });
+  }
+  function parseOrderText(text, catalog, target) {
+    var raw = String(text || '').replace(/\r/g, '').split('\n').map(function (l) {
+      var h = /⟦([^⟧]*)⟧/.exec(l);
+      return { ln: fixOcrLine(l.replace(/⟦[^⟧]*⟧/g, ' ').replace(/[|•·]/g, ' ').replace(/\s+/g, ' ').trim()), hint: h ? h[1] : '' };
+    }).filter(function (x) { return x.ln || x.hint; });
     var items = [], total = null, itemTotal = null, names = [], pendSize = '', pendCount = null, inBill = false, sinceItem = 99;
-    raw.forEach(function (ln) {
+    function add(nm, size, count, pick) { items.push({ nm: nm, size: size, count: count, price: pick ? pick.v : null, alts: pick ? pick.alts : [] }); sinceItem = 0; names = []; pendSize = ''; pendCount = null; }
+    raw.forEach(function (row) {
+      var ln = row.ln;
       sinceItem++;
       var prices = orderPrices(ln), lastP = prices.length ? prices[prices.length - 1].v : (/(\d{1,5}(?:\.\d{1,2})?)\s*$/.exec(ln) || [])[1];
       if (/bill\s*total|grand\s*total|to\s*pay|total\s*paid|amount\s*paid|order\s*total|net\s*payable|total\s*amount/i.test(ln)) { if (lastP != null) total = Number(lastP); return; }
@@ -1293,24 +1368,30 @@
       if (inBill || ORDER_SKIP.test(ln)) { if (!prices.length) names = []; return; }
       var before = prices.length ? ln.slice(0, prices[0].at).trim() : ln;
       var sz = SIZE_RE.exec(before), ct = COUNT_RE.exec(before + ' ');
-      var words = before.replace(new RegExp(SIZE_RE.source, 'ig'), ' ').replace(/(?:^|\s)(?:x|×|qty[:.]?)\s*\d+|\b\d+\s*(?:x|×)(?=\s)/ig, ' ').replace(/[^A-Za-z\s&'-]/g, ' ').replace(/\s+/g, ' ').trim();
+      var words = shopItemName(before.replace(new RegExp(SIZE_RE.source, 'ig'), ' ').replace(/(?:^|\s)(?:x|×|qty[:.]?)\s*\d+|\b\d+\s*(?:x|×)(?=\s)/ig, ' ').replace(/[^A-Za-z0-9\s&'()-]/g, ' ').replace(/\s+/g, ' ').trim());
       var isName = words.length >= 3 && /[A-Za-z]{3}/.test(words);
-      if (!isName && !prices.length) {          // a size / count line ("500 ml x 2", "1kg x 1"): it belongs to the item next to it
+      var hasPrice = prices.length || hintPrices(row.hint).length;
+      if (!isName && !hasPrice) {          // a size / count line ("500 ml x 2", "1kg x 1"): it belongs to the item next to it
         var last = items[items.length - 1];
         if (last && sinceItem === 1 && !last.size) { last.size = sz ? sz[0] : ''; if (ct) last.count = Number(ct[1] || ct[2]); }
         else { if (sz) pendSize = sz[0]; if (ct) pendCount = Number(ct[1] || ct[2]); }
         return;
       }
-      if (isName && !prices.length) { names.push(words); if (names.length > 2) names.shift(); if (sz) pendSize = sz[0]; if (ct) pendCount = Number(ct[1] || ct[2]); return; }
-      var price = Math.min.apply(null, prices.map(function (p) { return p.v; }));   // the struck MRP sits next to the price you paid
-      var nm = (isName ? words : names.join(' ')).trim();
-      if (nm.length >= 3) {
-        items.push({ nm: nm, size: (sz && sz[0]) || pendSize, count: ct ? Number(ct[1] || ct[2]) : pendCount, price: price });
-        sinceItem = 0;
+      if (isName && !hasPrice && !(sz && ct && names.length)) {
+        // a name and its size went by with no price readable: keep that item, the total can tell its price
+        if (names.length && (pendSize || pendCount)) add(bestName(names), pendSize, pendCount, null);
+        names.push(words); if (names.length > 3) names.shift(); if (sz) pendSize = sz[0]; if (ct) pendCount = Number(ct[1] || ct[2]); return;
       }
-      names = []; pendSize = ''; pendCount = null;
+      var detail = sz && ct;                // "1 ltr x 1  ₹249 ₹195": the name is the line above
+      var nm = (detail && names.length) || !isName ? bestName(names) : words;
+      var size = (sz && sz[0]) || pendSize, count = ct ? Number(ct[1] || ct[2]) : pendCount;
+      if (nm.length >= 3) add(nm, size, count, hasPrice ? pickPrice(prices, row.hint) : null);
+      else { names = []; pendSize = ''; pendCount = null; }
     });
-    var lines = items.map(function (x) { return orderItem(x.nm, x.size, x.count, x.price, catalog); });
+    if (names.length && (pendSize || pendCount)) add(bestName(names), pendSize, pendCount, null);
+    var tgt = total != null ? total : itemTotal != null ? itemTotal : (Number(target) > 0 ? Number(target) : null);
+    if (tgt != null && items.length) settleToTotal(items, tgt);
+    var lines = items.map(function (x) { var l = orderItem(x.nm, x.size, x.count, x.price, catalog); if (x.guess) l.guess = true; return l; });
     return { lines: lines, total: total != null ? total : itemTotal };
   }
 
