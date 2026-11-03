@@ -2,6 +2,7 @@ package com.spendtrack.app.data.repository
 
 import com.spendtrack.app.core.logger.SafeLogger
 import com.spendtrack.app.core.network.SupabaseAuthClient
+import com.spendtrack.app.core.network.SharedSession
 import com.spendtrack.app.core.network.SupabaseSyncClient
 import com.spendtrack.app.data.database.dao.TransactionDao
 import com.spendtrack.app.data.datastore.SettingsManager
@@ -27,6 +28,11 @@ class CloudSyncRepository(
 ) {
     private val syncMutex = Mutex()
 
+    companion object {
+        /** A row created this long after its payment is a re-read of an old message (see syncPending). */
+        const val REREAD_AFTER_MS = 6L * 60 * 60 * 1000
+    }
+
     suspend fun signIn(email: String, password: String): Result<Unit> {
         val result = withContext(Dispatchers.IO) { authClient.signInWithPassword(email, password) }
         return result.fold(
@@ -49,16 +55,35 @@ class CloudSyncRepository(
      * off, not signed in, or there's nothing ready to send.
      */
     suspend fun syncPending() {
-        if (!settingsManager.isCloudSyncEnabled.first()) return
-        val accessToken = settingsManager.cloudSyncAccessToken.first() ?: return
+        if (!canSync()) return
+        val accessToken = currentToken() ?: return
 
         syncMutex.withLock {
             var token = accessToken
 
+            // Purge any local invalid <= 0 transactions so they never cause constraint errors
+            val purged = transactionDao.purgeZeroAmountTransactions()
+            if (purged > 0) {
+                SafeLogger.i("Purged $purged invalid zero-amount transaction(s) from local database")
+            }
+
             // Rows that turned out to be transfers or were fully refunded: remove them by ref.
             for (gone in transactionDao.getPendingCloudDeletes()) {
                 val ref = gone.upiReference ?: gone.bankReference
-                if (ref.isNullOrBlank()) { transactionDao.markCloudDeleted(gone.id); continue }
+                if (ref.isNullOrBlank()) {
+                    // No ref: remove it by the exact SMS text and time it was synced with. If that can't be
+                    // done (an older Kharcha Book without raw_sms), stop trying rather than retry forever.
+                    var bySource = withContext(Dispatchers.IO) { syncClient.deleteBySource(token, gone) }
+                    if (bySource.isFailure && isUnauthorized(bySource.exceptionOrNull())) {
+                        token = refreshAccessToken() ?: return
+                        bySource = withContext(Dispatchers.IO) { syncClient.deleteBySource(token, gone) }
+                    }
+                    if (bySource.isSuccess || gone.rawNotificationText.isNullOrBlank() ||
+                        bySource.exceptionOrNull()?.message?.contains("(4") == true) {
+                        transactionDao.markCloudDeleted(gone.id)
+                    }
+                    continue
+                }
                 var del = withContext(Dispatchers.IO) { syncClient.deleteByRef(token, ref) }
                 if (del.isFailure && isUnauthorized(del.exceptionOrNull())) {
                     token = refreshAccessToken() ?: return
@@ -95,6 +120,12 @@ class CloudSyncRepository(
             }
 
             for (transaction in pending) {
+                val effectiveAmount = Math.round((transaction.amount - transaction.refundedAmount) * 100) / 100.0
+                if (transaction.amount <= 0.0 || effectiveAmount <= 0.0) {
+                    transactionDao.deleteById(transaction.id)
+                    continue
+                }
+
                 // An auto-detected income the user already typed in by hand (e.g. "💼 Salary 1")
                 // stays on the phone, so the money is never counted twice.
                 if (transaction.transactionType == com.spendtrack.app.core.model.TransactionType.INCOME &&
@@ -102,6 +133,23 @@ class CloudSyncRepository(
                     transactionDao.markSynced(transaction.id)
                     continue
                 }
+                // A row created long after its payment is a re-read of an old message (catch-up after
+                // a reinstall/reset). If Kharcha Book already has that payment, its label is the user's
+                // -- take it, never overwrite it. (A re-read once replaced two weeks of labels.)
+                val ref = (transaction.upiReference ?: transaction.bankReference)?.takeIf { it.isNotBlank() }
+                if (ref != null && transaction.createdAt - transaction.dateTime > REREAD_AFTER_MS) {
+                    val existing = withContext(Dispatchers.IO) { syncClient.fetchDescriptionByRef(token, ref) }
+                    if (existing.isFailure) continue // can't tell yet: try again next sync, don't risk overwriting
+                    val cloudDesc = existing.getOrNull()
+                    if (cloudDesc != null) {
+                        transactionDao.updateTransaction(
+                            transaction.copy(description = cloudDesc, isEdited = true, needsReview = false,
+                                syncedToCloud = true, updatedAt = System.currentTimeMillis())
+                        )
+                        continue
+                    }
+                }
+
                 var result = withContext(Dispatchers.IO) { syncClient.upsertExpense(token, transaction) }
 
                 if (result.isFailure && isUnauthorized(result.exceptionOrNull())) {
@@ -131,7 +179,7 @@ class CloudSyncRepository(
      * signed out, offline, or before the kharcha_settings table exists.
      */
     suspend fun refreshSharedSettings() {
-        if (!settingsManager.isCloudSyncEnabled.first()) return
+        if (!canSync()) return
         val server = withFreshToken { token -> syncClient.fetchSettings(token) }?.getOrNull()
         val local = settingsManager.sharedSettingsFlow.first()
         if (server == null) {
@@ -147,14 +195,14 @@ class CloudSyncRepository(
     }
 
     suspend fun pushSharedSettings(doc: org.json.JSONObject) {
-        if (!settingsManager.isCloudSyncEnabled.first()) return
+        if (!canSync()) return
         val result = withFreshToken { token -> syncClient.pushSettings(token, doc) }
         result?.exceptionOrNull()?.let { SafeLogger.e("Settings push failed", it as? Exception) }
     }
 
     /** Runs a Supabase call, refreshing an expired session once. Null when not signed in. */
     private suspend fun <T> withFreshToken(call: (String) -> Result<T>): Result<T>? {
-        val token = settingsManager.cloudSyncAccessToken.first() ?: return null
+        val token = currentToken() ?: return null
         var result = withContext(Dispatchers.IO) { call(token) }
         if (result.isFailure && isUnauthorized(result.exceptionOrNull())) {
             val fresh = refreshAccessToken() ?: return result
@@ -203,12 +251,23 @@ class CloudSyncRepository(
 
     /** Signed-in access token, refreshed if needed; null when Cloud Sync is off or signed out. */
     suspend fun freshToken(): String? {
-        if (!settingsManager.isCloudSyncEnabled.first()) return null
-        val token = settingsManager.cloudSyncAccessToken.first() ?: return null
+        if (!canSync()) return null
+        val token = currentToken() ?: return null
         val probe = withContext(Dispatchers.IO) { syncClient.fetchRows(token, 0L, 1L) }
         if (probe.isFailure && isUnauthorized(probe.exceptionOrNull())) return refreshAccessToken()
         return token
     }
+
+    // ---- refunds applied straight to Kharcha Book (the phone may not remember older purchases) ----
+
+    suspend fun refundCandidates(from: Long, to: Long): List<SupabaseSyncClient.RefundCandidate>? =
+        if (!canSync()) null else withFreshToken { t -> syncClient.fetchRefundCandidates(t, from, to) }?.getOrNull()
+
+    suspend fun reduceCloudRow(id: String, amount: Double, description: String): Boolean =
+        withFreshToken { t -> syncClient.updateAmountById(t, id, amount, description) }?.isSuccess == true
+
+    suspend fun deleteCloudRow(id: String): Boolean =
+        withFreshToken { t -> syncClient.deleteById(t, id) }?.isSuccess == true
 
     /** The user's Kharcha Book rows in [from, to), for automations (budgets, summaries, settle-up). */
     suspend fun fetchCloudRows(from: Long, to: Long): List<SupabaseSyncClient.CloudRow>? {
@@ -216,7 +275,64 @@ class CloudSyncRepository(
         return withContext(Dispatchers.IO) { syncClient.fetchRows(token, from, to) }.getOrNull()
     }
 
-    private suspend fun refreshAccessToken(): String? {
+    private val authMutex = Mutex()
+
+    /** Is there any way to sync: Kharcha Book's own sign-in on this phone, or the older Cloud Sync login? */
+    suspend fun canSync(): Boolean =
+        SharedSession.current() != null ||
+            (settingsManager.isCloudSyncEnabled.first() && settingsManager.cloudSyncAccessToken.first() != null)
+
+    /**
+     * A usable access token. Kharcha Book's sign-in comes first -- signing in there is all the phone
+     * needs -- and it's renewed a couple of minutes before it expires. The separate Cloud Sync login
+     * is only a fallback for when Kharcha Book isn't signed in.
+     */
+    private suspend fun currentToken(): String? {
+        val shared = SharedSession.current()
+        if (shared != null) {
+            val left = shared.expiresAt - System.currentTimeMillis() / 1000
+            if (shared.expiresAt > 0 && left > 120) return shared.accessToken
+            return refreshAccessToken() ?: shared.accessToken.takeIf { left > 0 }
+        }
+        if (!settingsManager.isCloudSyncEnabled.first()) return null
+        return settingsManager.cloudSyncAccessToken.first()
+    }
+
+    private suspend fun refreshAccessToken(): String? = authMutex.withLock {
+        val shared = SharedSession.current()
+        if (shared != null) return@withLock refreshShared(shared)
+        refreshLegacy()
+    }
+
+    /**
+     * Renews Kharcha Book's shared session and stores it where the page reads it. If the page renewed
+     * it a moment ago, the stored session is already newer -- use that instead of renewing again.
+     */
+    private suspend fun refreshShared(seen: SharedSession.Session): String? {
+        val result = withContext(Dispatchers.IO) { authClient.refreshSession(seen.refreshToken) }
+        result.getOrNull()?.let { session ->
+            SharedSession.saveRenewed(session.rawJson)
+            settingsManager.setCloudSyncError(null)
+            return session.accessToken
+        }
+        val latest = SharedSession.current()
+        if (latest != null && latest.refreshToken != seen.refreshToken) return latest.accessToken // page renewed it first
+        val signedOut = result.exceptionOrNull() is com.spendtrack.app.core.network.AuthRejectedException
+        settingsManager.setCloudSyncError(
+            if (signedOut) "Signed out of Kharcha Book. Open Kharcha Book and sign in once; syncing resumes on its own."
+            else "Couldn't reach Kharcha Book (offline?). Will retry automatically."
+        )
+        if (signedOut && settingsManager.claimAlert("signedout|${System.currentTimeMillis() / (12L * 3600 * 1000)}")) {
+            com.spendtrack.app.data.di.ServiceLocator.contextOrNull()?.let {
+                com.spendtrack.app.core.notification.ExpensePromptNotifier.showSyncProblem(
+                    it, "You are signed out, so new payments are NOT reaching Kharcha Book. Open Kharcha Book and sign in; that's all the phone needs."
+                )
+            }
+        }
+        return null
+    }
+
+    private suspend fun refreshLegacy(): String? {
         val refreshToken = settingsManager.cloudSyncRefreshToken.first() ?: return null
         val result = withContext(Dispatchers.IO) { authClient.refreshSession(refreshToken) }
         return result.fold(
@@ -238,7 +354,7 @@ class CloudSyncRepository(
                 if (signedOut && settingsManager.claimAlert("signedout|${System.currentTimeMillis() / (12L * 3600 * 1000)}")) {
                     com.spendtrack.app.data.di.ServiceLocator.contextOrNull()?.let {
                         com.spendtrack.app.core.notification.ExpensePromptNotifier.showSyncProblem(
-                            it, "You are signed out, so new payments are NOT reaching Kharcha Book. Open the app, tap ⚙️ > Cloud Sync and sign in again."
+                            it, "You are signed out, so new payments are NOT reaching Kharcha Book. Open Kharcha Book and sign in; that's all the phone needs."
                         )
                     }
                 }

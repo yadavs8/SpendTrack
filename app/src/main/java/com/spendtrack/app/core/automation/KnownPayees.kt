@@ -81,8 +81,21 @@ object KnownPayees {
      * UPI id or the message; [Rule.maxAmount] caps the amount, and a [Rule.strictDay] rule also needs
      * the payment to fall within two days of its day of the month.
      */
+    // Bank footers that name a product without being about this payment. ICICI ends every card
+    // swipe with "To convert this txn to EMI give a missed call..." -- matched as-is, the "emi" rule
+    // turned Airbnb and Myntra card spends into "Flat EMI".
+    private val BOILERPLATE = listOf(
+        Regex("""(?i)\bto convert (?:this|the|your) (?:txn|transaction|purchase|spend)[^.]*\.?"""),
+        Regex("""(?i)\bconvert (?:it|this|purchases?|spends?) (?:in)?to (?:easy |no[- ]cost )?emis?\b[^.]*\.?"""),
+        Regex("""(?i)\bknow more about emi[^.]*\.?"""),
+        Regex("""(?i)\bemi conversion[^.]*\.?"""),
+        Regex("""(?i)\b(?:avail|get) (?:easy |no[- ]cost )?emi\b[^.]*\.?""")
+    )
+
+    internal fun stripBoilerplate(raw: String): String = BOILERPLATE.fold(raw) { t, re -> re.replace(t, " ") }
+
     fun match(merchant: String?, vpa: String?, raw: String?, amount: Double, dateTime: Long, rules: List<Rule>): Rule? {
-        val text = listOfNotNull(merchant, vpa, raw).joinToString(" ").lowercase().replace(Regex("\\s+"), " ")
+        val text = listOfNotNull(merchant, vpa, raw?.let { stripBoilerplate(it) }).joinToString(" ").lowercase().replace(Regex("\\s+"), " ")
         if (text.isBlank()) return null
         for (r in rules) {
             if (r.maxAmount > 0 && amount > r.maxAmount + 0.005) continue

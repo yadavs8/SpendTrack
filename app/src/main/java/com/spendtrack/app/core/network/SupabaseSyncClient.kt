@@ -51,6 +51,9 @@ class SupabaseSyncClient(private val client: OkHttpClient = OkHttpClient()) {
         val rawSms = transaction.rawNotificationText?.take(500)
         // A partly refunded expense shows what was really spent.
         val amount = Math.round((transaction.amount - transaction.refundedAmount) * 100) / 100.0
+        if (amount <= 0.0) {
+            return Result.success(Unit) // Do not send invalid <= 0 amounts to Supabase
+        }
 
         val row = JSONObject().apply {
             put("amount", amount)
@@ -93,12 +96,55 @@ class SupabaseSyncClient(private val client: OkHttpClient = OkHttpClient()) {
         }
     }
 
+    /** The description Kharcha Book already has for this bank/UPI ref, or null when it has no such row. */
+    fun fetchDescriptionByRef(accessToken: String, refNo: String): Result<String?> {
+        val url = "${SupabaseConfig.SUPABASE_URL}/rest/v1/daily_expenses?select=description&limit=1&ref_no=eq.${java.net.URLEncoder.encode(refNo, "UTF-8")}"
+        val request = Request.Builder()
+            .url(url)
+            .addHeader("apikey", SupabaseConfig.SUPABASE_ANON_KEY)
+            .addHeader("Authorization", "Bearer $accessToken")
+            .get()
+            .build()
+        return runCatching {
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) throw IOException("Lookup failed (${response.code}): $body")
+                val arr = JSONArray(body)
+                if (arr.length() == 0) null else arr.getJSONObject(0).optString("description").takeIf { it.isNotBlank() }
+            }
+        }
+    }
+
     /**
      * Removes a row that no longer belongs in Kharcha Book (became a transfer, or fully refunded).
      * Only by ref_no -- never by guessing -- so nothing the user typed in can be deleted.
      */
     fun deleteByRef(accessToken: String, refNo: String): Result<Unit> {
         val url = "${SupabaseConfig.SUPABASE_URL}/rest/v1/daily_expenses?ref_no=eq.${java.net.URLEncoder.encode(refNo, "UTF-8")}"
+        val request = Request.Builder()
+            .url(url)
+            .addHeader("apikey", SupabaseConfig.SUPABASE_ANON_KEY)
+            .addHeader("Authorization", "Bearer $accessToken")
+            .addHeader("Prefer", "return=minimal")
+            .delete()
+            .build()
+        return runCatching {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) throw IOException("Delete failed (${response.code}): ${response.body?.string().orEmpty()}")
+            }
+        }
+    }
+
+    /**
+     * Removes a phone-synced row that has no ref (a duplicate copy, or "not a payment"), matched on the
+     * exact SMS text *and* time it was synced with -- both written by this app, so a row the user typed
+     * in (no raw_sms) can never match.
+     */
+    fun deleteBySource(accessToken: String, transaction: TransactionEntity): Result<Unit> {
+        val rawSms = transaction.rawNotificationText?.take(500)?.takeIf { it.isNotBlank() }
+            ?: return Result.failure(IOException("No source text to match"))
+        val url = "${SupabaseConfig.SUPABASE_URL}/rest/v1/daily_expenses" +
+            "?raw_sms=eq.${enc(rawSms)}&spent_at=eq.${enc(isoFormat.format(Date(transaction.dateTime)))}&ref_no=is.null"
         val request = Request.Builder()
             .url(url)
             .addHeader("apikey", SupabaseConfig.SUPABASE_ANON_KEY)
@@ -153,6 +199,66 @@ class SupabaseSyncClient(private val client: OkHttpClient = OkHttpClient()) {
                     )
                 }
             }
+        }
+    }
+
+    /** A Kharcha Book row a refund might belong to (with its id and original SMS, for matching). */
+    data class RefundCandidate(val id: String, val amount: Double, val description: String, val rawSms: String?, val spentAt: Long, val kind: String?)
+
+    /** Spends in [from, to) that a refund could be matched against. */
+    fun fetchRefundCandidates(accessToken: String, fromMillis: Long, toMillis: Long): Result<List<RefundCandidate>> {
+        val kindCol = if (hasMoneyTypeColumns) ",kind" else ""
+        val url = "${SupabaseConfig.SUPABASE_URL}/rest/v1/daily_expenses?select=id,amount,description,raw_sms,spent_at$kindCol" +
+            "&spent_at=gte.${enc(isoFormat.format(Date(fromMillis)))}&spent_at=lt.${enc(isoFormat.format(Date(toMillis)))}&order=spent_at.desc&limit=2000"
+        val request = Request.Builder().url(url)
+            .addHeader("apikey", SupabaseConfig.SUPABASE_ANON_KEY)
+            .addHeader("Authorization", "Bearer $accessToken")
+            .get().build()
+        return runCatching {
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) throw IOException("Fetch failed (${response.code}): $body")
+                val arr = JSONArray(body)
+                (0 until arr.length()).map { i ->
+                    val o = arr.getJSONObject(i)
+                    RefundCandidate(
+                        id = o.getString("id"),
+                        amount = o.optDouble("amount", 0.0),
+                        description = o.optString("description", ""),
+                        rawSms = o.optString("raw_sms").takeIf { !o.isNull("raw_sms") && it.isNotBlank() },
+                        spentAt = parseIso(o.optString("spent_at")),
+                        kind = o.optString("kind").takeIf { !o.isNull("kind") && it.isNotBlank() }
+                    )
+                }
+            }
+        }
+    }
+
+    /** Lowers a row's amount after a partial refund (and notes it in the description). */
+    fun updateAmountById(accessToken: String, id: String, amount: Double, description: String): Result<Unit> {
+        val body = JSONObject().put("amount", amount).put("description", description.take(60)).toString().toRequestBody(jsonMediaType)
+        val request = Request.Builder()
+            .url("${SupabaseConfig.SUPABASE_URL}/rest/v1/daily_expenses?id=eq.${enc(id)}")
+            .addHeader("apikey", SupabaseConfig.SUPABASE_ANON_KEY)
+            .addHeader("Authorization", "Bearer $accessToken")
+            .addHeader("Content-Type", "application/json")
+            .addHeader("Prefer", "return=minimal")
+            .patch(body).build()
+        return runCatching {
+            client.newCall(request).execute().use { r -> if (!r.isSuccessful) throw IOException("Update failed (${r.code}): ${r.body?.string().orEmpty()}") }
+        }
+    }
+
+    /** Removes a row that was fully refunded. */
+    fun deleteById(accessToken: String, id: String): Result<Unit> {
+        val request = Request.Builder()
+            .url("${SupabaseConfig.SUPABASE_URL}/rest/v1/daily_expenses?id=eq.${enc(id)}")
+            .addHeader("apikey", SupabaseConfig.SUPABASE_ANON_KEY)
+            .addHeader("Authorization", "Bearer $accessToken")
+            .addHeader("Prefer", "return=minimal")
+            .delete().build()
+        return runCatching {
+            client.newCall(request).execute().use { r -> if (!r.isSuccessful) throw IOException("Delete failed (${r.code}): ${r.body?.string().orEmpty()}") }
         }
     }
 

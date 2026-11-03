@@ -57,6 +57,10 @@ class RulePackEngine(
         if (sourcePackage != null && sourcePackage in TransactionParser.MESSAGING_PACKAGES &&
             !TransactionParser.looksLikeBankSms(fullText) && !TransactionParser.looksLikeBankCreditSms(fullText)) return null
 
+        // WhatsApp: only WhatsApp Pay's own status lines, never chats (a dealer's "payment received", a ₹0 invoice).
+        if (sourcePackage != null && sourcePackage in TransactionParser.WHATSAPP_PACKAGES &&
+            !TransactionParser.looksLikeWhatsAppPayment(text)) return null
+
         val senderOrPkg = sourcePackage ?: title ?: ""
 
         // 1. Check user-taught custom templates first

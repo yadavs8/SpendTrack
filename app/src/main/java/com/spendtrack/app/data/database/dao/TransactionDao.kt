@@ -91,6 +91,28 @@ interface TransactionDao {
     """)
     suspend fun findSameAmountNear(amount: Double, startWindow: Long, endWindow: Long, excludeId: String): List<TransactionEntity>
 
+    /**
+     * Payments of about [amount] (rounding aside) over a wide window: messages about one payment can
+     * arrive a day apart (bank debit now, the insurer's receipt tomorrow). Already-excluded rows
+     * (transfers, duplicates, "not a payment") are left out.
+     */
+    @Query("""
+        SELECT * FROM transactions
+        WHERE amount BETWEEN :amountLow AND :amountHigh AND dateTime BETWEEN :startWindow AND :endWindow
+            AND isDemo = 0 AND isExcluded = 0 AND transactionType IN ('EXPENSE', 'INCOME')
+        ORDER BY dateTime DESC
+        LIMIT 40
+    """)
+    suspend fun findAmountNear(amountLow: Double, amountHigh: Double, startWindow: Long, endWindow: Long): List<TransactionEntity>
+
+    /** Counted spends and income since a time, oldest first: what the duplicate check-up looks through. */
+    @Query("""
+        SELECT * FROM transactions
+        WHERE dateTime >= :since AND isDemo = 0 AND isExcluded = 0 AND transactionType IN ('EXPENSE', 'INCOME')
+        ORDER BY dateTime ASC
+    """)
+    suspend fun getCountedSince(since: Long): List<TransactionEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTransaction(transaction: TransactionEntity): Long
 
@@ -109,6 +131,22 @@ interface TransactionDao {
     @Query("DELETE FROM transactions WHERE isDemo = 1")
     suspend fun deleteDemoTransactions()
 
+    @Query("DELETE FROM transactions WHERE amount <= 0")
+    suspend fun purgeZeroAmountTransactions(): Int
+
+    @Query("SELECT * FROM transactions WHERE amount <= 0")
+    suspend fun getZeroAmountTransactions(): List<TransactionEntity>
+
+    @Query("SELECT * FROM transactions WHERE rawNotificationText = :rawText AND isDemo = 0 LIMIT 1")
+    suspend fun findByRawText(rawText: String): TransactionEntity?
+
+    @Query("""
+        SELECT * FROM transactions
+        WHERE amount = :amount AND isDemo = 0 AND isExcluded = 0 AND dateTime BETWEEN :since AND :until
+        ORDER BY dateTime DESC
+    """)
+    suspend fun findRecentSimilarExpenses(amount: Double, since: Long, until: Long): List<TransactionEntity>
+
     @Query("SELECT * FROM transactions ORDER BY dateTime DESC")
     suspend fun getAllTransactionsSync(): List<TransactionEntity>
 
@@ -122,6 +160,7 @@ interface TransactionDao {
         WHERE syncedToCloud = 0 AND isExcluded = 0 AND isDemo = 0 AND needsCloudDelete = 0
             AND transactionType IN ('EXPENSE', 'INCOME', 'CASH_WITHDRAWAL')
             AND needsReview = 0
+            AND amount > 0
         ORDER BY dateTime ASC
     """)
     suspend fun getUnsyncedExpenses(): List<TransactionEntity>
@@ -157,7 +196,7 @@ interface TransactionDao {
             AND dateTime BETWEEN :since AND :until
             AND amount - refundedAmount >= :amount - 0.005
         ORDER BY dateTime DESC
-        LIMIT 50
+        LIMIT 300
     """)
     suspend fun findRefundCandidates(amount: Double, since: Long, until: Long): List<TransactionEntity>
 

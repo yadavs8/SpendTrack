@@ -72,6 +72,38 @@ internal fun openExternally(context: Context, url: String) {
     }
 }
 
+/**
+ * WebViews ignore `<a download>`. Pages make downloads by clicking such a link (often to a blob:
+ * URL), so this patches the click: the file is read in the page and handed to
+ * KharchaNative.shareBase64 -> Android's share sheet (save to Files/Drive, send on WhatsApp).
+ * Installed once per page load; harmless if the page never downloads anything.
+ */
+private const val DOWNLOAD_BRIDGE_JS = """
+(function () {
+  if (window.__kharchaDownloadBridge || !window.KharchaNative || !window.KharchaNative.shareBase64) return;
+  window.__kharchaDownloadBridge = true;
+  // Pages revoke the blob: URL right after click(); keep each blob so it can still be read.
+  var blobs = {}, origCreate = URL.createObjectURL;
+  URL.createObjectURL = function (obj) { var u = origCreate.call(URL, obj); if (obj instanceof Blob) blobs[u] = obj; return u; };
+  var orig = HTMLAnchorElement.prototype.click;
+  HTMLAnchorElement.prototype.click = function () {
+    var a = this;
+    if (!a.hasAttribute('download') || !a.href) return orig.apply(a, arguments);
+    var name = a.getAttribute('download') || 'kharcha-file';
+    var kept = blobs[a.href];
+    (kept ? Promise.resolve(kept) : fetch(a.href).then(function (r) { return r.blob(); })).then(function (blob) {
+      delete blobs[a.href];
+      var fr = new FileReader();
+      fr.onload = function () {
+        var s = String(fr.result || ''), i = s.indexOf(',');
+        window.KharchaNative.shareBase64(name, blob.type || '', i >= 0 ? s.slice(i + 1) : s);
+      };
+      fr.readAsDataURL(blob);
+    }).catch(function () { orig.apply(a, []); });
+  };
+})();
+"""
+
 /** The Kharcha Book Supabase-backed web app the whole UI now lives inside. */
 const val KHARCHA_BOOK_URL = "https://yadavs8.github.io/SpendTrack/web/kharcha-book/"
 private const val KHARCHA_BOOK_ORIGIN = "https://yadavs8.github.io"
@@ -108,6 +140,7 @@ fun KharchaWebViewScreen(
     AndroidView(
         modifier = modifier.fillMaxSize(),
         factory = { context ->
+            val loadedUrl = java.util.concurrent.atomic.AtomicReference<String?>(KHARCHA_BOOK_URL)
             WebView(context).apply {
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = true
@@ -160,6 +193,42 @@ fun KharchaWebViewScreen(
                         return true
                     }
 
+                    // <input type="file">: receipt photos, "Restore backup". Without this the WebView
+                    // silently ignores the tap -- one reason a second (Chrome) copy of the app was needed.
+                    override fun onShowFileChooser(view: WebView, callback: android.webkit.ValueCallback<Array<Uri>>, params: FileChooserParams): Boolean {
+                        // The WebView's context can be a wrapper around the activity (as for the contact picker):
+                        // unwrap it, or the picker never opens and the page just sees nothing happen.
+                        var ctx: android.content.Context = view.context
+                        while (ctx is android.content.ContextWrapper && ctx !is androidx.activity.ComponentActivity) ctx = ctx.baseContext
+                        val activity = ctx as? androidx.activity.ComponentActivity
+                        if (activity == null) { callback.onReceiveValue(null); return false }
+                        val launcher = arrayOfNulls<androidx.activity.result.ActivityResultLauncher<Intent>>(1)
+                        launcher[0] = activity.activityResultRegistry.register(
+                            "kharcha_file_" + System.nanoTime(),
+                            androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+                        ) { result ->
+                            val data = result.data
+                            var uris = FileChooserParams.parseResult(result.resultCode, data)
+                            // Many gallery apps hand the picked image(s) back in ClipData, which parseResult ignores.
+                            if ((uris == null || uris.isEmpty()) && result.resultCode == android.app.Activity.RESULT_OK && data != null) {
+                                val clip = data.clipData
+                                uris = if (clip != null && clip.itemCount > 0) Array(clip.itemCount) { clip.getItemAt(it).uri } else data.data?.let { arrayOf(it) }
+                            }
+                            callback.onReceiveValue(uris)
+                            launcher[0]?.unregister()
+                        }
+                        val intent = runCatching { params.createIntent() }.getOrNull()
+                            ?: Intent(Intent.ACTION_GET_CONTENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+                        return try {
+                            launcher[0]!!.launch(intent)
+                            true
+                        } catch (e: Exception) {
+                            launcher[0]?.unregister()
+                            callback.onReceiveValue(null)
+                            false
+                        }
+                    }
+
                     // A target="_blank" link or window.open(): catch the URL in a throwaway WebView
                     // and hand it to the right app instead of opening a window we can't show.
                     override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message): Boolean {
@@ -181,10 +250,62 @@ fun KharchaWebViewScreen(
                 val view = this
                 addJavascriptInterface(object {
                     private fun fromKharcha(): Boolean = view.url?.startsWith(KHARCHA_BOOK_ORIGIN) == true
+                    // Bridge calls arrive on a background thread, where view.url can't be read;
+                    // the page address is mirrored here by the WebViewClient instead.
+                    private fun fromKharchaNow(): Boolean = loadedUrl.get()?.startsWith(KHARCHA_BOOK_ORIGIN) == true
 
                     @JavascriptInterface
                     fun openSettings() {
                         main.post { if (fromKharcha()) openSettings() }
+                    }
+
+                    /** Pick one contact (name + phone) for a trip. ACTION_PICK on phone numbers needs no contacts
+                     *  permission: the system picker only hands back the one row the person chose. */
+                    @JavascriptInterface
+                    fun pickContact() {
+                        main.post {
+                            val none = "window.__kharchaContactPicked && window.__kharchaContactPicked(null)"
+                            if (!fromKharcha()) return@post
+                            // Compose can hand the WebView a wrapped context; walk down to the Activity.
+                            var ctx: android.content.Context? = view.context
+                            while (ctx is android.content.ContextWrapper && ctx !is androidx.activity.ComponentActivity) ctx = ctx.baseContext
+                            val activity = ctx as? androidx.activity.ComponentActivity
+                            if (activity == null) { view.evaluateJavascript(none, null); return@post }
+                            val launcher = arrayOfNulls<androidx.activity.result.ActivityResultLauncher<Intent>>(1)
+                            launcher[0] = activity.activityResultRegistry.register(
+                                "kharcha_contact_" + System.nanoTime(),
+                                androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+                            ) { result ->
+                                launcher[0]?.unregister()
+                                var json = "null"
+                                val uri = result.data?.data
+                                if (result.resultCode == android.app.Activity.RESULT_OK && uri != null) {
+                                    runCatching {
+                                        view.context.contentResolver.query(
+                                            uri,
+                                            arrayOf(
+                                                android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                                                android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER
+                                            ), null, null, null
+                                        )?.use { c ->
+                                            if (c.moveToFirst()) {
+                                                json = org.json.JSONObject()
+                                                    .put("name", c.getString(0) ?: "")
+                                                    .put("tel", c.getString(1) ?: "")
+                                                    .toString()
+                                            }
+                                        }
+                                    }.onFailure { SafeLogger.e("Contact pick failed", it as? Exception) }
+                                }
+                                view.evaluateJavascript("window.__kharchaContactPicked && window.__kharchaContactPicked($json)", null)
+                            }
+                            val intent = Intent(Intent.ACTION_PICK, android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI)
+                            runCatching { launcher[0]!!.launch(intent) }.onFailure {
+                                SafeLogger.e("Contact picker could not open", it as? Exception)
+                                launcher[0]?.unregister()
+                                view.evaluateJavascript(none, null)
+                            }
+                        }
                     }
 
                     /** Launch UPI payment chooser directly to pay a trip member or friend. */
@@ -223,6 +344,47 @@ fun KharchaWebViewScreen(
                         }
                     }
 
+                    /** Any download (backup JSON, month report image, trip export) as base64 -> share sheet. */
+                    @JavascriptInterface
+                    fun shareBase64(fileName: String?, mimeType: String?, base64: String?) {
+                        if (base64.isNullOrBlank() || base64.length > 20_000_000) return
+                        val safeName = (fileName ?: "kharcha-file").replace(Regex("[^A-Za-z0-9._-]"), "_").take(80)
+                        main.post {
+                            if (!fromKharcha()) return@post
+                            runCatching {
+                                val bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
+                                val dir = java.io.File(view.context.cacheDir, "exports").apply { mkdirs() }
+                                val file = java.io.File(dir, safeName).apply { writeBytes(bytes) }
+                                val uri = androidx.core.content.FileProvider.getUriForFile(view.context, "${view.context.packageName}.fileprovider", file)
+                                val send = Intent(Intent.ACTION_SEND).apply {
+                                    type = mimeType?.takeIf { it.isNotBlank() } ?: "application/octet-stream"
+                                    putExtra(Intent.EXTRA_STREAM, uri)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                view.context.startActivity(Intent.createChooser(send, "Save or share $safeName").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                            }.onFailure { SafeLogger.e("File share failed", it as? Exception) }
+                        }
+                    }
+
+                    // Kharcha Book's sign-in lives in the app (SharedSession), not the WebView's storage,
+                    // so the background sync uses the very same session -- one sign-in, no second login.
+                    // Synchronous on purpose (supabase-js storage is called in-line). Only Supabase keys.
+                    @JavascriptInterface
+                    fun authGetItem(key: String?): String? =
+                        if (key != null && key.startsWith("sb-") && fromKharchaNow()) com.spendtrack.app.core.network.SharedSession.getItem(key) else null
+
+                    @JavascriptInterface
+                    fun authSetItem(key: String?, value: String?) {
+                        if (key == null || value == null || !key.startsWith("sb-") || value.length > 100_000 || !fromKharchaNow()) return
+                        com.spendtrack.app.core.network.SharedSession.setItem(key, value)
+                    }
+
+                    @JavascriptInterface
+                    fun authRemoveItem(key: String?) {
+                        if (key == null || !key.startsWith("sb-") || !fromKharchaNow()) return
+                        com.spendtrack.app.core.network.SharedSession.removeItem(key)
+                    }
+
                     @JavascriptInterface
                     fun reportSummary(json: String?) {
                         if (json.isNullOrBlank() || json.length > 20000) return // summary + recurring bills list
@@ -231,6 +393,10 @@ fun KharchaWebViewScreen(
                 }, "KharchaNative")
 
                 webViewClient = object : WebViewClient() {
+                    override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
+                        loadedUrl.set(url)
+                    }
+
                     // Kharcha Book stays in here; everything else (WhatsApp "Ask" links, upi:// pay
                     // links, tel:, mailto:, other sites) goes to the app that handles it. Without this
                     // the WebView tried to load wa.me itself and died on its whatsapp:// redirect.
@@ -248,6 +414,7 @@ fun KharchaWebViewScreen(
                     }
 
                     override fun onPageFinished(view: WebView, url: String?) {
+                        if (url?.startsWith(KHARCHA_BOOK_ORIGIN) == true) view.evaluateJavascript(DOWNLOAD_BRIDGE_JS, null)
                         pageReady(url?.startsWith(KHARCHA_BOOK_ORIGIN) == true)
                     }
                 }

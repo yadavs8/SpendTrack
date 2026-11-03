@@ -19,16 +19,26 @@ class SpendTrackApp : Application() {
         // ~30 min, independent of the app being open, so an OS-killed listener self-heals.
         runCatching { com.spendtrack.app.core.automation.ListenerWatchdogWorker.schedule(this) }
 
-        // Pre-heat database to initialize default categories
+        // Pre-heat database to initialize default categories and purge any stuck zero-amount entries
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val categories = ServiceLocator.categoryRepository.getAllCategoriesSync()
                 SafeLogger.i("Database initialized with ${categories.size} categories")
+                val zeroRows = ServiceLocator.database.transactionDao().getZeroAmountTransactions()
+                for (z in zeroRows) {
+                    com.spendtrack.app.core.notification.ExpensePromptNotifier.dismiss(this@SpendTrackApp, z.id)
+                }
+                val purged = ServiceLocator.database.transactionDao().purgeZeroAmountTransactions()
+                if (purged > 0) {
+                    SafeLogger.i("Purged $purged invalid zero-amount transaction(s) on startup")
+                    ServiceLocator.settingsManager.setCloudSyncError(null)
+                }
             } catch (e: Exception) {
                 SafeLogger.e("Error warming database", e)
             }
             // Trips / owner identity edited on the web since the app last ran.
             runCatching { ServiceLocator.cloudSyncRepository.refreshSharedSettings() }
+            runCatching { ServiceLocator.cloudSyncRepository.syncPending() }
         }
     }
 

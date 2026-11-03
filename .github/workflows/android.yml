@@ -7,7 +7,7 @@ name: Android APK
 on:
   workflow_dispatch:
   schedule:
-    - cron: '17 3 * * 1'   # weekly: keeps the signing key in the Actions cache from expiring (it is dropped after 7 days unused)
+    - cron: '17 3 * * *'   # daily: keeps the signing key in the Actions cache well inside its 7-days-unused expiry
   push:
     branches: [main, 'ccr-*']
     paths: ['app/**', 'gradle/**', 'build.gradle.kts', 'settings.gradle.kts', 'gradle.properties', '.github/workflows/android.yml']
@@ -34,8 +34,17 @@ jobs:
           path: ~/kharcha-signing
           key: kharcha-signing-v1
       - name: Prepare signing
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p ~/kharcha-signing
+          if [ ! -f ~/kharcha-signing/release.keystore ] && [ "${{ github.ref }}" = "refs/heads/main" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ] \
+             && gh release view apk-latest >/dev/null 2>&1; then
+            # A new key would make the next APK refuse to install over the one people already have.
+            # Stop instead, so it is noticed; a deliberate new key needs a manual run (Actions > Android APK > Run workflow).
+            echo "::error::Signing key missing from the cache. Not making a new one silently; start this workflow by hand to create a new key."
+            exit 1
+          fi
           if [ ! -f ~/kharcha-signing/release.keystore ]; then
             openssl rand -hex 16 > ~/kharcha-signing/pass.txt
             keytool -genkeypair -keystore ~/kharcha-signing/release.keystore -storepass "$(cat ~/kharcha-signing/pass.txt)" -keypass "$(cat ~/kharcha-signing/pass.txt)" -alias kharcha -keyalg RSA -keysize 2048 -validity 36500 -dname "CN=Kharcha Book personal build"

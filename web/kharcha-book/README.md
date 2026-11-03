@@ -159,3 +159,254 @@ More > 📡 Phone connection: shows whether bank messages are really reaching Kh
 
 ## v80 – Signed-out phone is no longer silent
 Checked on the live database: the phone sent payments until the evening of 11 Oct and then stopped. The usual cause is the phone app being signed out of Kharcha Book (its session is separate from the website's). The phone now posts a notification when that happens ("You are signed out… sign in again"), at most twice a day; payments wait on the phone and are sent after signing in. The money-types columns (kind, method, last 4, bank) were also missing from the live database and have been added.
+
+## Trip friends' UPI IDs (v101)
+Friends joining a trip link can enter their UPI ID (optional) or add it later with "Add my UPI". It is saved with them on the trip and prefills "Pay via UPI" for everyone. Additive only: existing data and settings are untouched.
+
+## Smart search (v105)
+The search box understands related words: "hair" finds salon/barber/parlour spends, "petrol" finds filling stations and pumps (HP, Indian Oil, Shell...), and likewise food, grocery, medicine, travel, recharge, bills, shopping and more. Small typos are tolerated, several words narrow the result, and amounts still work (906, >1000). It searches all months, newest first.
+
+## Per-bank balances, forecast, unusual spends, ask (v106)
+- Each bank (ICICI, PNB, ...) is added by itself from your bank SMS and its total moves to the newest balance the bank prints. No pop-ups. Only the ICICI balance is shown at the top of the app; all banks are under More > Banks.
+- Credit card spends stay separate under the Credit card screen and never touch bank balances.
+- Insights now has a month-end forecast and an "unusual spends" card (a payee far above its usual amount, or charged twice in a day).
+- The search box answers questions: "food last month", "petrol this week", "how much did I spend today".
+
+## Only your own banks (v107)
+A bank SMS only updates the balance of that same bank. SMS from other banks (for example a family member's account) no longer touch your ICICI balance or count as bank money, and the top of the app shows ICICI only. Earlier wrong balances are repaired automatically.
+
+## Calm home (v110)
+The dashboard shows only the month total, the 7-day bars, today / 7 days / average, the safe-to-spend line, one "Add a spend" bar (the + button opens the full form, which folds away after saving), search, and the day-by-day list. Several due payments fold into one line, past months fold away, and the budget strip is hidden until a budget is set.
+
+## Tappable top card (v111)
+Tap any bar of the 7-day chart, or the Today / 7 days / Avg per day boxes, to see how much was spent and what it went on (categories and the biggest payments). The day you spent the most blazes with a flame; the other days are cool ice-blue, and today has an outline.
+
+## Money back from the same person (v112)
+When someone sends back money you paid them (you pay Rishabh ₹10,700, he returns ₹10,700), Kharcha Book matches the two by the person's name from the bank SMS and counts neither as spending nor income (with Undo). It also matches when the return adds up to two or three recent payments to that person. A partial return asks first ("Rishabh sent ₹4,000 back?") and then lowers the original spend, noting "(↩ ₹4,000 back)". More > Udhaar shows "Sent and got back" for every person: sent, got back, and who is down; tap a person for the payments, and "It was income" undoes a match.
+
+## Tap Today to jump to it (v113)
+Tapping Today, or any bar of the week chart, scrolls down to that day in "Day by day", opens it and highlights it. When the day is not in the list (another month open, or a filter hides it) the summary popup opens instead. The popup now draws above everything inside the phone app too.
+
+## Credit card on the home screen (v114)
+"Where your money went" is gone from the home screen. In its place: this month's credit card spends (total and number of swipes). Tap it to see every card spend date-wise, with each day's total, and a link to the full card screen (what the card owes). Categories still show in the week and day popups on the top card.
+
+## Calendar, pictures, sidebar, cash per bank (v115)
+- Home has a month calendar: every date is a box coloured by how much was spent (the biggest day glows red/orange), with small pictures of what it went on (🍔 food, 📺 subscription, ⛽ fuel, 🛒 grocery, 🏧 cash...). Tap a date for that day's spends with pictures and times; "Edit these in the list" jumps to it. Below the calendar, the month's categories as picture chips (tap one to see every spend in it).
+- Every spend in the list shows a picture and a coloured category label (Food, Subscription, Fuel, Grocery, Health, Travel, Salon, Shopping, Bills, Mobile & internet, Insurance, To a person...).
+- Day by day shows the two newest days; "Show all days" brings the rest.
+- ☰ menu at the top left opens a sidebar with every page.
+- Bank page: each bank shows the cash withdrawn from it this month (and last month), with dates.
+- Neater pages: consistent cards, spacing and headings on Bank, Trips, Udhaar, Card, Wallet and the rest; the trip picker no longer runs off the screen.
+
+## Day card always on screen (v116)
+Tapping a calendar date, a week bar or a top-card box opens a solid card near the top of what you are looking at (no longer pinned to the bottom edge, where the phone's navigation bar could hide it). Its amounts show even when "hide amounts" is on, since you opened it on purpose. Tap ✕ or outside to close.
+
+## Clear calendar amounts, card dropdown (v117)
+Calendar amounts sit in a solid pill (dark text on light, light on dark) so they read clearly on every colour, and stay visible in hide-amounts mode. The credit card box is a dropdown: tap it, pick the month (this month or any earlier month with card spends), and each date is its own dropdown showing that day's swipes with pictures, category and time; the newest date opens first. The repeated "By payment method" box is gone from Home.
+
+## Trips home: banners, day-by-day flow, friends from contacts, one link per trip (v118)
+- Trips opens on "Your trips": one colourful banner per trip (🏔️ Manali, 🏖️ Goa, 🏜️ Jaipur...) with dates, total and who is on it.
+- Tap a banner: the trip's total and per-person share, then **People** (each with what they paid and what they owe or get back, and a "Send link" button), **To settle up**, and a **Day by day** timeline (Day 1, Day 2...) of every spend with a picture, who paid and the category.
+- **Add from contacts**: pick a friend from your phone's contacts (inside the Kharcha Book phone app after installing the new APK, or in Chrome on Android); or type a name. Spends split equally between everyone on the trip.
+- **Share link / Copy link**: every trip has its own link. "Send link" next to a friend opens WhatsApp straight to that friend when their number came from contacts.
+- The full trip tools (budget, categories, add spend, settle-up) are under "More trip tools".
+- Home: the "Show all days" button is a solid button and never hides behind the bottom bar.
+
+## Add from contacts fixed (v119)
+Inside an older phone app, "Add from contacts" did nothing (the app's browser has a contacts feature that cannot open anything, and the error was silent). Now: in the latest phone app it opens your contacts; in an older app it explains and offers the update (installs over, keeps your data); in Chrome it opens Chrome's contact picker; if anything fails you see a message and can type the name. The phone app also always reports back to the page, even if the picker cannot open.
+
+## Safer phone updates (v120)
+- Per-person UPI IDs and trip links now back up to your Kharcha Book account like your other settings, so a reinstall does not lose them.
+- The app's signing key is refreshed daily in the build system (it used to be weekly, right at the 7-day point where GitHub drops it), and a build on main now stops instead of quietly making a new key, so an update always installs over the app you have.
+
+## Fix mistakes on a trip (v121)
+- **Remove someone**: the × next to each friend on the trip (asks first, says if they had paid for anything, and Undo puts them back). Their spends stay; the split is worked out again.
+- **Delete a spend**: tap any spend in the trip's Day by day list (Undo restores it). A spend a friend added from the trip link is deleted for everyone.
+- **Rename** the trip from the trip page.
+
+## Install the app from the web page (v122)
+On an Android phone in Chrome, Kharcha Book shows a slim "📲 Get the Android app · Install" strip under the header (× hides it) and an "Install the app" entry in the ☰ sidebar. Both open a card with a one-tap Download button and the three install steps, including what to do if Google Play Protect blocks it. Hidden inside the app itself and on iPhone.
+
+## Everything closes the way it opened, estimates per category, trip calendar (v123)
+- **Tap again to close**: a trip closes by tapping its banner again, the Trips tab, or "All trips"; the + button closes the add form; More and the ☰ menu close on a second tap (☰ also has ×). Every card and sheet closes on ✕ or a tap outside.
+- **Phone back button** closes the newest thing that is open (a card, the menu, More, the add form, an open trip), and from any other page goes back Home.
+- **Where your money goes** (Home, under the calendar): every category with its own picture (Milk & dairy, Vegetables & fruits, Online shopping, Fuel, Food, Grocery, Subscription, Bills...), what it cost so far, the estimate by month end (dashed part of the bar), and how it compares with last month (red when it is over 20% up). Tap one to see each spend.
+- **Trip calendar**: each trip shows its days as boxes (Day 1, Day 2...) coloured by spend, with pictures of what it went on (tap a day for its spends), and bars for Stay, Fuel, Food and the rest. Day numbers match in the calendar and Day by day.
+- **Visual touches**: a light sheen across the top card and trip banners, calendar days pop in, the biggest day glows, bars grow in, cards glide up as you scroll. All of it turns off with your phone's "reduce motion" setting.
+
+## Trip mode back, with a travel diary (v124)
+- On each trip's page: **▶️ Start trip mode** / **⏸️ Pause** / **▶️ Resume** / **■ End trip**, with a plain line saying what happens. ON: every payment the phone sees is logged to the trip and split equally between everyone on it. PAUSED: payments go to Personal or Family as usual. ENDED: back to normal; the trip stays to view and settle. The trip list shows ● LIVE or ⏸ PAUSED on the banner.
+- **Travel diary labels**: trip spends read like "Filled petrol in Gurgaon", "Breakfast in Gurgaon", "Lunch in Chandigarh", "Refilled petrol in Manali", "Stay in Manali". Meals follow the time (breakfast, lunch, evening snacks, dinner, late-night; cafés become "Coffee & snacks"); petrol after the first is "Refilled". The original merchant and time stay underneath.
+- **📍 Where are you**: tap it on the trip page (also offered when trip mode starts) to set your town, from the phone's location when allowed or typed in. Spends after that are labelled with that town; a town in the merchant name ("Indian Oil MANALI") wins.
+- Settle-up amounts are shown in whole rupees.
+
+## Search tells you everything about a spend (v125)
+Search "milk", "petrol", "swiggy" (or an amount) and you get a full panel, not just a list:
+- **This month** in big numbers with the number of purchases, and ▲/▼ % against last month (at this month's pace).
+- **Last month**, **monthly average** (last 5 months), **per purchase**, and **by month end** (estimate at this pace).
+- **6-month bar chart**; tap a month to see only that month (tap again for all).
+- **Habits in plain words**: how often you buy it and when ("about every day, mostly in the mornings"), where most often ("Milk vendor, 70 times"), the biggest purchase, and the all-time and yearly cost.
+- **Every spend grouped by month**, each month with its own total; months fold open and shut.
+- A specific word stays specific: "milk" means milk and dairy (Amul, paneer, curd, ghee...), not all groceries. × clears the search.
+
+## Audit fixes: banks that aren't yours, trip security, layout (v126)
+
+- **Not your bank, not counted.** SMS from a bank that isn't yours (PNB, a parent's account linked to your number) stay visible but never count as your income, spends or cash. The Bank page lists them under "Not your bank" with this month's in/out and a one-tap **Count as mine** (with undo). The setting is `kharcha_not_mine_banks` and syncs across devices.
+- **Trip security.** `trip_add_owner_expense` now checks that you own the trip, and signed-out users can't call it. A paused trip link also stops friends adding spends, not just viewing. Amounts and descriptions have sane limits.
+- **Faster database rules.** The row-level policies read `auth.uid()` once per query instead of once per row. Two foreign-key indexes were added.
+- **Layout.** The Insights page no longer scrolls sideways on phones. A search for "milk" no longer says "incl. milk".
+
+## Autopilot: safe to spend, bills, money coming in (v127)
+
+- **🛡️ Safe to spend today.** A chip at the top of Home. Tap it to open **More → 🤖 Autopilot**.
+  - Starts from your monthly budget if you set one. Otherwise it uses your usual month's income: the median of the last 3 months, or the last 30 days while history is short. This way a salary that lands on the 30th counts for the month it pays for.
+  - Takes off what you've spent and invested, the bills still due and an optional monthly **keep aside**, then spreads the rest over the days left.
+  - A day never gets more than 1.5× a normal day's share. Extra money shows as **spare**, with a nudge to save it.
+  - Shows whether today is over its share and what each day gets from tomorrow.
+- **📅 Bills on autopilot.**
+  - Finds payments that repeat about once a month in 2 of the last 3 months: EMI, LIC, phone, subscriptions. Daily habits like milk are left out.
+  - Shows the usual day, a countdown (in N days / tomorrow / due / N days late) and paid-this-month.
+  - Flags price changes ("▲ ₹50 more than last month").
+  - Bills you know can be added by hand, or with one tap from "Looks like a bill" suggestions. × means "not a bill", with undo.
+  - Settings `kharcha_autopilot_bills`, `kharcha_autopilot_hide` and `kharcha_autopilot_keep` sync across devices.
+- **💼 Money coming in:** salaries and pension with their usual day and whether they've arrived.
+- **🔁 Fixed costs:** the monthly and yearly cost of your bills, their share of your income, and subscriptions priced per year.
+- **📈 Last 30 days vs your usual:** categories creeping up or nicely down. Tap one to search it.
+- **Trip settle-up:** each "to settle" row now has **⚡ Pay** and **📲 Ask**.
+  - Pay opens your UPI app with their UPI ID and the amount. The UPI ID comes from the trip link, or you type it once.
+  - Ask sends a WhatsApp with your UPI pay link.
+  - **✓ Settled** records the settlement.
+- **Fix:** the month-end forecast no longer treats daily milk as a monthly bill.
+
+## Fixing Autopilot mistakes (v128)
+
+- **Remove:** tap **×** on any bill. A bill you added, or tracked from a suggestion, is removed (with Undo). A bill Autopilot found is hidden. Paid bills are under **Show paid this month**.
+- **Edit:** tap a bill you added (it shows ✏️) to change its name, amount or day.
+- **Restore:** **🙈 Hidden bills · restore** lists everything you hid, with a **Restore** button, so nothing hidden is lost once the Undo pop-up is gone.
+- **Keep aside:** tap **Change** and enter 0 to clear it.
+
+## Ask before save & delete, delete for everything (v129)
+
+- **Every save asks first.** Any form that adds, saves, logs, records, creates, sets or updates something shows **"Add this? / Save this?"** with what you typed (amount, description, date…). Nothing is saved until you tap **Yes**.
+  - The same goes for buttons that save straight away ("Log it", "Save & Update Balance") and one-tap suggestions.
+  - Forms that don't save a record (Sign in, Open UPI app, Send on WhatsApp) don't ask.
+- **Every delete asks first.** Any delete, remove, × or "Not a bill" button shows **"Delete this?"** with what it is.
+  - The spend editor's "tap again to delete" is now a proper confirmation.
+  - Buttons that already ask their own fuller question ask only once.
+- **Delete for everything you can create:**
+  - **🗑️ Delete trip** on the trip screen. Its spends go too, the friends' link is switched off, and the confirmation shows how many spends and how much.
+  - **🗑️ Delete** on Projects. Its entries go too.
+  - **×** on each 📍 trip check-in, with Undo.
+- **Switch:** ☰ → **🛡️ Ask before save & delete** turns the confirmations on or off (setting `kharcha_confirm_actions`, synced; on by default). Undo pop-ups still work either way.
+- One central check (`safety.js`) covers every page and pop-up, including ones added later.
+- **Fix:** opening Trips and then tapping **+** to add a spend could make the app step "back" out of itself after saving. The back-button history now waits for a pending back step before adding a new one, and never steps back past the app's first page.
+
+## Every bank balance at a glance, with the family account (v130)
+
+- **🏦 Bank balances** in the top card on Home and at the top of the Bank page: every account in one card.
+  - Order: ⭐ ICICI (main) first, then your other accounts (HDFC), then family accounts.
+  - Each row shows a colour badge, the balance, a bar sized to it, and a 30-day **balance trail** sparkline drawn from its SMS balances.
+  - The small line says when it last updated: from an SMS, or when you last typed it. A typed balance older than 7 days says "tap to update", and tapping opens that account's Update balance.
+  - The total shows only **your** accounts.
+- **Family account.** A bank marked "not yours" (Papa's PNB, where Mom's pension comes in) now gets its own **👵 PNB · Mom's pension** card, created by itself from its latest SMS balance and updated with every PNB SMS.
+  - Its money in and out is still never counted as your income or spends.
+  - Stop tracking it with ×, and it won't come back (`kharcha_family_acct_off`).
+- **Fix:** an SMS from a bank that has its own account here (HDFC) now goes to that account. It used to be filed under the main account (ICICI) and moved its estimate.
+- HDFC updates itself as soon as an HDFC SMS with "Avl bal" reaches the phone app. Until then it uses the balance you type.
+
+## Salary autopilot, refund matcher, bill reminders with the paying bank (v131)
+
+- **💼 Salary day.** When a salary lands, a card on Home (and at the top of Autopilot) shows how it lasts until the same salary comes again:
+  - the bills due before then (this month's still open and next month's early ones),
+  - what you keep aside (or a 20% suggestion),
+  - what is free to spend, about ₹X a day.
+  - One tap saves the amount to your savings goal (it asks first), or sets a monthly keep-aside.
+  - "Got it" or × hides it for that salary (`kharcha_salary_seen`, synced). Other incomes still to come (Salary 2) are listed as extra.
+- **↩️ Refund matcher.** A credit that says refund, reversal, reversed, chargeback or cancelled is paired with the purchase it undoes: same shop word (AMAZON, MYNTRA…), before it, within 90 days.
+  - Same shop and same amount: matched by itself. Neither is counted as spending or income, with Undo.
+  - A partial refund, or a same-amount credit with no shop word: asked, and "Yes, a refund" makes the spend the net amount.
+  - "Not a refund" leaves it as income. It uses the same store as paybacks, so Undo works the same way.
+- **🔔 Bill reminders with the paying bank.**
+  - Every Autopilot bill knows which bank pays it: your choice ("Paid from which bank?" when adding or editing), else the bank its payment came from, else the main account.
+  - It shows "🏦 HDFC" on the bill and warns when that bank holds less than its bills due in the next 7 days ("⚠️ HDFC has ₹3,182. Add ₹2,536 before 5 Nov").
+  - A **Coming up** card on Home lists bills due within 3 days, late, or short of money, using each bill's next due date (an EMI paid on the 5th shows next month's on the 30th).
+  - The phone app gets every Autopilot bill (labels like "Flat emi · HDFC (low bal)") and reminds you 2 days before and on the day.
+- **Fix:** long toasts no longer shrink into a circle.
+
+## Card bills paid through Amazon Pay / CRED (v132)
+
+- A bank debit that pays the credit card ("Amazon Pay Cred credited", CRED, "credit card repayment", BillDesk card…) shows a **"💳 your credit card bill?"** question on Home.
+  - **Yes, card bill** files it as "🔁 Credit card bill · ICICI ··1014": not a spend (the swipes already were), still money out of the bank, and "Bill paid" on the Credit card page. Undo is there.
+  - **No, a spend** leaves it as it is (`kharcha_cardbill_no`).
+- Questions (card bill, refund, money back, duplicates, transfers) are never folded into the "N payments due this month" line.
+
+## 🧺 Kitchen: what each grocery spend was, and how much you use (v133)
+
+- **Known baskets fill themselves (✨).** At a kirana or milk shop: ₹36 / ₹72 = Amul cow milk ½ L / 1 L, ₹40 / ₹80 = A2 milk ½ L / 1 L, ₹136 = 10 coffee + Amul ½ L, ₹172 = 10 coffee + Amul 1 L. Not when the description names something else ("Banana ₹40").
+- **Everything else asks "🧺 What did you buy?"** from a Home card ("Fill now", one spend after another, with Skip), or from the "🧺 + items" badge on any grocery row.
+  - Tap item chips (your most used first), use ± for quantity, or type it: `adrak 40, sabzi 250g 30, 10 coffee, a2 1L` (Hindi names work too).
+  - Names already in the description are pre-filled ("milk and paneer").
+  - Whatever isn't filled is saved as "Other". Saving asks first.
+  - A basket made only of priced packs teaches the app that amount for next time.
+- **☰ → 🧺 Kitchen:** per month (this, last, two ago) groceries in total and how many spends are still to fill.
+  - Per item: quantity used, money, price per unit, about how much a day, how often you buy it, change vs last month, and price changes.
+  - **🛒 Likely to need soon** works this out from how often you buy each item.
+  - **🏷️ Pack prices** can be edited (when Amul goes up) or added.
+- Items are stored in a new `expense_items` table: one row per spend, only yours (RLS), and deleted with the spend. Catalogue and learned baskets are in `kharcha_item_catalog` / `kharcha_item_patterns`.
+- Home cards (salary, bills, kitchen) now live inside Home's own section, so they never show on another page.
+
+## Vendors remember what they sell (v134)
+
+- **The shop decides, not the description.** The vendor is read from the bank SMS ("; LAVISH KIRANA S credited" → Lavish Kirana, "SANSKRITI S STO" → Sanskriti). Different shops stay different (Vijay ≠ Vijay Hardware).
+- **Before learning anything,** the name gives a first guess:
+  - salon / saloon / barber → always 💇 Haircut (filled by itself)
+  - vegetable / fruit / Vijay → 🥬 vegetables & fruit first
+  - kirana / store / Sanskriti / Lavish / Rajbir → milk, coffee, rice, atta, dal…
+  - dairy / Shree Bala Ji / Shivam → milk & paneer
+- **Every saved basket teaches its shop:**
+  - which items it sells (shown first next time)
+  - which basket each amount means **at that shop**: ₹100 at Lavish = 10 coffee fills itself next time
+  - when the same amount has meant two things (coffee or rice), it asks with both as one-tap choices ("1× here"), until one is clearly the usual (75%+)
+  - a shop that has only ever sold one thing (3+ times) fills it by itself
+- **🏪 Your vendors** (Kitchen page): each shop with what it sells, what it learned from, and this month's spend. Tap to set "Sells" or "Always", × to forget what it learned (Undo). Stored in `kharcha_vendors`, synced.
+- **🧺 What was it?** in any spend's edit form, so any shop can learn, not only grocery ones.
+- A description that is only the shop's name is no longer read as an item.
+
+## "What did you buy?" fits the phone (v135)
+
+- The sheet has a fixed header and a fixed **Skip / Save items** bar; only the middle scrolls. It no longer squeezes everything into a short screen.
+- It sizes itself to the space **above the phone keyboard**, and whatever you type into scrolls into view. The type box sits near the top, right under the items.
+- 10 item chips, then **More ▾**. Item rows fit 320–360px phones. Inputs use 16px text, so phones don't zoom.
+- No blurred backdrop, which rendered badly in the Android app.
+- **Fix:** "Shree Bala Ji milk and paneer" pre-fills milk and paneer again. Only the shop's own words are ignored.
+
+## 📷 Read an order screenshot (v136)
+
+- In **What did you buy?**, tap **📷 Read order screenshot** and pick the order screen from Blinkit, Zepto, Instamart, BigBasket, Amazon and so on (up to 4 images for long orders).
+  - The text is read **on your phone** with Tesseract (free, open source). The image never leaves the phone.
+  - The reader (~6 MB) downloads once from the jsDelivr CDN and is cached after that.
+- It fills every item with its price, size and count (500 ml x 2 → 1 L, 5 kg atta, 2 coffee packets), maps known items (milk, atta, pyaz, coffee…), and keeps new products under their own names.
+- It skips the bill lines (MRP, discounts, handling, delivery) and uses the paid price, not the struck MRP.
+- It shows the screenshot's **bill total** next to the payment ("✓ matches this payment"). Any difference (fees) is saved as "Other". Check the items, then Save.
+- It handles the reader's usual slips (₹ read as £ / X / %, "1kg x 1" read as "lkgx1"). The parser is tested on real reader output.
+
+## Order screenshots inside the Android app (v137)
+
+- **App fix (new APK):** the file picker now unwraps the WebView's context to find the activity, as the contact picker does. Without that it could fail before the gallery even opened. It also reads images that gallery apps return in ClipData, which the old code ignored.
+- **Web side, works with the current app too:** "Read order screenshot" picks one image at a time (tap again to add more), so galleries return it the normal way.
+- If no image comes back, the sheet says so instead of doing nothing. Inside the app it offers **🌐 Open this in Chrome**, which opens the same spend's "What did you buy?" in Chrome (`#fill=<id>`), where picking always works.
+
+## Order screenshots read right (v138)
+
+Tested on a real dark-mode Blinkit "Repeat Order" list: 11 items, product photo beside each name, struck MRP beside each price. It now reads all 11 names and paid prices (₹1,399) exactly.
+
+- **Dark mode:** white-on-black screens are flipped to dark-on-light before reading.
+- **Product photos:** the bits the reader "saw" in the photos left of the names (low-confidence words left of the text column) are dropped, so they no longer end up in item names.
+- **Each price read a second time, on its own:**
+  - Only the strongest ink at the right of a row is kept, so the grey struck MRP disappears.
+  - The ₹ sign, which the reader doesn't know (it came out as 2, 3, 7, #, T, ¥, £), is found by its shape: two bars on top and no flat base. Only the digits after it are read, as digits.
+- **The name sits on the line above "1 ltr x 1 ₹249 ₹195":** it is taken from there, with the junk in front trimmed ("md Mangaldeep…" → "Mangaldeep…").
+- **The payment settles what is still unclear:** if one price can't be read, it is worked out from the bill total (or this payment), and the note says which one. Unsure readings (743 = ₹743 or ₹43?) are picked so the items add up.
+- The phone's status bar (clock, battery) and buttons like "Repeat Order" / "View cart" are ignored.
+- "Cotton Phool Diya Batti" is no longer taken for flowers, and "Coriander Seeds" not for fresh dhaniya. Mustard oil still maps to Oil.
+- Long product names get a full line above their − qty + ₹ controls, so similar items ("Whole Farm … Coriander Seeds" and "… Mustard Seeds") can be told apart.

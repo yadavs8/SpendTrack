@@ -45,6 +45,11 @@ class SmsReceiver : BroadcastReceiver() {
             try {
                 val isSmsEnabled = ServiceLocator.settingsManager.isSmsDetectionEnabled.first()
                 if (!isSmsEnabled) return@launch
+                // Already read (this SMS's notification in the Messages app, or a duplicate delivery): read once.
+                if (TransactionParser.extractAmount(fullText) != null &&
+                    com.spendtrack.app.core.deduplication.SeenMessages.checkAndRemember(context.applicationContext, fullText, timestamp)) {
+                    return@launch
+                }
 
                 com.spendtrack.app.core.parser.CardBillParser.parseStatement(fullText)?.let {
                     com.spendtrack.app.core.automation.AutomationRunner.onCardStatement(it)
@@ -93,7 +98,8 @@ class SmsReceiver : BroadcastReceiver() {
                                 activeProjectName = activeProject,
                                 isProjectPaused = isProjectPaused,
                                 trips = knownTrips,
-                                projects = knownProjects
+                                projects = knownProjects,
+                                duplicateOf = repo.duplicateCandidateFor(txn)
                             )
                         }
                     }

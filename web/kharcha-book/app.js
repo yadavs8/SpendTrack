@@ -42,7 +42,52 @@
   // ...and not read like a payment of it ("Income tax", "LIC pension premium", "Salary to maid").
   var PAID_OUT_WORDS = /\b(?:tax|premium|policy|plan|fund|contribution|emi|paid|to|maid)\b/;
 
-  function isIncome(e) {
+  // Money a person sent back for something you paid them (see applyPaybacks): neither income nor spending.
+  var PAYBACK_KEY = 'kharcha_paybacks', PAYBACK_NO_KEY = 'kharcha_payback_no', pbMemo = { raw: undefined, list: [], inSet: {}, outSet: {} };
+  function loadPaybacks() {
+    var raw = kv.get(PAYBACK_KEY);
+    if (pbMemo.raw !== raw) {
+      var list = []; try { list = JSON.parse(raw || '[]'); } catch (e) {} if (!Array.isArray(list)) list = [];
+      list = list.filter(function (p) { return p && typeof p.inId === 'string' && Array.isArray(p.outIds); });
+      var inSet = {}, outSet = {};
+      list.forEach(function (p) { inSet[p.inId] = p; if (!p.partial) p.outIds.forEach(function (id) { outSet[id] = p; }); });
+      pbMemo = { raw: raw, list: list, inSet: inSet, outSet: outSet };
+    }
+    return pbMemo;
+  }
+  function savePaybacks(list) { kv.set(PAYBACK_KEY, JSON.stringify(list)); }
+  function isPaybackIn(e) { return !!e && !!loadPaybacks().inSet[e.id]; }
+  function isPaidBack(e) { return !!e && (!!loadPaybacks().outSet[e.id] || isPaybackIn(e)); }
+  function isIncome(e) { return isIncomeRaw(e) && !isPaybackIn(e) && !isNotMineBank(e); }
+  // v126: alerts from a bank that isn't yours (a parent's account linked to your phone number) stay visible
+  // but are never counted as your income, spending or cash. Default: PNB, which you said is your father's.
+  var FAMILY_OFF_KEY = 'kharcha_family_acct_off';
+  var NOT_MINE_KEY = 'kharcha_not_mine_banks', notMineMemo = { raw: undefined, list: [] }, srcBankMemo = new WeakMap();
+  function notMineBanks() {
+    var raw = kv.get(NOT_MINE_KEY);
+    if (raw === notMineMemo.raw) return notMineMemo.list;
+    var list = ['pnb'];
+    if (raw != null) { try { var a = JSON.parse(raw); list = Array.isArray(a) ? a : []; } catch (er) { list = []; } }
+    notMineMemo = { raw: raw, list: list };
+    return list;
+  }
+  function setNotMineBank(key, notMine) {
+    var list = notMineBanks().filter(function (k) { return k !== key; });
+    if (notMine) list.push(key);
+    kv.set(NOT_MINE_KEY, JSON.stringify(list));
+  }
+  function srcBankOf(e) {
+    if (!e || !e.raw || typeof e !== 'object') return '';
+    if (srcBankMemo.has(e)) return srcBankMemo.get(e);
+    var KL = window.KharchaLedger, k = KL && KL.smsSourceBank ? KL.smsSourceBank(e) : '';
+    srcBankMemo.set(e, k); return k;
+  }
+  function isNotMineBank(e) {
+    if (!e || !e.raw) return false;
+    var list = notMineBanks(); if (!list.length) return false;
+    var k = srcBankOf(e); return !!k && list.indexOf(k) >= 0;
+  }
+  function isIncomeRaw(e) {
     if (!e || !e.desc) return false;
     // Rows from the phone carry an explicit kind (v5 column); typed-in rows are read from the text.
     if (e.kind === 'income') return true;
@@ -92,7 +137,7 @@
   // into your cash wallet. It's counted as "Unaccounted cash" until you log what it was spent on,
   // so the month total is the same either way and cash is never counted twice.
   function isCashWithdrawal(e) {
-    if (!e) return false;
+    if (!e || isNotMineBank(e)) return false;
     if (e.kind === 'cash_withdrawal') return true;
     return !!e.desc && e.desc.trim().indexOf('💵 Cash withdrawn') === 0;
   }
@@ -108,7 +153,7 @@
 
   function isTransferEntry(e) { return !!e && /^\s*\u{1F501}/u.test(e.desc || ''); }
   function isExpense(e) {
-    return !isIncome(e) && !isTransferEntry(e) && !isInvestment(e) && !isTripEntry(e) && !isCashWithdrawal(e) && !isWalletTopup(e) && !(e && e.kind === 'transfer');
+    return !isNotMineBank(e) && !isIncome(e) && !isPaidBack(e) && !isTransferEntry(e) && !isInvestment(e) && !isTripEntry(e) && !isCashWithdrawal(e) && !isWalletTopup(e) && !(e && e.kind === 'transfer');
   }
 
   /* ---------- Cash wallet ---------- */
@@ -255,6 +300,7 @@
       var months = {};
       past.forEach(function (e) { months[monthKey(e.ts)] = true; });
       if (Object.keys(months).length < 2) return;
+      if (past.length / Object.keys(months).length > 2.5) return;   // a daily habit (milk), not a bill: it stays in the daily pace
       var amounts = past.map(function (e) { return e.amount; });
       var lo = Math.min.apply(null, amounts), hi = Math.max.apply(null, amounts);
       if (lo <= 0 || hi / lo > 1.25) return;
@@ -966,6 +1012,96 @@
     return { has: accts.length > 0, total: p / 100, count: accts.length };
   }
 
+  // The one balance shown at the top of the app: ICICI (falls back to the main account).
+  function getTopBank() {
+    var KL = window.KharchaLedger, accts = loadBank();
+    if (!KL || !accts.length) return null;
+    var a = accts.filter(function (x) { return KL.nameKey(x.name).indexOf('icici') >= 0; })[0] || accts.filter(function (x) { return x.id === primaryAcctId(accts); })[0] || accts[0];
+    var pr = bankPreds(a, accts), est = KL.bankEstimate(state.entries, a, pr.isIn, pr.isOut, loadTransfers());
+    return { name: a.name, balance: est.balance };
+  }
+
+  /* ---------- v129b: every bank balance at a glance ---------- */
+  var BANK_LOOK = { icici: ['#f37021', 'IC'], hdfc: ['#004c8f', 'HD'], pnb: ['#a3195b', 'PN'], sbi: ['#2a73ba', 'SB'], axis: ['#97144d', 'AX'], kotak: ['#ed1c24', 'KO'], baroda: ['#f15a22', 'BB'], canara: ['#0091d5', 'CA'], idfc: ['#9c1d26', 'ID'], yes: ['#0060ab', 'YB'], union: ['#d71920', 'UB'], indusind: ['#8b1d41', 'IN'] };
+  function bankLook(name) {
+    var k = window.KharchaLedger.nameKey(name), hit = Object.keys(BANK_LOOK).filter(function (b) { return k.indexOf(b) >= 0; })[0];
+    return hit ? { key: hit, color: BANK_LOOK[hit][0], ab: BANK_LOOK[hit][1] } : { key: '', color: '#0d9488', ab: String(name || '?').replace(/[^A-Za-z]/g, '').slice(0, 2).toUpperCase() || '₹' };
+  }
+  // [{ id, name, balance, role, main, updated, fromSms, trail: [{ ts, balance }] }], main account first, then yours, then family.
+  function getBalances() {
+    var KL = window.KharchaLedger, accts = loadBank();
+    if (!KL || !accts.length) return [];
+    var pid = primaryAcctId(accts), since = Date.now() - 30 * 86400000;
+    return accts.map(function (a) {
+      var pr = bankPreds(a, accts), est = KL.bankEstimate(state.entries, a, pr.isIn, pr.isOut, loadTransfers());
+      var snaps = a.snapshots, last = snaps[snaps.length - 1];
+      var trail = snaps.filter(function (x) { return x.ts >= since; }).map(function (x) { return { ts: x.ts, balance: x.balance }; });
+      var before = snaps.filter(function (x) { return x.ts < since; }).pop();
+      if (before) trail.unshift({ ts: since, balance: before.balance });
+      if (!trail.length || Math.abs(trail[trail.length - 1].balance - est.balance) > 0.005) trail.push({ ts: Date.now(), balance: est.balance });
+      return { id: a.id, name: a.name, balance: est.balance, role: a.role || '', main: a.id === pid, updated: last.ts, fromSms: last.src === 'sms', moved: est.items.length, trail: trail, look: bankLook(a.name) };
+    }).sort(function (x, y) { return (y.main - x.main) || ((x.role === 'family') - (y.role === 'family')) || (y.balance - x.balance); });
+  }
+  function ago(ts) {
+    var m = Math.max(0, Math.round((Date.now() - ts) / 60000));
+    if (m < 60) return m <= 1 ? 'just now' : m + ' min ago';
+    var h = Math.round(m / 60); if (h < 24) return h + 'h ago';
+    var d = Math.round(h / 24); return d === 1 ? 'yesterday' : d + ' days ago';
+  }
+  function sparkline(trail, color) {
+    var ns = 'http://www.w3.org/2000/svg', W = 64, H = 22, svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H); svg.setAttribute('class', 'bk-spark'); svg.setAttribute('aria-hidden', 'true');
+    var pts = trail.length > 1 ? trail : [{ ts: 0, balance: trail[0] ? trail[0].balance : 0 }, { ts: 1, balance: trail[0] ? trail[0].balance : 0 }];
+    var t0 = pts[0].ts, t1 = pts[pts.length - 1].ts || 1, lo = Math.min.apply(null, pts.map(function (p) { return p.balance; })), hi = Math.max.apply(null, pts.map(function (p) { return p.balance; }));
+    var xy = pts.map(function (p, i) {
+      var x = t1 > t0 ? (p.ts - t0) / (t1 - t0) * (W - 4) + 2 : i / (pts.length - 1) * (W - 4) + 2;
+      var y = hi > lo ? H - 3 - (p.balance - lo) / (hi - lo) * (H - 6) : H / 2;
+      return x.toFixed(1) + ',' + y.toFixed(1);
+    });
+    var area = document.createElementNS(ns, 'polygon'); area.setAttribute('points', '2,' + H + ' ' + xy.join(' ') + ' ' + (W - 2) + ',' + H); area.setAttribute('fill', color); area.setAttribute('opacity', '0.16'); svg.appendChild(area);
+    var line = document.createElementNS(ns, 'polyline'); line.setAttribute('points', xy.join(' ')); line.setAttribute('fill', 'none'); line.setAttribute('stroke', color); line.setAttribute('stroke-width', '1.8'); line.setAttribute('stroke-linejoin', 'round'); line.setAttribute('stroke-linecap', 'round'); svg.appendChild(line);
+    var end = xy[xy.length - 1].split(','), dot = document.createElementNS(ns, 'circle'); dot.setAttribute('cx', end[0]); dot.setAttribute('cy', end[1]); dot.setAttribute('r', '2.4'); dot.setAttribute('fill', color); svg.appendChild(dot);
+    return svg;
+  }
+  // The balances card: on Home (inside the top card) and at the top of the Bank page.
+  function balancesCard(where, onPick) {
+    var list = getBalances(); if (!list.length) return null;
+    var box = el('div', 'bk-all ' + (where || 'page'));
+    var mine = list.filter(function (b) { return b.role !== 'family'; }), fam = list.filter(function (b) { return b.role === 'family'; });
+    var sum = function (l) { return l.reduce(function (t, b) { return t + b.balance; }, 0); };
+    var head = el('div', 'bk-head');
+    head.appendChild(el('span', 'bk-ttl', '🏦 Bank balances'));
+    var tot = el('span', 'bk-tot'); tot.appendChild(el('b', null, money(sum(mine)))); tot.appendChild(el('small', null, fam.length ? ' yours' : ' total'));
+    head.appendChild(tot); box.appendChild(head);
+    var max = Math.max.apply(null, list.map(function (b) { return Math.abs(b.balance); })) || 1;
+    list.forEach(function (b) {
+      var row = el('button', 'bk-row' + (b.main ? ' main' : '') + (b.role === 'family' ? ' fam' : '')); row.type = 'button';
+      row.style.setProperty('--bk', b.look.color);
+      var badge = el('span', 'bk-badge', b.look.ab); row.appendChild(badge);
+      var mid = el('span', 'bk-mid');
+      // short bank name in bold, the account's own label ("Salary account", "Mom's pension") on the small line
+      var short = b.look.key ? (b.look.key === 'baroda' ? 'Bank of Baroda' : b.look.key === 'yes' ? 'Yes Bank' : b.look.key.length <= 5 ? b.look.key.toUpperCase() : b.look.key.charAt(0).toUpperCase() + b.look.key.slice(1)) : b.name;
+      var rest = b.look.key ? b.name.replace(new RegExp(b.look.key, 'i'), '').replace(/^[\s·:\-]+|[\s·:\-]+$/g, '').replace(/^(bank|bak|bnk|a\/c|account)$/i, '') : '';
+      rest = rest ? rest.charAt(0).toUpperCase() + rest.slice(1).toLowerCase().replace(/\bmom's\b/, 'Mom\'s') : '';
+      var nm = el('span', 'bk-name'); nm.appendChild(el('b', null, short));
+      if (b.main) nm.appendChild(el('i', 'bk-tag main', '⭐ Main'));
+      if (b.role === 'family') nm.appendChild(el('i', 'bk-tag fam', '👵 Family'));
+      mid.appendChild(nm);
+      var bar = el('span', 'bk-bar'), fill = el('i'); fill.style.width = Math.max(3, Math.round(Math.abs(b.balance) / max * 100)) + '%'; bar.appendChild(fill); mid.appendChild(bar);
+      var stale = !b.fromSms && Date.now() - b.updated > 7 * 86400000;
+      mid.appendChild(el('small', 'bk-when' + (stale ? ' stale' : ''), (rest ? rest + ' · ' : '') + (b.fromSms ? '✉️ ' : '✏️ ') + ago(b.updated) + (stale ? ' · tap to update' : '')));
+      row.appendChild(mid);
+      var right = el('span', 'bk-right');
+      right.appendChild(el('b', 'bk-amt' + (b.balance < 0 ? ' neg' : ''), money(b.balance)));
+      right.appendChild(sparkline(b.trail, b.look.color));
+      row.appendChild(right);
+      row.addEventListener('click', function () { if (onPick) onPick(b); });
+      box.appendChild(row);
+    });
+    if (fam.length) box.appendChild(el('p', 'bk-foot', '👵 ' + fam.map(function (b) { return b.name; }).join(', ') + ': ' + money(sum(fam)) + '. Shown for you to look after; never counted in your income or spends.'));
+    return box;
+  }
+
   function groupByDay(list) {
     var map = new Map();
     list.slice().sort(byTimeDesc).forEach(function (e) {
@@ -1348,7 +1484,7 @@
     enterApp: enterApp,
     getSb: function () { return sb; },
     getEntries: function () { return state.entries; },
-    getMonthlySummary: getMonthlySummary, getMonthlyHistory: getMonthlyHistory, monthsWithAnyEntry: monthsWithAnyEntry, getPeriodSummary: getPeriodSummary, isBankIn: isBankIn, isBankOut: isBankOut, getBankTotals: getBankTotals, getHomeFacts: getHomeFacts, isIncome: isIncome, getNetWorthParts: getNetWorthParts, getSpendSources: getSpendSources, backupData: backupData, inspectBackup: inspectBackup, restoreData: restoreData, loadRules: loadRules, kvGet: function (k) { return kv.get(k); }, kvSet: function (k, v) { kv.set(k, v); }, toast: function (m, u) { toast(m, u); }, confirmBox: function (o) { showConfirmModal(o); }, startOfDay: startOfDay,
+    getMonthlySummary: getMonthlySummary, getMonthlyHistory: getMonthlyHistory, monthsWithAnyEntry: monthsWithAnyEntry, getPeriodSummary: getPeriodSummary, isBankIn: isBankIn, isBankOut: isBankOut, getBankTotals: getBankTotals, getTopBank: getTopBank, getBalances: function () { return getBalances(); }, accountOf: function (e) { var KL = window.KharchaLedger, accts = loadBank(); if (!KL || !accts.length || !e) return null; var id = KL.routeAccount(e, accts, loadJsonObj(ACCTMAP_KEY), loadRules(), primaryAcctId(accts), loadOwn()); return accts.filter(function (a) { return a.id === id; })[0] || null; }, recurringKey: function (d) { return recurringKey(d); }, refreshBalances: function () { applyBalanceFromSms(); }, rerender: function () { render(); }, runTidy: function () { return tidyUp(); }, balancesCard: function (w, f) { return balancesCard(w, f); }, dayKey: dayKey, selMonth: function () { return state.sel; }, visibleEntries: function () { return visibleEntries(state.sel); }, isCashWithdrawal: isCashWithdrawal, getHomeFacts: getHomeFacts, isIncome: isIncome, getNetWorthParts: getNetWorthParts, getSpendSources: getSpendSources, backupData: backupData, inspectBackup: inspectBackup, restoreData: restoreData, loadRules: loadRules, kvGet: function (k) { return kv.get(k); }, kvSet: function (k, v) { kv.set(k, v); }, toast: function (m, u) { toast(m, u); }, confirmBox: function (o) { showConfirmModal(o); }, inputBox: function (o) { showInputModal(o); }, startOfDay: startOfDay,
     parseAmount: parseAmount, normDesc: normDesc, money: money, groupByDay: groupByDay, byDescription: byDescription, monthTotals: monthTotals, toLocalISOString: toLocalISOString, isFamilyEntry: isFamilyEntry, parseBankSMS: parseBankSMS, parseSMSDate: parseSMSDate, findDuplicate: findDuplicate, categoryBreakdown: categoryBreakdown, monthCompare: monthCompare,
     isIncome: isIncome, isMotherSettlement: isMotherSettlement, isMotherPension: isMotherPension, isSalary: isSalary, isExpense: isExpense, isInvestment: isInvestment, getFamilySettlement: getFamilySettlement, getPersonalCashFlow: getPersonalCashFlow,
     isProjectEntry: isProjectEntry, isProjectMotherPaid: isProjectMotherPaid, getProjectSummary: getProjectSummary, projectNameOf: projectNameOf, cleanScopePrefix: cleanScopePrefix,
@@ -1407,11 +1543,11 @@
   /* ---------- Shared settings: one row in Supabase kharcha_settings, used by web + phone ----------
      Same keys and string values as localStorage, so feature code just swaps localStorage for kv.
      localStorage stays as the offline cache, and is all there is until the v4 SQL has been run. */
-  var SHARED_KEYS = ['kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
+  var SHARED_KEYS = ['kharcha_item_catalog', 'kharcha_item_patterns', 'kharcha_cardbill_no', 'kharcha_salary_seen', 'kharcha_family_acct_off', 'kharcha_autopilot_bills', 'kharcha_autopilot_hide', 'kharcha_autopilot_keep', 'kharcha_not_mine_banks', 'kharcha_trip_mirror_map', 'kharcha_trip_phones', 'kharcha_paybacks', 'kharcha_payback_no', 'kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
     'kharcha_is_trip_paused', 'kharcha_all_projects_list', 'kharcha_is_project_paused', 'kharcha_legacy_project_name',
     'kharcha_active_trip_name', 'kharcha_all_trips_list', 'kharcha_category_budgets', 'kharcha_merchant_memory',
     'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers', 'kharcha_loans', 'kharcha_wallets', 'kharcha_bank', 'kharcha_cycle', 'kharcha_rules', 'kharcha_acctmap', 'kharcha_primary_acct', 'kharcha_rule_skips', 'kharcha_transfers', 'kharcha_own', 'kharcha_xfer_dismissed', 'kharcha_goal', 'kharcha_receipts', 'kharcha_rules_seeded', 'kharcha_card', 'kharcha_dup_dismissed'];
-  var SHARED_PREFIXES = ['kharcha_trip_friends_', 'kharcha_trip_budget_'];
+  var SHARED_PREFIXES = ['kharcha_trip_friends_', 'kharcha_trip_budget_', 'kharcha_vpa_', 'kharcha_trip_places_'];
   function isSharedKey(k) {
     return SHARED_KEYS.indexOf(k) >= 0 || SHARED_PREFIXES.some(function (p) { return k.indexOf(p) === 0; });
   }
@@ -1860,6 +1996,12 @@
   var confirmModalCallback = null;
 
   function showConfirmModal(options) {
+    // v129: you just said yes in the "ask before save / delete" check; don't ask the same thing twice
+    if (window.__kharchaOkUntil && Date.now() < window.__kharchaOkUntil) {
+      window.__kharchaOkUntil = 0;
+      if (options && options.onConfirm) options.onConfirm();
+      return;
+    }
     var modal = $('confirm-modal');
     if (!modal) {
       if (confirm(options.message)) {
@@ -2070,6 +2212,14 @@
   }
 
   /* ---------- render ---------- */
+  // Smart match for the search box: related words (hair~salon, petrol~filling station) and small typos.
+  var smartCache = { q: null, s: null };
+  function smartMatch(desc) {
+    var KLs = window.KharchaLedger;
+    if (!KLs || !KLs.smartSearch) return String(desc || '').toLowerCase().includes(searchQuery);
+    if (smartCache.q !== searchQuery) smartCache = { q: searchQuery, s: KLs.smartSearch(searchQuery) };
+    return smartCache.s.test(desc);
+  }
   // Expenses of one month after the scope tab and search box are applied (excludes Trip entries, which live exclusively in Trips).
   function visibleEntries(key) {
     var list = state.entries.filter(function (e) { return monthKey(e.ts) === key && isExpense(e) && !isTripEntry(e); });
@@ -2080,7 +2230,7 @@
     }
     if (searchQuery) {
       list = list.filter(function (e) {
-        return e.desc.toLowerCase().includes(searchQuery) || dFmt.format(new Date(e.ts)).toLowerCase().includes(searchQuery);
+        return smartMatch(e.desc) || dFmt.format(new Date(e.ts)).toLowerCase().includes(searchQuery);
       });
     }
     return list;
@@ -2091,7 +2241,7 @@
     var list = state.entries.filter(function (e) { return monthKey(e.ts) === key && isIncome(e); });
     if (searchQuery) {
       list = list.filter(function (e) {
-        return e.desc.toLowerCase().includes(searchQuery) || dFmt.format(new Date(e.ts)).toLowerCase().includes(searchQuery);
+        return smartMatch(e.desc) || dFmt.format(new Date(e.ts)).toLowerCase().includes(searchQuery);
       });
     }
     return list;
@@ -2126,6 +2276,15 @@
       // Recurring bills go to the phone, which reminds you a couple of days before each is due.
       var bills = recurringBills(state.entries, nowKey).filter(function (b) { return b.isExpense; }).slice(0, 40)
         .map(function (b) { return { key: b.key, label: b.label, amount: b.amount, day: b.day, paidThisMonth: b.paidThisMonth }; });
+      var ap = window.__autopilot && window.__autopilot.plan ? window.__autopilot.plan() : null;
+      if (ap && ap.bills && ap.bills.length) {
+        var seen = {};
+        bills = ap.bills.map(function (b) {
+          var key = recurringKey((b.sample && b.sample.desc) || b.label); seen[key] = 1;
+          var label = b.label + (b.acctShort ? ' · ' + b.acctShort : '') + (b.short > 0 ? ' (low bal)' : '');
+          return { key: key, label: label.slice(0, 40), amount: b.amount, day: b.day, paidThisMonth: b.status === 'paid' };
+        }).concat(bills.filter(function (b) { return !seen[b.key]; })).slice(0, 40);
+      }
       bridge.reportSummary(JSON.stringify({
         month: monthLabel(nowKey),
         spentLabel: money(fc.spent),
@@ -2552,6 +2711,43 @@
     return isNaN(d.getTime()) ? Date.now() : d.getTime();
   }
 
+  // Sent to and got back from each person (bank SMS), with the pairs Kharcha Book matched.
+  function paybackPeopleCard() {
+    var KL = window.KharchaLedger; if (!KL || !KL.peopleLedger) return null;
+    var pb = loadPaybacks();
+    var rows = KL.peopleLedger(state.entries, {
+      isSent: function (e) { return !isIncomeRaw(e) && !isTransferEntry(e) && !isTripEntry(e) && e.kind !== 'transfer'; },
+      isGot: function (e) { return isIncomeRaw(e); }
+    }, Date.now(), 180, ownNameList());
+    if (!rows.length) return null;
+    var card = el('div', 'wal-card');
+    card.appendChild(el('div', 'wal-name', '\u21C4 Sent and got back'));
+    card.appendChild(el('p', 'wal-hint', 'Money that went to a person and came back from the same person. When it comes back, it is not counted as spending or income.'));
+    rows.slice(0, 12).forEach(function (r) {
+      var line = el('div', 'pb-row'), top = el('div', 'pb-top');
+      top.appendChild(el('b', null, r.name));
+      top.appendChild(el('span', 'pb-net' + (r.net > 0 ? ' out' : r.net < 0 ? ' in' : ''), r.net === 0 ? 'Settled \u2713' : r.net > 0 ? 'You are ' + money(r.net) + ' down' : 'You got ' + money(-r.net) + ' more'));
+      line.appendChild(top);
+      line.appendChild(el('span', 'pb-sub', 'Sent ' + money(r.sent) + ' \u00b7 got back ' + money(r.back)));
+      var open = false, list = el('div', 'pb-items'); list.hidden = true;
+      r.items.slice(0, 8).forEach(function (it) {
+        var paired = pb.inSet[it.id] || pb.outSet[it.id];
+        var li = el('div', 'pb-item');
+        li.appendChild(el('span', null, (it.out ? '\u2197 Sent ' : '\u2199 Got ') + dFmt.format(new Date(it.ts)) + (paired ? ' \u00b7 matched' : '')));
+        li.appendChild(el('b', null, money(it.amount)));
+        if (!it.out && pb.inSet[it.id]) {
+          var u = el('button', 'linkbtn', 'It was income'); u.type = 'button';
+          u.addEventListener('click', function () { undoPayback(it.id).then(function () { renderUdhaar(); }); });
+          li.appendChild(u);
+        }
+        list.appendChild(li);
+      });
+      line.addEventListener('click', function (ev) { if (ev.target.tagName === 'BUTTON') return; open = !open; list.hidden = !open; });
+      line.appendChild(list);
+      card.appendChild(line);
+    });
+    return card;
+  }
   function renderUdhaar() {
     var root = $('udhaar-root');
     if (!root) return;
@@ -2560,6 +2756,8 @@
     if (!KL) { root.appendChild(el('p', 'err', 'Udhaar could not load. Refresh the page.')); return; }
     var loans = loadLoans();
     var sum = KL.summarize(loans);
+    var peopleCard = paybackPeopleCard();
+    if (peopleCard) root.appendChild(peopleCard);
 
     var card = el('div', 'udh-summary');
     var a = el('div', 'udh-fig');
@@ -2872,7 +3070,7 @@
     var card = el('div', 'wal-card');
     var head = el('div', 'wal-head');
     head.appendChild(el('span', 'wal-name', '👛 ' + w.name));
-    var rm = el('button', 'udh-x', '×'); rm.type = 'button'; rm.setAttribute('aria-label', 'Stop tracking ' + w.name);
+    var rm = el('button', 'udh-x', '×'); rm.type = 'button'; rm.setAttribute('aria-label', 'Stop tracking ' + w.name); rm.setAttribute('data-self-confirm', '');
     rm.addEventListener('click', function () {
       showConfirmModal({ title: 'Stop tracking ' + w.name + '?', message: 'Your top-up and purchase entries stay in Kharcha Book; only the balance card is removed.', onConfirm: function () {
         saveWallets(loadWallets().filter(function (x) { return x.id !== w.id; })); renderWallet();
@@ -3186,8 +3384,13 @@
     var accts = loadBank(), sugg = [];
     if (accts.length > 1) sugg = KL.transferCandidates(state.entries, accts, loadOwn(), Date.now(), loadJsonObj('kharcha_xfer_dismissed'), transferPred(accts)).slice(0, 3);
     var dups = (state.dupMaybe || []).filter(function (m) { return state.entries.indexOf(m.drop) >= 0 && state.entries.indexOf(m.keep) >= 0; }).slice(0, 2);
-    if ((!due.length && !sugg.length && !dups.length) || (state.activeStream || 'spends') !== 'spends') { box.hidden = true; return; }
+    var asks = (state.paybackAsk || []).slice(0, 2);
+    var cbNo = loadJsonObj(CARDBILL_NO_KEY), since30 = Date.now() - 30 * 86400000;
+    var cbs = KL.looksLikeCardBill ? state.entries.filter(function (e) { return e.ts > since30 && !cbNo[e.id] && KL.looksLikeCardBill(e); }).slice(0, 2) : [];
+    if ((!due.length && !sugg.length && !dups.length && !asks.length && !cbs.length) || (state.activeStream || 'spends') !== 'spends') { box.hidden = true; return; }
     box.hidden = false;
+    cbs.forEach(function (e) { box.appendChild(cardBillSuggestion(e)); });
+    asks.forEach(function (p) { var c = paybackSuggestion(p); if (c) box.appendChild(c); });
     dups.forEach(function (m) { box.appendChild(dupSuggestion(m)); });
     sugg.forEach(function (c) { box.appendChild(transferSuggestion(c, accts)); });
     due.slice(0, 3).forEach(function (d) {
@@ -3230,20 +3433,45 @@
   // A bank SMS that prints "Avl Bal" sets that account's balance by itself (no typing).
   function applyBalanceFromSms() {
     var KL = window.KharchaLedger, accts = loadBank();
-    if (!KL || !accts.length) return;
-    var map = loadJsonObj(ACCTMAP_KEY), rules = loadRules(), pid = primaryAcctId(accts), own = loadOwn(), updates = {}, names = [];
-    accts.forEach(function (a) {
-      var found = KL.balanceFromSms(state.entries, a, function (e) { return KL.routeAccount(e, accts, map, rules, pid, own); }, isCardEntry);
-      if (found) { updates[a.id] = found; names.push(a.name + ' ' + money(found.balance)); }
+    if (!KL) return;
+    // Repair once per run: an account that was only ever built from SMS of another bank, and balances taken from the wrong bank.
+    var added = false;
+    if (KL.cleanBankAccounts && accts.length) {
+      var cl = KL.cleanBankAccounts(accts, state.entries, ['icici', 'hdfc']);
+      if (cl.changed && cl.accts.length) {
+        saveBank(cl.accts); accts = loadBank(); added = true;
+        var o = loadOwn();
+        if (o && o.banks.some(function (b) { return b.key === 'pnb'; })) {
+          var oo = JSON.parse(JSON.stringify(o)); oo.banks = oo.banks.filter(function (b) { return b.key !== 'pnb'; });
+          kv.set(OWN_KEY, JSON.stringify(oo));
+        }
+      }
+    }
+    // v129b: a bank that isn't yours but whose SMS reach your phone (Papa's PNB, where Mom's pension comes) gets its
+    // own family balance card, built from its latest SMS balance. It is never counted in your income or spends.
+    var off = []; try { off = JSON.parse(kv.get(FAMILY_OFF_KEY) || '[]') || []; } catch (e) { off = []; }
+    notMineBanks().forEach(function (k) {
+      if (off.indexOf(k) >= 0 || accts.some(function (a) { return KL.nameKey(a.name).indexOf(k) >= 0; })) return;
+      var last = null;
+      state.entries.forEach(function (e) { if (srcBankOf(e) !== k || !e.raw) return; var v = KL.parseAvlBalance(e.raw); if (v != null && (!last || e.ts > last.ts)) last = { ts: e.ts, balance: v }; });
+      if (!last) return;
+      accts = accts.concat([{ id: newLoanId(), name: (k === 'pnb' ? 'PNB' : k.toUpperCase()) + (k === 'pnb' ? ' · Mom\'s pension' : ' · Family'), role: 'family', held: [], deposits: [], snapshots: [{ ts: last.ts, balance: last.balance, src: 'sms' }] }]);
+      saveBank(accts); accts = loadBank(); added = true;
     });
-    if (!names.length) return;
+    if (!accts.length) return;
+    var map = loadJsonObj(ACCTMAP_KEY), rules = loadRules(), pid = primaryAcctId(accts), own2 = loadOwn(), updates = {}, any = added;
+    accts.forEach(function (a) {
+      var found = KL.balanceFromSms(state.entries, a, function (e) { return KL.routeAccount(e, accts, map, rules, pid, own2); }, isCardEntry);
+      if (found) { updates[a.id] = found; any = true; }
+    });
+    if (!any) return;
+    // Silent: the bank's total just moves to the newest balance the bank printed. No pop-up.
     saveBank(loadBank().map(function (a) {
       var f = updates[a.id];
       return f ? Object.assign({}, a, { snapshots: a.snapshots.concat([{ ts: f.ts, balance: f.balance, src: 'sms' }]) }) : a;
     }));
     render();
     if (state.activeStream === 'bank') renderBank();
-    toast('Balance from your bank SMS: ' + names.join(', '));
   }
 
   /* ---------- Duplicate check: runs whenever entries load or refresh ---------- */
@@ -3280,9 +3508,111 @@
     } catch (err) { console.warn('Kharcha: duplicate check failed', err); }
     finally { dupBusy = false; }
   }
-  function tidyUp() { return applyOwnTransfers().then(applyBalanceFromSms, applyBalanceFromSms).then(applyDuplicateCheck, applyDuplicateCheck); }
+  /* ---------- money back from the same person ---------- */
+  function ownNameList() { var o = loadOwn(); return (o && o.names) || []; }
+  function paybackPred() { return { isOut: function (e) { return isExpense(e) && !isTripEntry(e); }, isIn: function (e) { return isIncome(e); } }; }
+  function personTitle(e) { var KL = window.KharchaLedger, n = KL ? KL.personOf(e) : ''; return n.replace(/\b[a-z]/g, function (c) { return c.toUpperCase(); }) || 'Someone'; }
+  function applyPaybacks() {
+    var KL = window.KharchaLedger;
+    if (!KL || !KL.findPaybacks || state.mode !== 'db') return;
+    var pb = loadPaybacks(), res = KL.findPaybacks(state.entries, pb.list, loadJsonObj(PAYBACK_NO_KEY), Date.now(), paybackPred(), ownNameList());
+    // v131: refunds and reversals undo the purchase they belong to (same store, so Undo and "not a refund" work the same)
+    if (KL.findRefunds) {
+      var rf = KL.findRefunds(state.entries, pb.list.concat(res.auto), loadJsonObj(PAYBACK_NO_KEY), Date.now(), paybackPred());
+      res = { auto: res.auto.concat(rf.auto), ask: res.ask.concat(rf.ask) };
+    }
+    state.paybackAsk = res.ask;
+    if (!res.auto.length) return;
+    var before = pb.list.slice(), now = Date.now();
+    savePaybacks(before.concat(res.auto.map(function (p) { return Object.assign({ ts: now }, p); })));
+    render();
+    var first = res.auto[0], inE = state.entries.filter(function (x) { return x.id === first.inId; })[0];
+    if (first.kind === 'refund') {
+      var outE0 = state.entries.filter(function (x) { return x.id === first.outIds[0]; })[0], shop = KL.refundShop(inE) || 'the shop';
+      toast('↩️ ' + money(first.amount) + ' refund from ' + shop + ' matched to your ' + (outE0 ? dFmt.format(new Date(outE0.ts)) + ' ' : '') + 'purchase. Not counted as spending or income' + (res.auto.length > 1 ? ' (+' + (res.auto.length - 1) + ' more)' : '') + '.', function () { savePaybacks(before); render(); toast('Undone: counted as income again'); });
+      return;
+    }
+    toast((inE ? personTitle(inE) : 'A friend') + ' sent ' + money(first.amount) + ' back. Not counted as spending or income' + (res.auto.length > 1 ? ' (+' + (res.auto.length - 1) + ' more)' : '') + '.', function () { savePaybacks(before); render(); });
+  }
+  function paybackSuggestion(p) {
+    var inE = state.entries.filter(function (x) { return x.id === p.inId; })[0], outE = state.entries.filter(function (x) { return x.id === p.outIds[0]; })[0];
+    if (!inE || !outE) return null;
+    var row = el('div', 'due-card due-ask'), txt = el('div', 'due-txt'), isRefund = p.kind === 'refund';
+    var left0 = Math.round((outE.amount - inE.amount) * 100) / 100;
+    if (isRefund) {
+      var shop = window.KharchaLedger.refundShop(inE) || window.KharchaLedger.refundShop(outE) || 'a shop';
+      txt.appendChild(el('b', null, '\u21A9\uFE0F ' + money(inE.amount) + ' refund from ' + shop + '?'));
+      txt.appendChild(el('span', null, 'For ' + cleanScopePrefix(outE.desc).slice(0, 40) + ' · ' + money(outE.amount) + ' on ' + dFmt.format(new Date(outE.ts)) + '. ' + (p.partial ? 'Your spend becomes ' + money(left0) + '.' : 'Neither is counted as spending or income.')));
+    } else {
+      txt.appendChild(el('b', null, '\u21A9\uFE0F ' + personTitle(inE) + ' sent ' + money(inE.amount) + ' back?'));
+      txt.appendChild(el('span', null, 'For the ' + money(outE.amount) + ' you paid on ' + dFmt.format(new Date(outE.ts)) + '. Your spend becomes ' + money(left0) + '.'));
+    }
+    row.appendChild(txt);
+    var yes = el('button', 'primary small', isRefund ? 'Yes, a refund' : 'Yes, money back'); yes.type = 'button';
+    yes.addEventListener('click', function () {
+      yes.disabled = true;
+      if (!p.partial) {   // the whole amount came back: both drop out, nothing to edit
+        savePaybacks(loadPaybacks().list.concat([{ inId: inE.id, outIds: p.outIds.slice(), amount: inE.amount, partial: false, kind: p.kind || 'payback', ts: Date.now() }]));
+        state.paybackAsk = (state.paybackAsk || []).filter(function (x) { return x !== p; }); render();
+        toast('Matched: not counted as spending or income', function () { undoPayback(inE.id); });
+        return;
+      }
+      var left = Math.round((outE.amount - inE.amount) * 100) / 100, oldDesc = outE.desc, oldAmt = outE.amount;
+      var note = String(oldDesc).replace(/\s*\(\u21A9[^)]*\)\s*$/, '') + ' (\u21A9 ' + money(inE.amount) + ' back)';
+      store.update(outE.id, { amount: left, desc: note.slice(0, 120), spent_at: new Date(outE.ts).toISOString(), method: outE.method || null }).then(function () {
+        var list = loadPaybacks().list.concat([{ inId: inE.id, outIds: [outE.id], amount: inE.amount, partial: true, kind: p.kind || 'payback', origAmount: oldAmt, origDesc: oldDesc, ts: Date.now() }]);
+        savePaybacks(list); state.paybackAsk = (state.paybackAsk || []).filter(function (x) { return x !== p; }); render();
+        toast('Got it: ' + money(inE.amount) + ' back, spend now ' + money(left), function () { undoPayback(inE.id); });
+      }).catch(function () { yes.disabled = false; toast('Could not save. Try again.'); });
+    });
+    var no = el('button', 'ghost', isRefund ? 'Not a refund' : 'No, it\'s income'); no.type = 'button';
+    no.addEventListener('click', function () {
+      var d = loadJsonObj(PAYBACK_NO_KEY); d[inE.id] = 1; kv.set(PAYBACK_NO_KEY, JSON.stringify(d));
+      state.paybackAsk = (state.paybackAsk || []).filter(function (x) { return x !== p; }); renderDue();
+    });
+    row.appendChild(yes); row.appendChild(no);
+    return row;
+  }
+  // v132: a bank debit that pays the credit card (Amazon Pay Cred, CRED...): one tap files it as the card bill
+  var CARDBILL_NO_KEY = 'kharcha_cardbill_no';
+  function cardBillName() {
+    var o = loadOwn(), c = ((o && o.cards) || []).filter(function (x) { return x.kind === 'credit'; })[0];
+    return c ? (String(c.bank || '').toUpperCase() + ' ··' + c.last4).trim() : 'card';
+  }
+  function cardBillSuggestion(e) {
+    var row = el('div', 'due-card due-ask'), txt = el('div', 'due-txt'), raw = String(e.raw || '');
+    var via = /amazon\s*pay/i.test(raw + e.desc) ? 'Amazon Pay' : /\bcred\b/i.test(raw + e.desc) ? 'CRED' : '';
+    txt.appendChild(el('b', null, '💳 ' + money(e.amount) + (via ? ' to ' + via : '') + ': your credit card bill?'));
+    txt.appendChild(el('span', null, dFmt.format(new Date(e.ts)) + ' · now counted as a spend. As a card bill it isn\'t (the card swipes already were) and it shows as paid on the Credit card page.'));
+    row.appendChild(txt);
+    var yes = el('button', 'primary small', 'Yes, card bill'); yes.type = 'button';
+    yes.addEventListener('click', function () {
+      yes.disabled = true;
+      var oldDesc = e.desc, nd = '🔁 Credit card bill · ' + cardBillName() + (via ? ' (' + via + ')' : '');
+      store.update(e.id, { amount: e.amount, desc: nd, spent_at: new Date(e.ts).toISOString(), method: e.method || null }).then(function () {
+        render(); toast('💳 Filed as your credit card bill, not a spend', function () {
+          store.update(e.id, { amount: e.amount, desc: oldDesc, spent_at: new Date(e.ts).toISOString(), method: e.method || null }).then(render);
+        });
+      }).catch(function () { yes.disabled = false; toast('Could not save. Try again.'); });
+    });
+    var no = el('button', 'ghost', 'No, a spend'); no.type = 'button';
+    no.addEventListener('click', function () { var d = loadJsonObj(CARDBILL_NO_KEY); d[e.id] = 1; kv.set(CARDBILL_NO_KEY, JSON.stringify(d)); renderDue(); });
+    row.appendChild(yes); row.appendChild(no);
+    return row;
+  }
+  function undoPayback(inId) {
+    var pb = loadPaybacks(), p = pb.inSet[inId]; if (!p) return Promise.resolve();
+    var done = function () { savePaybacks(pb.list.filter(function (x) { return x.inId !== inId; })); var d = loadJsonObj(PAYBACK_NO_KEY); d[inId] = 1; kv.set(PAYBACK_NO_KEY, JSON.stringify(d)); render(); toast('Counted as income again'); };
+    if (p.partial && p.origAmount) {
+      var o = state.entries.filter(function (x) { return x.id === p.outIds[0]; })[0];
+      if (o) return store.update(o.id, { amount: p.origAmount, desc: p.origDesc || o.desc, spent_at: new Date(o.ts).toISOString(), method: o.method || null }).then(done, function () { toast('Could not undo. Try again.'); });
+    }
+    done(); return Promise.resolve();
+  }
+
+  function tidyUp() { return applyOwnTransfers().then(applyBalanceFromSms, applyBalanceFromSms).then(applyDuplicateCheck, applyDuplicateCheck).then(applyPaybacks, applyPaybacks); }
   function dupSuggestion(m) {
-    var row = el('div', 'due-card'), txt = el('div', 'due-txt');
+    var row = el('div', 'due-card due-ask'), txt = el('div', 'due-txt');
     txt.appendChild(el('b', null, '👯 ' + money(m.drop.amount) + ' may be entered twice'));
     txt.appendChild(el('span', null, (m.keep.desc || 'Entry') + ' · ' + tFmt.format(m.keep.ts) + ' and ' + tFmt.format(m.drop.ts)));
     row.appendChild(txt);
@@ -3371,7 +3701,7 @@
   function transferSuggestion(c, accts) {
     var nameOf = function (id) { var a = accts.filter(function (x) { return x.id === id; })[0]; return a ? a.name : '?'; };
     var from = xferSwap[c.id] ? c.to : c.from, to = xferSwap[c.id] ? c.from : c.to;
-    var row = el('div', 'due-card'), txt = el('div', 'due-txt');
+    var row = el('div', 'due-card due-ask'), txt = el('div', 'due-txt');
     txt.appendChild(el('b', null, '↔ ' + money(c.amount) + ' looks like your own transfer'));
     txt.appendChild(el('span', null, nameOf(from) + ' → ' + nameOf(to) + ' · ' + c.reason));
     row.appendChild(txt);
@@ -3544,14 +3874,58 @@
       intro.appendChild(el('p', null, 'Track your bank balance. Type what the bank shows today; after that the app adds the income you log and takes off the spending that left the account, so you always see an estimate. Update it now and then to correct any drift.'));
       root.appendChild(intro);
     }
-    accts.forEach(function (a) { root.appendChild(bankCard(a)); });
+    var allCard = accts.length ? balancesCard('page', function (b) {
+      var c = root.querySelector('.wal-card[data-acct="' + b.id + '"]'); if (!c) return;
+      if (!b.fromSms && Date.now() - b.updated > 7 * 86400000 && bankUi.mode[b.id] !== 'check') { bankUi.mode[b.id] = 'check'; renderBank(); c = root.querySelector('.wal-card[data-acct="' + b.id + '"]'); }
+      if (c) { c.scrollIntoView({ behavior: 'smooth', block: 'start' }); c.classList.add('flash'); setTimeout(function () { c.classList.remove('flash'); }, 1400); }
+    }) : null;
+    if (allCard) root.appendChild(allCard);
+    var order = getBalances().map(function (b) { return b.id; });
+    accts.slice().sort(function (x, y) { return order.indexOf(x.id) - order.indexOf(y.id); }).forEach(function (a) { root.appendChild(bankCard(a)); });
     if (accts.length > 1) root.appendChild(bankTransfers(accts));
+    var nm = notMineCard(accts); if (nm) root.appendChild(nm);
     if (bankUi.add || !accts.length) root.appendChild(bankSetupForm());
     else {
       var add = el('button', 'ghost', '+ Track another account'); add.type = 'button';
       add.addEventListener('click', function () { bankUi.add = true; renderBank(); });
       root.appendChild(add);
     }
+  }
+
+  // v126: banks whose SMS reach this phone but aren't your accounts (a parent's). Shown, never counted; one tap flips it.
+  var notMineOpen = {};
+  function notMineCard(accts) {
+    var KL = window.KharchaLedger, list = notMineBanks(), seen = {};
+    var mine = accts.map(function (a) { return String(a.name || '').toLowerCase(); }).join(' ');
+    state.entries.forEach(function (e) {
+      var k = srcBankOf(e); if (!k) return;
+      if (list.indexOf(k) < 0 && mine.indexOf(k) >= 0) return; // one of your tracked accounts
+      if (list.indexOf(k) < 0) return; // only banks you marked "not mine" are listed here
+      (seen[k] = seen[k] || []).push(e);
+    });
+    var keys = Object.keys(seen).concat(list.filter(function (k) { return !seen[k]; }));
+    if (!keys.length) return null;
+    var box = el('div', 'wal-card nm-card');
+    box.appendChild(el('div', 'in-k', '👵 FAMILY ACCOUNT · NOT IN YOUR TOTALS'));
+    box.appendChild(el('p', 'hint', 'Its balance is shown above, from its own SMS. Its money in and out is never counted as your income or spends, so Mom\'s pension doesn\'t look like your salary.'));
+    keys.forEach(function (k) {
+      var rows = (seen[k] || []).slice().sort(function (a, b) { return b.ts - a.ts; });
+      var name = k.toUpperCase(), inn = 0, out = 0, mk = monthKey(Date.now());
+      rows.forEach(function (e) { if (monthKey(e.ts) !== mk) return; if (isIncomeRaw(e)) inn += Number(e.amount) || 0; else out += Number(e.amount) || 0; });
+      var head = el('div', 'nm-row');
+      var tx = el('button', 'nm-name'); tx.type = 'button';
+      tx.appendChild(el('b', null, '🏦 ' + name));
+      tx.appendChild(el('small', null, rows.length + ' SMS · this month ' + money(inn) + ' in · ' + money(out) + ' out' + (rows.length ? (notMineOpen[k] ? ' · hide ▴' : ' · show ▾') : '')));
+      tx.addEventListener('click', function () { notMineOpen[k] = !notMineOpen[k]; renderBank(); });
+      var flip = el('button', 'ghost nm-flip', 'Count in my totals'); flip.type = 'button';
+      flip.addEventListener('click', function () {
+        setNotMineBank(k, false); render(); renderBank();
+        toast(name + ' is counted as yours again', function () { setNotMineBank(k, true); render(); renderBank(); });
+      });
+      head.appendChild(tx); head.appendChild(flip); box.appendChild(head);
+      if (notMineOpen[k]) rows.slice(0, 15).forEach(function (e) { box.appendChild(entryRow(e, true)); });
+    });
+    return box;
   }
 
   // Money moved between your own accounts (ICICI to HDFC): lowers one balance, raises the other, never counted as spending or income.
@@ -3633,10 +4007,15 @@
     var est = KL.bankEstimate(state.entries, a, pr.isIn, pr.isOut, loadTransfers());
     var card = el('div', 'wal-card');
     var head = el('div', 'wal-head');
-    head.appendChild(el('span', 'wal-name', '🏦 ' + a.name));
-    var rm = el('button', 'udh-x', '×'); rm.type = 'button'; rm.setAttribute('aria-label', 'Stop tracking ' + a.name);
+    head.appendChild(el('span', 'wal-name', (a.role === 'family' ? '👵 ' : '🏦 ') + a.name));
+    if (a.id === primaryAcctId(allAccts)) head.appendChild(el('span', 'bk-tag main', '⭐ Main'));
+    if (a.role === 'family') head.appendChild(el('span', 'bk-tag fam', 'Family · not in your spends'));
+    card.dataset.acct = a.id;
+    var rm = el('button', 'udh-x', '×'); rm.type = 'button'; rm.setAttribute('aria-label', 'Stop tracking ' + a.name); rm.setAttribute('data-self-confirm', '');
     rm.addEventListener('click', function () {
-      showConfirmModal({ title: 'Stop tracking ' + a.name + '?', message: 'Only the balance card is removed. Your entries stay.', onConfirm: function () { saveBank(loadBank().filter(function (x) { return x.id !== a.id; })); renderBank(); render(); } });
+      showConfirmModal({ title: 'Stop tracking ' + a.name + '?', message: 'Only the balance card is removed. Your entries stay.', onConfirm: function () {
+        if (a.role === 'family') { var KLf = window.KharchaLedger, offs = []; try { offs = JSON.parse(kv.get(FAMILY_OFF_KEY) || '[]') || []; } catch (e) {} notMineBanks().forEach(function (k) { if (KLf.nameKey(a.name).indexOf(k) >= 0 && offs.indexOf(k) < 0) offs.push(k); }); kv.set(FAMILY_OFF_KEY, JSON.stringify(offs)); }
+        saveBank(loadBank().filter(function (x) { return x.id !== a.id; })); renderBank(); render(); } });
     });
     head.appendChild(rm); card.appendChild(head);
     card.appendChild(el('div', 'wal-bal' + (est.balance < 0 ? ' neg' : ''), money(est.balance)));
@@ -3650,6 +4029,7 @@
       acts.appendChild(b);
     });
     card.appendChild(acts);
+    card.appendChild(bankWithdrawals(a, allAccts));
     card.appendChild(bankCash(a));
     var mode = bankUi.mode[a.id];
     if (mode === 'check') card.appendChild(bankCheck(a, est));
@@ -3670,6 +4050,26 @@
 
   /* Income received as cash and kept at home: held out of the bank estimate until deposited. A deposit is a
      transfer, so it moves money into the bank without creating income (savings stay counted once). */
+  // Cash taken out of this bank (ATM / cash withdrawal SMS), this month and last month.
+  function bankWithdrawals(a, allAccts) {
+    var KL = window.KharchaLedger, map = loadJsonObj(ACCTMAP_KEY), rules = loadRules(), pid = primaryAcctId(allAccts), own = loadOwn();
+    var now = new Date(), m0 = new Date(now.getFullYear(), now.getMonth(), 1).getTime(), m1 = new Date(now.getFullYear(), now.getMonth() - 1, 1).getTime();
+    var list = state.entries.filter(function (e) {
+      return e && !e.synthetic && e.ts >= m1 && isCashWithdrawal(e) && KL.routeAccount(e, allAccts, map, rules, pid, own) === a.id;
+    }).sort(function (x, y) { return y.ts - x.ts; });
+    var thisM = list.filter(function (e) { return e.ts >= m0; }), lastM = list.filter(function (e) { return e.ts < m0; });
+    var box = el('div', 'wal-form bank-atm');
+    box.appendChild(el('h4', 'wal-h', '\uD83C\uDFE7 Cash withdrawn'));
+    var sumT = thisM.reduce(function (n, e) { return n + paise(e.amount); }, 0) / 100, sumL = lastM.reduce(function (n, e) { return n + paise(e.amount); }, 0) / 100;
+    box.appendChild(el('p', 'wal-sub', thisM.length ? 'This month ' + money(sumT) + ' in ' + thisM.length + (thisM.length === 1 ? ' withdrawal' : ' withdrawals') + (lastM.length ? ' \u00b7 last month ' + money(sumL) : '') : 'No cash taken out of ' + a.name + ' this month' + (lastM.length ? ' (last month ' + money(sumL) + ')' : '') + '.'));
+    thisM.slice(0, 6).forEach(function (e) {
+      var r = el('div', 'wal-item');
+      r.appendChild(el('span', null, dFmt.format(new Date(e.ts)) + ' \u00b7 ' + tFmt.format(new Date(e.ts))));
+      r.appendChild(el('b', null, money(e.amount)));
+      box.appendChild(r);
+    });
+    return box;
+  }
   function bankCash(a) {
     var snapTs = a.snapshots[a.snapshots.length - 1].ts, held = a.held || [];
     function save(fn) {
@@ -3790,6 +4190,8 @@
     var bankSec = $('bank-sec');
     var rulesSec = $('rules-sec');
     var insightsSec = $('insights-sec');
+    var autopilotSec = $('autopilot-sec');
+    var kitchenSec = $('kitchen-sec');
     var cardSec = $('card-sec');
     var phoneSec = $('phone-sec');
 
@@ -3807,18 +4209,22 @@
     if (bankSec) bankSec.hidden = (stream !== 'bank');
     if (rulesSec) rulesSec.hidden = (stream !== 'rules');
     if (insightsSec) insightsSec.hidden = (stream !== 'insights');
+    if (autopilotSec) autopilotSec.hidden = (stream !== 'autopilot');
+    if (kitchenSec) kitchenSec.hidden = (stream !== 'kitchen');
     if (cardSec) cardSec.hidden = (stream !== 'card');
     if (phoneSec) phoneSec.hidden = (stream !== 'phone');
     if (stream === 'phone') { try { document.dispatchEvent(new Event('kharcha:phone')); } catch (e) {} }
     if (stream === 'card') { try { document.dispatchEvent(new Event('kharcha:card')); } catch (e) {} }
     if (stream === 'insights') { try { document.dispatchEvent(new Event('kharcha:insights')); } catch (e) {} }
+    if (stream === 'autopilot') { try { document.dispatchEvent(new Event('kharcha:autopilot')); } catch (e) {} }
+    if (stream === 'kitchen') { try { document.dispatchEvent(new Event('kharcha:kitchen')); } catch (e) {} }
     if (stream === 'rules') renderRules();
     if (stream === 'bank') renderBank();
     if (stream === 'wallet') renderWallet();
     if (stream === 'monthly') renderMonthly();
 
     var heroEl = $('st-hero');
-    var isDedicatedStream = ['trips', 'projects', 'investments', 'udhaar', 'wallet', 'bank', 'rules', 'monthly', 'insights', 'card', 'phone'].indexOf(stream) >= 0;
+    var isDedicatedStream = ['trips', 'projects', 'investments', 'udhaar', 'wallet', 'bank', 'rules', 'monthly', 'insights', 'autopilot', 'kitchen', 'card', 'phone'].indexOf(stream) >= 0;
     if (heroEl) heroEl.hidden = isDedicatedStream;
     var stk = $('sticky-month-bar');
     if (stk) stk.style.display = isDedicatedStream ? 'none' : '';
@@ -4361,6 +4767,28 @@
     toast('Project renamed to ' + next + (moved ? ' (' + moved + ' entries moved)' : ''));
   }
 
+  // v129: delete a project after a confirm; its spends go too
+  function deleteProject(name) {
+    var low = String(name || '').toLowerCase(), legacy = (kv.get(LEGACY_PROJECT_KEY) || '').trim().toLowerCase() === low;
+    var mine = state.entries.filter(function (e) { var p = projectNameOf(e.desc); return !e.synthetic && ((p || '').toLowerCase() === low || (legacy && !p && isProjectEntry(e.desc))); });
+    var total = mine.reduce(function (t, e) { return t + (Number(e.amount) || 0); }, 0);
+    showConfirmModal({
+      title: '🗑️ Delete ' + name + '?',
+      message: (mine.length ? 'Its ' + mine.length + ' entr' + (mine.length === 1 ? 'y' : 'ies') + ' (' + money(total) + ') are deleted too. ' : 'It has no entries. ') + 'This cannot be undone.',
+      confirmText: 'Yes, delete project', isDanger: true,
+      onConfirm: async function () {
+        var gone = 0;
+        for (var i = 0; i < mine.length; i++) { try { await store.remove(mine[i].id); gone++; } catch (err) { break; } }
+        try { kv.set(ALL_PROJECTS_KEY, JSON.stringify((JSON.parse(kv.get(ALL_PROJECTS_KEY) || '[]') || []).filter(function (p) { return String(p).trim().toLowerCase() !== low; }))); } catch (e) {}
+        if (getActiveProjectName().toLowerCase() === low) { var rest = getAllProjects().filter(function (p) { return p.toLowerCase() !== low; }); setActiveProjectName(rest[0] || ''); }
+        render();
+        toast(gone < mine.length ? 'Deleted ' + gone + ' of ' + mine.length + ' entries. Try again for the rest.' : '🗑️ ' + name + ' deleted');
+      }
+    });
+  }
+  var projDelBtn = $('project-delete-btn');
+  if (projDelBtn) projDelBtn.addEventListener('click', function () { deleteProject(getActiveProjectName()); });
+
   function promptNewProject() {
     showInputModal({
       title: '🔨 New Project / Function',
@@ -4763,6 +5191,36 @@
     }).catch(function () {});
   }
 
+  /** Keeps the shared trip ledger in step with your own entries after the phone changed them
+     (a refund lowers a booking, or removes it when fully refunded). The ledger can only add and
+     delete, so a changed amount is re-added. Only rows this device mirrored (the map) are touched,
+     and only after a complete load -- never by guessing. Best-effort and silent. */
+  var reconcilingMirrors = false;
+  async function reconcileTripMirrors() {
+    if (!sb || reconcilingMirrors || !state.entries || !state.entries.length) return;
+    var map = loadTripMirrorMap(), localIds = Object.keys(map);
+    if (!localIds.length) return;
+    reconcilingMirrors = true;
+    try {
+      var mirrorIds = localIds.map(function (k) { return map[k]; });
+      var res = await sb.from('trip_expenses').select('id, amount, spent_at').in('id', mirrorIds);
+      if (res.error || !res.data) return;
+      var byId = {};
+      res.data.forEach(function (r) { byId[r.id] = r; });
+      for (var i = 0; i < localIds.length; i++) {
+        var localId = localIds[i], mirror = byId[map[localId]];
+        if (!mirror) continue; // already gone from the ledger
+        var entry = state.entries.find(function (e) { return e.id === localId; });
+        if (!entry) { deleteTripMirrorIfAny(localId); continue; } // fully refunded / deleted
+        if (Math.abs(Number(mirror.amount) - Number(entry.amount)) < 0.01) continue;
+        var tripName = extractTripNameFromDesc(entry.desc);
+        if (!tripName) continue;
+        deleteTripMirrorIfAny(localId);
+        mirrorOwnerTripExpense(tripName, entry.amount, cleanScopePrefix(entry.desc), new Date(entry.ts).toISOString(), entry.id, parseTripSplit(entry.desc));
+      }
+    } catch (e) { /* best-effort */ } finally { reconcilingMirrors = false; }
+  }
+
   /** Catches up the shared ledger with everything already logged for this trip locally, before
      mirroring existed (or from before this trip was ever shared) -- so inviting someone shows the
      whole trip's history, not just what gets added from today onward. Entries already mirrored
@@ -4819,6 +5277,14 @@
     if (!tripName || !sb || tripGuestEntriesCache[tripName] !== undefined) return;
     ensureTripRow(tripName).then(function (trip) {
       if (!trip || !trip.invite_token) { tripGuestEntriesCache[tripName] = []; return; }
+      // Friends' own UPI ids (entered on the trip link) prefill Pay UPI; never overwrite one already saved here.
+      sb.rpc('trip_member_upis', { p_invite_token: trip.invite_token }).then(function (r) {
+        if (r.error || !r.data) return;
+        r.data.forEach(function (row) {
+          var k = 'kharcha_vpa_' + String(row.member_name || '').trim().toLowerCase();
+          if (row.upi && !kv.get(k)) kv.set(k, row.upi);
+        });
+      }, function () {});
       return sb.rpc('trip_summary', { p_invite_token: trip.invite_token }).then(function (res) {
         if (res.error || !res.data || !res.data.length) { tripGuestEntriesCache[tripName] = []; return; }
         var guestRows = (res.data[0].expenses || []).filter(function (e) { return e.member_id; });
@@ -5660,6 +6126,151 @@
   // First tap: creates the trip's shared row (if it doesn't have one yet), turns the invite link
   // on, and opens WhatsApp to send it. Later taps: just re-opens WhatsApp with the same link
   // (turning it back on first, if it had been paused).
+
+  /* ---------- trips API for the Trips home (trips-home.js) ---------- */
+  var TRIP_PHONES_KEY = 'kharcha_trip_phones';
+  function getTripLink(tripName) {
+    if (!tripName) return Promise.reject(new Error('Pick a trip first.'));
+    if (!sb) return Promise.reject(new Error('Sign in to Cloud Sync first to share a trip.'));
+    var cached = tripInviteCache[tripName];
+    var p = cached && cached.invite_token && cached.invite_enabled ? Promise.resolve({ data: cached }) :
+      ensureTripRow(tripName).then(function (trip) {
+        if (!trip) throw new Error('Could not reach Kharcha Book.');
+        return sb.rpc('trip_set_invite', { p_trip_id: trip.id, p_enabled: true, p_regenerate: !trip.invite_token });
+      });
+    return p.then(function (res) {
+      if (res.error || !res.data) throw res.error || new Error('Could not create the link.');
+      tripInviteCache[tripName] = res.data;
+      backfillTripExpensesToShared(tripName);
+      return tripShareLink(res.data.invite_token, tripName);
+    });
+  }
+  var tripsApi = {
+    list: function () { return getAllTrips(); },
+    summary: function (name) { fetchGuestTripEntries(name); return getTripSummary(state.entries.concat(getGuestTripEntries(name)), name, getTripFriends(name)); },
+    friends: function (name) { return getTripFriends(name); },
+    setFriends: function (name, list) { setTripFriends(name, list); render(); },
+    phones: function () { return loadJsonObj(TRIP_PHONES_KEY); },
+    setPhone: function (person, tel) { var o = loadJsonObj(TRIP_PHONES_KEY); o[person] = tel; kv.set(TRIP_PHONES_KEY, JSON.stringify(o)); },
+    select: function (name) { setSelectedViewTripName(name); var s = $('trip-select'); if (s) s.value = name; render(); },
+    selected: function () { return getSelectedViewTripName(); },
+    payer: function (desc) { return parseTripPayer(desc); },
+    link: getTripLink,
+    isSettlement: function (e) { return isTripSettlementEntry(e); },
+    // Take someone off a trip (their spends stay; the equal split is worked out again). Undo puts them back.
+    removeFriend: function (name, person) {
+      var before = getTripFriends(name);
+      setTripFriends(name, before.filter(function (f) { return f !== person; }));
+      render();
+      toast(person + ' removed from ' + name, function () { setTripFriends(name, before); render(); toast(person + ' is back on the trip'); });
+    },
+    // Delete one of your own trip spends, with Undo (a friend's spend from the trip link is deleted for everyone).
+    deleteSpend: function (e) {
+      if (!e) return;
+      if (e.isGuestEntry && e.tripExpenseId) {
+        if (!sb) { toast('Sign in to delete a friend\'s spend.'); return; }
+        sb.from('trip_expenses').delete().eq('id', e.tripExpenseId).then(function (res) {
+          if (res.error) { toast('Could not delete it. Try again.'); return; }
+          var tn = extractTripNameFromDesc(e.desc); if (tn) delete tripGuestEntriesCache[tn];
+          render(); toast('Deleted ' + money(e.amount) + ' for everyone on the trip');
+        });
+        return;
+      }
+      var wasTrip = isTripEntry(e);
+      store.remove(e.id).then(function () {
+        if (wasTrip) deleteTripMirrorIfAny(e.id);
+        render();
+        toast('Deleted ' + money(e.amount), function () {
+          store.add({ amount: e.amount, desc: e.desc, spent_at: new Date(e.ts).toISOString(), method: e.method || undefined, kind: e.kind || undefined })
+            .then(function (ne) { if (wasTrip && ne) mirrorOwnerTripExpense(extractTripNameFromDesc(e.desc), e.amount, cleanScopePrefix(e.desc), new Date(e.ts).toISOString(), ne.id); render(); toast('Restored'); })
+            .catch(function () { toast('Could not undo. Try again.'); });
+        });
+      }).catch(function () { toast('Could not delete. Try again.'); });
+    },
+    rename: function (name) { tripsApi.select(name); var b = $('trip-rename-btn'); if (b) b.click(); },
+    // v127: one-tap settle. Pay opens your UPI app with their UPI ID and the amount filled in (their ID comes from
+    // the trip link, or you type it once); Ask sends a WhatsApp with your UPI ID and a pay link. Both then let you record it.
+    pay: function (trip, to, amount) {
+      var amt = Math.round(amount), vkey = 'kharcha_vpa_' + String(to || '').toLowerCase();
+      function go(vpa) {
+        if (window.KharchaNative && typeof window.KharchaNative.payUpi === 'function') window.KharchaNative.payUpi(vpa, to, String(amt), trip + ' settlement');
+        else window.open(upiPayLink(vpa, to, amt, trip + ' settlement'), '_blank');
+        setTimeout(function () { showTripSettlementModal(trip, 'Me', to, amt); }, 600);
+      }
+      function askVpa() {
+        showInputModal({ title: 'Pay ' + to + ' ' + money(amt), message: 'What is ' + to + '\'s UPI ID? It is saved, so you type it only once.',
+          fields: [{ label: 'UPI ID', placeholder: 'name@okhdfcbank' }], confirmText: 'Open UPI app',
+          onConfirm: function (v) {
+            var vpa = String(v[0] || '').trim();
+            if (!/^[\w.\-]{2,}@[\w.\-]{2,}$/.test(vpa)) { toast('That does not look like a UPI ID'); return; }
+            kv.set(vkey, vpa); go(vpa);
+          } });
+      }
+      var known = (kv.get(vkey) || '').trim();
+      if (known) { go(known); return; }
+      var inv = tripInviteCache[trip];
+      if (sb && inv && inv.invite_token) {
+        sb.rpc('trip_member_upis', { p_invite_token: inv.invite_token }).then(function (res) {
+          var hit = ((res && res.data) || []).filter(function (r) { return String(r.member_name || '').toLowerCase() === String(to).toLowerCase() && r.upi; })[0];
+          if (hit) { kv.set(vkey, hit.upi); go(hit.upi); } else askVpa();
+        }, askVpa);
+      } else askVpa();
+    },
+    ask: function (trip, from, amount) {
+      var amt = Math.round(amount), myUpi = (kv.get('kharcha_my_upi') || '').trim();
+      var tel = String(loadJsonObj(TRIP_PHONES_KEY)[from] || '').replace(/\D/g, '');
+      if (tel.length === 10) tel = '91' + tel;
+      function send(upi) {
+        var msg = settleMessage(from, amt, trip + ' trip', upi);
+        window.open(tel.length >= 11 ? 'https://wa.me/' + tel + '?text=' + encodeURIComponent(msg) : whatsappLink(msg), '_blank');
+      }
+      if (myUpi) { send(myUpi); return; }
+      showInputModal({ title: 'Ask ' + from + ' for ' + money(amt), message: 'Add your UPI ID once, so ' + from + ' gets a tap-to-pay link.',
+        fields: [{ label: 'Your UPI ID', placeholder: 'name@okicici', inputmode: 'email' }], confirmText: 'Send on WhatsApp',
+        onConfirm: function (v) { var u = String(v[0] || '').trim(); if (/^[\w.\-]{2,}@[\w.\-]{2,}$/.test(u)) kv.set('kharcha_my_upi', u); else u = ''; send(u); } });
+    },
+    settle: function (trip, from, to, amount) { showTripSettlementModal(trip, from, to, Math.round(amount)); },
+    // v129: delete a whole trip after a clear confirm. Its own spends go too, and the friends' link is switched off.
+    remove: function (name, done) {
+      var mine = state.entries.filter(function (e) { return !e.isGuestEntry && !e.synthetic && extractTripNameFromDesc(e.desc) === name; });
+      var total = mine.reduce(function (t, e) { return t + (Number(e.amount) || 0); }, 0);
+      showConfirmModal({
+        title: '🗑️ Delete ' + name + '?',
+        message: (mine.length ? 'Its ' + mine.length + ' spend' + (mine.length === 1 ? '' : 's') + ' (' + money(total) + ') are deleted too. ' : 'It has no spends of yours. ') + 'Friends\' trip link stops working. This cannot be undone.',
+        confirmText: 'Yes, delete trip', isDanger: true,
+        onConfirm: async function () {
+          var gone = 0;
+          for (var i = 0; i < mine.length; i++) { try { await store.remove(mine[i].id); deleteTripMirrorIfAny(mine[i].id); gone++; } catch (err) { break; } }
+          try { kv.set(ALL_TRIPS_KEY, JSON.stringify((JSON.parse(kv.get(ALL_TRIPS_KEY) || '[]') || []).filter(function (t) { return t !== name; }))); } catch (e) {}
+          ['kharcha_trip_friends_', 'kharcha_trip_budget_', 'kharcha_trip_places_'].forEach(function (k) { try { kv.remove(k + name); } catch (e) {} });
+          if (getActiveTripName() === name) { setActiveTripName(''); setTripPaused(false); }
+          if (getSelectedViewTripName() === name) setSelectedViewTripName('');
+          if (sb) sb.from('trips').select('id').eq('name', name).then(function (res) {
+            ((res && res.data) || []).forEach(function (t) { sb.rpc('trip_set_invite', { p_trip_id: t.id, p_enabled: false }); });
+          });
+          delete tripInviteCache[name];
+          render();
+          toast(gone < mine.length ? 'Deleted ' + gone + ' of ' + mine.length + ' spends. Try again for the rest.' : '🗑️ ' + name + ' deleted');
+          if (done) done();
+        }
+      });
+    },
+    removePlace: function (name, idx) {
+      var v = tripsApi.places(name), was = v.slice();
+      v.splice(idx, 1); kv.set('kharcha_trip_places_' + name, JSON.stringify(v)); render();
+      toast('📍 Check-in removed', function () { kv.set('kharcha_trip_places_' + name, JSON.stringify(was)); render(); });
+    },
+    // Trip mode: while on (and not paused) every payment the phone sees is filed to this trip and split equally.
+    mode: function () { return { name: getActiveTripName(), paused: isTripPaused() }; },
+    start: function (name) { setActiveTripName(name); render(); toast('🟢 Trip mode on: ' + name); offerTripBackfill(name); },
+    pause: function (on) { setTripPaused(!!on); render(); toast(on ? '⏸️ Trip paused: payments go to Personal / Family' : '▶️ Trip resumed: payments go to the trip'); },
+    end: function () { var cur = getActiveTripName(); setActiveTripName(''); setTripPaused(false); render(); toast('Trip mode ended' + (cur ? ' for ' + cur : '')); },
+    // Where you were during the trip: [{ ts, place }], newest last (shared, so friends' phones and yours agree).
+    places: function (name) { try { var v = JSON.parse(kv.get('kharcha_trip_places_' + name) || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; } },
+    addPlace: function (name, place) { var v = tripsApi.places(name).concat([{ ts: Date.now(), place: String(place).trim().slice(0, 40) }]).slice(-60); kv.set('kharcha_trip_places_' + name, JSON.stringify(v)); render(); }
+  };
+  if (window.__kharcha) window.__kharcha.tripsApi = tripsApi;
+
   var tripInviteBtn = $('trip-invite-btn');
   if (tripInviteBtn) {
     tripInviteBtn.addEventListener('click', function () {
@@ -6418,11 +7029,14 @@
     var b = el('button', 'row');
     b.type = 'button';
     b.setAttribute('aria-label', 'Edit ' + e.desc + ', ' + money(e.amount));
+    b.dataset.desc = e.desc || ''; if (e.raw) b.dataset.raw = String(e.raw).slice(0, 160);
     b.appendChild(el('span', 't', (showDate ? rowDateFmt : tFmt).format(new Date(e.ts))));
     var dSpan = el('span', 'd', e.desc);
     var how = methodLabel(e);
     if (how) dSpan.appendChild(el('small', 'method-badge method-' + e.method, (METHOD_ICONS[e.method] || '') + ' ' + how));
     if (hasReceipt(e.id)) dSpan.appendChild(el('small', 'method-badge', '📎'));
+    if (window.__kitchen) window.__kitchen.decorate(dSpan, e);   // v133: what a grocery spend was
+    if (isNotMineBank(e)) dSpan.appendChild(el('small', 'method-badge nm-badge', '🚫 Not your bank · not counted'));
     var tripSplit = parseTripSplit(e.desc) || (Array.isArray(e.splitAmong) ? e.splitAmong : null);
     if (tripSplit && tripSplit.length) {
       dSpan.appendChild(el('small', 'tag-split', '👥 Split: ' + tripSplit.join(', ')));
@@ -6575,8 +7189,13 @@
     var btns = el('div', 'edit-btns');
     var save = el('button', 'primary small', 'Save'); save.type = 'submit';
     var cancel = el('button', 'ghost', 'Cancel'); cancel.type = 'button';
-    var del = el('button', 'danger', 'Delete'); del.type = 'button';
+    var del = el('button', 'danger', 'Delete'); del.type = 'button'; del.setAttribute('data-self-confirm', '');
     btns.appendChild(save); btns.appendChild(cancel); btns.appendChild(del);
+    if (window.__kitchen && isExpense(e)) {   // v134: any spend can say what it was; its shop learns it
+      var what = el('button', 'ghost', '🧺 What was it?'); what.type = 'button';
+      what.addEventListener('click', function () { window.__kitchen.openFill(e, null); });
+      btns.appendChild(what);
+    }
     f.appendChild(row1); f.appendChild(row2); f.appendChild(shiftRow); if (acctField) f.appendChild(acctField); if (xferBox) f.appendChild(xferBox); if (!isDemoMode) f.appendChild(receiptRow(e)); f.appendChild(msg); f.appendChild(btns);
 
     cancel.addEventListener('click', function () { state.editing = null; render(); });
@@ -6603,14 +7222,10 @@
         save.disabled = false; msg.textContent = 'Could not save the change. Try again.'; msg.hidden = false;
       });
     });
-    var armed = false, armTimer = 0;
     del.addEventListener('click', function () {
-      if (!armed) {
-        armed = true; del.textContent = 'Tap again to delete'; del.classList.add('armed');
-        armTimer = setTimeout(function () { armed = false; del.textContent = 'Delete'; del.classList.remove('armed'); }, 4000);
-        return;
-      }
-      clearTimeout(armTimer);
+      showConfirmModal({ title: '🗑️ Delete this entry?', message: e.desc + ' · ' + money(e.amount) + '\n' + dFmt.format(new Date(e.ts)), confirmText: 'Yes, delete', isDanger: true, onConfirm: doDelete });
+    });
+    function doDelete() {
       var hadReceipt = hasReceipt(e.id), undone = false, wasTripEntry = isTripEntry(e);
       store.remove(e.id).then(function () {
         state.editing = null; render();
@@ -6630,7 +7245,7 @@
             }).catch(function () { toast('Could not undo. Try again.'); });
         });
       }).catch(function () { msg.textContent = 'Could not delete. Try again.'; msg.hidden = false; });
-    });
+    }
     return f;
   }
 
@@ -6657,6 +7272,7 @@
 
     days.forEach(function (g, idx) {
       var wrap = el('section', 'day');
+      wrap.dataset.day = g.key;
       var hasEditing = g.items.some(function (e) { return e.id === state.editing; });
       if (hasEditing) state.expandedDays[g.key] = true;
 
@@ -6726,6 +7342,17 @@
     var m = map[state.mode] || map.pending;
     s.textContent = m[0]; s.title = m[1]; s.dataset.state = state.mode;
     $('addbtn').disabled = state.mode !== 'db';
+  }
+
+  if ($('sync')) {
+    $('sync').style.cursor = 'pointer';
+    $('sync').addEventListener('click', function () {
+      if (state.mode === 'db') {
+        toast('✅ Cloud Sync: Connected to Supabase. All expenses are synced to the cloud.');
+      } else {
+        toast('⚠️ Cloud Sync: ' + (state.mode || 'Not connected'));
+      }
+    });
   }
 
   /* ---------- events ---------- */
@@ -6882,6 +7509,7 @@
     try {
       var latest = await store.loadAll();
       state.entries = latest;
+      reconcileTripMirrors();
       // Pick up trips/budgets changed on the phone -- unless a local change is still waiting to save.
       if (!kv.timer) await kv.load();
       render();
@@ -6982,6 +7610,7 @@
       console.log('Kharcha: calling store.loadAll()');
       state.entries = await store.loadAll();
       console.log('Kharcha: store.loadAll completed with ' + state.entries.length + ' entries');
+      reconcileTripMirrors();
       state.mode = 'db';
       await kv.load();
       ensureRulesSeeded();
@@ -7011,13 +7640,36 @@
       console.warn('Kharcha: Supabase config or script missing');
       showScreen('setup'); return;
     }
-    sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, {
-      auth: {
-        lock: async function (name, acquireTimeout, fn) {
-          return await fn();
-        }
+    // Inside the phone app, keep the sign-in in the app (KharchaNative.auth*Item) rather than the
+    // WebView's storage: the background sync then uses this very session, so signing in here once is
+    // all the phone needs -- no separate Cloud Sync login. An existing WebView session moves across
+    // on first read, so nobody has to sign in again.
+    var NB = window.KharchaNative;
+    var nativeAuthStorage = (NB && typeof NB.authGetItem === 'function') ? {
+      getItem: function (k) {
+        var v = NB.authGetItem(k);
+        if (v != null && v !== '') return v;
+        var old = null;
+        try { old = localStorage.getItem(k); } catch (e) {}
+        if (old) { NB.authSetItem(k, old); return old; }
+        return null;
+      },
+      setItem: function (k, v) {
+        NB.authSetItem(k, v);
+        try { localStorage.setItem(k, v); } catch (e) {}
+      },
+      removeItem: function (k) {
+        NB.authRemoveItem(k);
+        try { localStorage.removeItem(k); } catch (e) {}
       }
-    });
+    } : undefined;
+    var authOpts = {
+      lock: async function (name, acquireTimeout, fn) {
+        return await fn();
+      }
+    };
+    if (nativeAuthStorage) authOpts.storage = nativeAuthStorage;
+    sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, { auth: authOpts });
     console.log('Kharcha: Supabase client created');
     await detectLock();
     console.log('Kharcha: detectLock done, lockSupported=' + lockSupported);
@@ -7058,17 +7710,50 @@
 
   /* ---------- PWA Installation Handler ---------- */
   var deferredPrompt = null;
+  // On Android the real Kharcha Book app (SpendTrack) is the app: offering Chrome's web-app install
+  // too put a second "Kharcha Book" icon on the phone. Swallow Chrome's prompt there; offer it on
+  // desktop only.
+  var IS_ANDROID_DEVICE = /android/i.test(navigator.userAgent || '');
   window.addEventListener('beforeinstallprompt', function (ev) {
     ev.preventDefault();
+    if (IS_ANDROID_DEVICE) return;
     deferredPrompt = ev;
     var btn = $('install-btn');
     if (btn) btn.hidden = false;
   });
 
   var installBtn = $('install-btn');
+  // iPhone / iPad never offer an install prompt to a website, so the button would stay hidden there.
+  // Show it anyway and explain Add to Home Screen (free, no App Store; it updates itself like the web page).
+  var IS_IOS_DEVICE = /iphone|ipad|ipod/i.test(navigator.userAgent || '') || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  var RUNNING_INSTALLED = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+  if (installBtn && IS_IOS_DEVICE && !RUNNING_INSTALLED) installBtn.hidden = false;
+
+  function showIosInstallSteps() {
+    var back = document.createElement('div');
+    back.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
+    var box = document.createElement('div');
+    box.style.cssText = 'background:var(--surface,#fff);color:inherit;border-radius:18px;padding:22px;max-width:400px;width:100%;box-shadow:0 12px 32px rgba(0,0,0,.2);font-size:.95rem;line-height:1.45';
+    var h = document.createElement('p'); h.style.cssText = 'font-weight:700;font-size:1.15rem;margin:0 0 8px'; h.textContent = '📲 Add Kharcha Book to your iPhone';
+    var intro = document.createElement('p'); intro.style.cssText = 'margin:0 0 10px;opacity:.8'; intro.textContent = 'Free, no App Store needed. It opens like an app and always shows the latest version.';
+    var ol = document.createElement('ol'); ol.style.cssText = 'margin:0 0 10px;padding-left:20px;display:flex;flex-direction:column;gap:6px';
+    ['Open this page in Safari (from WhatsApp: tap the compass icon first).', 'Tap Share (□↑) at the bottom.', 'Scroll and tap "Add to Home Screen", then Add.', 'Open the Kharcha icon and sign in once.'].forEach(function (t) {
+      var li = document.createElement('li'); li.textContent = t; ol.appendChild(li);
+    });
+    var note = document.createElement('p'); note.style.cssText = 'margin:0 0 14px;font-size:.82rem;opacity:.7';
+    note.textContent = 'Bank SMS can only be read automatically by the Android phone app; on iPhone, add entries or paste an SMS here.';
+    var ok = document.createElement('button'); ok.type = 'button'; ok.textContent = 'Got it';
+    ok.style.cssText = 'width:100%;padding:11px;border:0;border-radius:10px;font-weight:600;background:#0B5D75;color:#fff';
+    ok.addEventListener('click', function () { back.remove(); });
+    back.addEventListener('click', function (ev) { if (ev.target === back) back.remove(); });
+    box.appendChild(h); box.appendChild(intro); box.appendChild(ol); box.appendChild(note); box.appendChild(ok);
+    back.appendChild(box);
+    document.body.appendChild(back);
+  }
+
   if (installBtn) {
     installBtn.addEventListener('click', function () {
-      if (!deferredPrompt) return;
+      if (!deferredPrompt) { if (IS_IOS_DEVICE) showIosInstallSteps(); return; }
       deferredPrompt.prompt();
       deferredPrompt.userChoice.then(function (choice) {
         if (choice.outcome === 'accepted') {
@@ -7099,12 +7784,14 @@
     });
   }
 
-  // Phone-app settings (detection, cloud sync, trips) live natively; this button replaces the
-  // floating gear that used to cover the tabs.
   var appSettingsBtn = $('app-settings-btn');
   if (appSettingsBtn && window.KharchaNative && window.KharchaNative.openSettings) {
     appSettingsBtn.hidden = false;
     appSettingsBtn.addEventListener('click', function () { window.KharchaNative.openSettings(); });
+  }
+  if (window.KharchaNative) {
+    var apkBtn = $('apk-download-btn');
+    if (apkBtn) apkBtn.style.display = 'none';
   }
 
   // The running version, read from this script's own ?v= so the label can't drift from the real build.

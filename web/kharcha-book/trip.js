@@ -8,7 +8,15 @@
   var CFG = window.KHARCHA_CONFIG || null;
   var params = new URLSearchParams(location.search);
   var token = (params.get('t') || '').trim();
+  try {
+    if (token) localStorage.setItem('kharcha_trip_last', token);
+    else token = (localStorage.getItem('kharcha_trip_last') || '').trim();
+  } catch (e) {}
   var urlUpi = (params.get('u') || '').trim();
+  // iPhone: an app added to the Home Screen has its own storage, apart from Safari's, so it would not
+  // know who you are. The install guide puts your guest code in the address (?g=) just before you add
+  // it; the Home Screen app starts from that address and recognises you without joining again.
+  var urlGuest = (params.get('g') || '').trim();
   if (urlUpi) {
     try {
       localStorage.setItem('kharcha_vpa_sanjeev yadav', urlUpi);
@@ -165,15 +173,19 @@
   if (!token) { showError('This link is missing its invite code. Ask whoever sent it to resend it.'); return; }
 
   /* ---------- Installable like a real app ----------
-     So a friend doesn't have to keep digging up the WhatsApp message: once they add this to
-     their home screen, the icon reopens straight back to this exact trip (the manifest's
-     start_url is this page's own URL, token and all) and they're still recognized automatically
-     via the guest_token already saved in their browser. */
+     So a friend doesn't have to keep digging up the WhatsApp message: "Install app" puts this trip on
+     their home screen as its own app. The icon reopens straight back to this exact trip (the manifest's
+     start_url is this page's own URL, token and all, and the last trip is also remembered on the device),
+     and they're still recognized via the guest_token saved in their browser. It is the web page itself,
+     so every change made to Kharcha Book shows up the next time they open it -- nothing to update or
+     download again. */
+  var base = location.origin + location.pathname.replace(/[^/]*$/, '');
   (function setupInstallable() {
-    var base = location.origin + location.pathname.replace(/[^/]*$/, '');
     var manifest = {
+      id: base + 'trip.html#' + token,
       name: 'Kharcha Book — Trip',
       short_name: 'Trip',
+      description: 'Shared trip spending: see the split, add expenses, settle up.',
       start_url: location.href,
       scope: base,
       display: 'standalone',
@@ -181,47 +193,173 @@
       theme_color: '#0284C7',
       icons: [
         { src: base + 'icon-192.png', sizes: '192x192', type: 'image/png' },
-        { src: base + 'icon-512.png', sizes: '512x512', type: 'image/png' }
+        { src: base + 'icon-512.png', sizes: '512x512', type: 'image/png' },
+        { src: base + 'icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
       ]
     };
-    var blob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
+    var blob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
     var link = document.createElement('link');
     link.rel = 'manifest';
     link.href = URL.createObjectURL(blob);
     document.head.appendChild(link);
 
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register(base + 'sw.js').catch(function () {}); // shared with the main app; best-effort
+      navigator.serviceWorker.register(base + 'sw.js').then(function (reg) { return reg.update(); }).catch(function () {}); // shared with the main app; best-effort
     }
   })();
 
+  // An installed trip app can sit open in the background for days. Coming back to it after a while
+  // reloads it, so it always shows the latest version of the page (and of the trip), with no update step.
+  (function reloadWhenStale() {
+    var hiddenAt = 0;
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'hidden') { hiddenAt = Date.now(); return; }
+      var typing = document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+      if (hiddenAt && Date.now() - hiddenAt > 30 * 60 * 1000 && !typing && !document.querySelector('.modal-backdrop')) {
+        location.reload();
+      }
+    });
+  })();
+
   var deferredInstallPrompt = null;
+  function isStandalone() {
+    return window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  }
+  function refreshInstallButtons() {
+    var btns = document.querySelectorAll('[data-install-btn]');
+    for (var i = 0; i < btns.length; i++) btns[i].textContent = deferredInstallPrompt ? '📲 Install app' : '📲 How to install';
+  }
   window.addEventListener('beforeinstallprompt', function (ev) {
     ev.preventDefault();
     deferredInstallPrompt = ev;
-    var btn = document.getElementById('install-btn');
-    if (btn) btn.hidden = false;
+    refreshInstallButtons();
   });
-  function renderInstallRow(container) {
-    // Running standalone already (installed and opened from the home screen) -- nothing to offer.
-    if (window.matchMedia('(display-mode: standalone)').matches || navigator.standalone) return;
-    var row = el('div', 'install-row');
-    var p = el('p', null, 'Add this to your home screen so you don\'t need to find this link again.');
-    var btn = el('button', 'ghost', '📲 Install');
-    btn.id = 'install-btn';
-    btn.hidden = !deferredInstallPrompt; // shown once the browser offers it (Chrome/Edge); hidden otherwise
-    btn.addEventListener('click', function () {
-      if (!deferredInstallPrompt) return;
-      deferredInstallPrompt.prompt();
-      deferredInstallPrompt.userChoice.finally(function () { deferredInstallPrompt = null; btn.hidden = true; });
-    });
-    row.appendChild(p); row.appendChild(btn);
-    container.appendChild(row);
-    // Safari/iOS never fires beforeinstallprompt -- tell them the manual way instead of showing nothing.
-    if (/iphone|ipad|ipod/i.test(navigator.userAgent) && !navigator.standalone) {
-      p.textContent = 'Add this to your home screen: tap Share, then "Add to Home Screen".';
-      btn.hidden = true;
+  window.addEventListener('appinstalled', function () {
+    deferredInstallPrompt = null;
+    try { localStorage.setItem('kharcha_trip_installed', '1'); } catch (e) {}
+    var b = document.getElementById('install-banner');
+    if (b) b.remove();
+  });
+
+  var UA = navigator.userAgent || '';
+  var IS_IOS = /iphone|ipad|ipod/i.test(UA) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  var IS_ANDROID = /android/i.test(UA);
+  // WhatsApp, Instagram, Facebook... open links in their own browser, which can't install apps.
+  var IN_APP_BROWSER = /FBAN|FBAV|FB_IAB|Instagram|WhatsApp|Line\/|Telegram|Snapchat|LinkedInApp|GSA\/|; wv\)/i.test(UA);
+  var IS_SAMSUNG = /SamsungBrowser/i.test(UA);
+
+  function openInChromeHref() {
+    return 'intent://' + location.host + location.pathname + location.search +
+      '#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=' + encodeURIComponent(location.href) + ';end';
+  }
+
+  function installSteps() {
+    if (IN_APP_BROWSER && IS_ANDROID) return { intro: 'This link opened inside WhatsApp (or another app), which can\'t install apps. Open it in Chrome first:', steps: ['Tap "Open in Chrome" below (or ⋮ → Open in Chrome).', 'Then tap 📲 Install app on the trip page.'], chrome: true };
+    if (IN_APP_BROWSER && IS_IOS) return { intro: 'This link opened inside WhatsApp (or another app). Open it in Safari first:', steps: ['Tap ⋯ or the compass icon → Open in Safari.', 'In Safari tap Share (□↑), then "Add to Home Screen", then Add.'] };
+    if (IS_IOS) return { intro: 'On iPhone / iPad (free, no App Store needed):', steps: ['Opened from WhatsApp? First tap the compass icon (or ⋯ → Open in Safari) so the page is in Safari.', 'Tap Share (□↑) at the bottom of Safari (top-right in Chrome).', 'Scroll and tap "Add to Home Screen", then Add.', 'Open the new Trip icon: it goes straight to this trip and remembers you.'], ios: true };
+    if (IS_SAMSUNG) return { intro: 'In Samsung Internet:', steps: ['Tap ☰ (bottom right).', 'Tap "Add page to" → "Home screen".'] };
+    if (IS_ANDROID) return { intro: 'In Chrome:', steps: ['Tap ⋮ (top right).', 'Tap "Install app" or "Add to Home screen".', 'Tap Install. The Trip icon opens straight to this trip.'] };
+    return { intro: 'On a computer:', steps: ['Click the install icon at the right end of the address bar (or ⋮ → "Install Kharcha Book — Trip").'] };
+  }
+
+  // The page's address without the one-time guest code, for copying and sharing.
+  function cleanLink() {
+    var u = new URL(location.href);
+    u.searchParams.delete('g');
+    return u.toString();
+  }
+  var guestInUrlTimer = null;
+  function setGuestInUrl(on) {
+    try {
+      var u = new URL(location.href);
+      var m = savedMembership();
+      if (on && m && m.guest_token) u.searchParams.set('g', m.guest_token); else u.searchParams.delete('g');
+      if (u.toString() !== location.href) history.replaceState(null, '', u.toString());
+    } catch (e) {}
+  }
+
+  function showInstallGuide() {
+    var info = installSteps();
+    // iPhone saves the page's current address as the Home Screen app: include who you are, for a while.
+    if (info.ios && !isStandalone()) {
+      setGuestInUrl(true);
+      clearTimeout(guestInUrlTimer);
+      guestInUrlTimer = setTimeout(function () { setGuestInUrl(false); }, 10 * 60 * 1000);
     }
+    var back = el('div', 'modal-backdrop');
+    var box = el('div', 'modal-box');
+    box.appendChild(el('p', 'modal-title', '📲 Install the trip app'));
+    box.appendChild(el('p', 'modal-sub', info.intro));
+    var ol = el('ol');
+    ol.style.cssText = 'margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px;font-size:0.92rem';
+    info.steps.forEach(function (t) { ol.appendChild(el('li', null, t)); });
+    box.appendChild(ol);
+    var note = el('p', 'modal-sub', 'Free, no Play Store and no account. It updates itself: you never have to install it again.');
+    note.style.margin = '0';
+    box.appendChild(note);
+    var row = el('div', 'modal-btn-row');
+    if (info.chrome) {
+      var a = el('a', 'btn-upi', 'Open in Chrome');
+      a.href = openInChromeHref();
+      a.style.flex = '1';
+      row.appendChild(a);
+    } else {
+      var copy = el('button', 'btn-secondary', 'Copy link');
+      copy.addEventListener('click', function () {
+        var done = function () { copy.textContent = 'Copied ✓'; };
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(cleanLink()).then(done, function () {});
+        else { try { prompt('Copy this link:', cleanLink()); } catch (e) {} }
+      });
+      row.appendChild(copy);
+    }
+    var close = el('button', 'btn-secondary', 'Close');
+    close.addEventListener('click', function () { back.remove(); });
+    row.appendChild(close);
+    box.appendChild(row);
+    back.appendChild(box);
+    back.addEventListener('click', function (ev) { if (ev.target === back) back.remove(); });
+    document.body.appendChild(back);
+  }
+
+  function startInstall() {
+    if (deferredInstallPrompt) {
+      deferredInstallPrompt.prompt();
+      deferredInstallPrompt.userChoice.finally(function () { deferredInstallPrompt = null; refreshInstallButtons(); });
+      return;
+    }
+    showInstallGuide();
+  }
+
+  // "Get the trip app" banner, right under the trip's header so nobody misses it. Not shown once it runs
+  // as the installed app. "Not now" hides it for a few days, leaving a small Install link in its place.
+  function renderInstallBanner() {
+    if (isStandalone()) return null;
+    var snoozed = false;
+    try { snoozed = Date.now() - Number(localStorage.getItem('kharcha_trip_install_snooze') || 0) < 3 * 24 * 3600 * 1000; } catch (e) {}
+    if (snoozed) {
+      var small = el('button', 'btn-ghost-sm', '📲 Install trip app');
+      small.style.cssText = 'display:block;margin:-6px 0 14px auto';
+      small.addEventListener('click', startInstall);
+      return small;
+    }
+    var card = el('div', 'card install-banner');
+    card.id = 'install-banner';
+    card.appendChild(el('p', 'install-title', '📲 Get the trip app'));
+    card.appendChild(el('p', 'install-sub', 'One tap from your home screen, straight to this trip. Always up to date: no Play Store, nothing to download again.'));
+    var row = el('div', 'install-actions');
+    var btn = el('button', 'primary', '📲 Install app');
+    btn.setAttribute('data-install-btn', '1');
+    btn.addEventListener('click', startInstall);
+    var later = el('button', 'btn-secondary', 'Not now');
+    later.addEventListener('click', function () {
+      try { localStorage.setItem('kharcha_trip_install_snooze', String(Date.now())); } catch (e) {}
+      var repl = renderInstallBanner();
+      if (repl) card.replaceWith(repl); else card.remove();
+    });
+    row.appendChild(btn); row.appendChild(later);
+    card.appendChild(row);
+    setTimeout(refreshInstallButtons, 0);
+    return card;
   }
   if (!CFG || !window.supabase) { showError('Could not load Kharcha Book. Check your connection and reload.'); return; }
 
@@ -248,9 +386,44 @@
     });
   }
 
+  var UPI_RE = /^[a-z0-9._-]{2,64}@[a-z][a-z0-9.-]{1,30}$/i;
+  function setMyUpi(upi) {
+    var m = savedMembership();
+    if (!m || !m.guest_token) return Promise.resolve();
+    return sb.rpc('trip_set_my_upi', { p_invite_token: token, p_guest_token: m.guest_token, p_upi: upi || null })
+      .then(function (res) {
+        if (res.error) throw res.error;
+        m.upi = upi || ''; saveMembership(m);
+        try { if (upi) localStorage.setItem('kharcha_vpa_' + canonicalTripName(m.display_name).toLowerCase(), upi); } catch (e) {}
+      });
+  }
+  // Everyone's saved UPI ids, so "Pay via UPI" is prefilled for each person.
+  var memberUpis = {};
+  function syncMemberUpis() {
+    return sb.rpc('trip_member_upis', { p_invite_token: token }).then(function (res) {
+      if (res.error || !res.data) return;
+      try {
+        res.data.forEach(function (r) {
+          if (!r.upi) return;
+          var key = canonicalTripName(r.member_name).toLowerCase();
+          memberUpis[key] = r.upi;
+          localStorage.setItem('kharcha_vpa_' + key, r.upi);
+        });
+        // Remember this guest's own UPI on this device too, so they never re-enter it.
+        var m = savedMembership();
+        if (m && m.display_name) {
+          var mine = memberUpis[canonicalTripName(m.display_name).toLowerCase()];
+          if (mine && m.upi !== mine) { m.upi = mine; saveMembership(m); }
+        }
+      } catch (e) {}
+    }, function () {});
+  }
+
   function renderJoinForm(tripName) {
     app.innerHTML = '';
     app.appendChild(renderHero(tripName));
+    var joinBanner = renderInstallBanner();
+    if (joinBanner) app.appendChild(joinBanner);
     var card = el('div', 'card');
     card.appendChild(el('p', 'sub', "Enter your name to see what's been spent and add your own."));
     var field = el('div', 'field');
@@ -258,20 +431,38 @@
     var input = el('input'); input.placeholder = 'e.g. Rohit'; input.maxLength = 40;
     field.appendChild(label); field.appendChild(input);
     card.appendChild(field);
+    var ufield = el('div', 'field');
+    var ulabel = el('label', null, 'Your UPI ID (optional, so friends can pay you)');
+    var uinput = el('input'); uinput.placeholder = 'e.g. rohit@okhdfcbank'; uinput.maxLength = 80;
+    uinput.setAttribute('autocapitalize', 'none'); uinput.setAttribute('autocomplete', 'off');
+    ufield.appendChild(ulabel); ufield.appendChild(uinput);
+    card.appendChild(ufield);
     var err = el('p', 'err'); err.hidden = true;
     var btn = el('button', 'primary', 'Join trip');
     btn.addEventListener('click', function () {
       var name = input.value.trim();
       if (!name) { err.textContent = 'Enter your name.'; err.hidden = false; return; }
+      var upi = uinput.value.trim();
+      if (upi && !UPI_RE.test(upi)) { err.textContent = 'That UPI ID looks wrong (like name@bank). Fix it or leave it empty.'; err.hidden = false; return; }
       btn.disabled = true; err.hidden = true;
       join(name, null).then(function (row) {
         saveMembership({ guest_token: row.guest_token, display_name: row.display_name });
+        if (upi) setMyUpi(upi).catch(function () {});
         renderTrip(row.trip_name);
       }).catch(function (e) {
         err.textContent = (e && e.message) || 'Could not join. Try again.';
         err.hidden = false;
         btn.disabled = false;
       });
+    });
+    // A returning friend on a new phone/browser: typing their name brings back the UPI ID they saved before.
+    syncMemberUpis().then(function () {
+      var fill = function () {
+        if (uinput.value.trim()) return;
+        var u = memberUpis[canonicalTripName(input.value.trim()).toLowerCase()];
+        if (u) uinput.value = u;
+      };
+      input.addEventListener('input', fill); fill();
     });
     input.addEventListener('keydown', function (ev) { if (ev.key === 'Enter') btn.click(); });
     card.appendChild(err); card.appendChild(btn);
@@ -619,6 +810,8 @@
     app.innerHTML = '';
 
     app.appendChild(renderHero(tripName));
+    var tripBanner = renderInstallBanner();
+    if (tripBanner) app.appendChild(tripBanner);
 
     var head = el('div');
     head.style.display = 'flex';
@@ -634,8 +827,21 @@
         renderJoinForm(tripName);
       }
     });
+    var m0 = savedMembership() || {};
+    var upiBtn = el('button', 'btn-ghost-sm', m0.upi ? 'My UPI ✓' : 'Add my UPI');
+    upiBtn.addEventListener('click', function () {
+      var v = prompt('Your UPI ID (like name@bank). Friends will see it to pay you.', (savedMembership() || {}).upi || '');
+      if (v === null) return;
+      v = v.trim();
+      if (v && !UPI_RE.test(v)) { alert('That UPI ID looks wrong.'); return; }
+      setMyUpi(v).then(function () { upiBtn.textContent = v ? 'My UPI ✓' : 'Add my UPI'; })
+        .catch(function () { alert('Could not save. Try again.'); });
+    });
+    syncMemberUpis().then(function () { if ((savedMembership() || {}).upi) upiBtn.textContent = 'My UPI ✓'; });
+    var btns = el('div'); btns.style.display = 'flex'; btns.style.gap = '6px';
+    btns.appendChild(upiBtn); btns.appendChild(changeBtn);
     head.appendChild(userSub);
-    head.appendChild(changeBtn);
+    head.appendChild(btns);
     app.appendChild(head);
 
     // Summary Card (Total spend)
@@ -721,9 +927,6 @@
     addCard.appendChild(addBtn);
     app.appendChild(addCard);
 
-    var installCard = el('div', 'card');
-    renderInstallRow(installCard);
-    if (installCard.children.length) app.appendChild(installCard);
 
     var brand = el('p', 'brand');
     brand.innerHTML = 'Powered by Kharcha Book';
@@ -801,6 +1004,7 @@
     }
 
     function refresh() {
+      syncMemberUpis();
       sb.rpc('trip_summary', { p_invite_token: token }).then(function (res) {
         if (res.error || !res.data || !res.data.length) throw res.error || new Error('no data');
         var s = res.data[0];
@@ -1190,6 +1394,9 @@
 
   // Entry point: recognize a returning guest via their saved token, else ask for a name.
   var existing = savedMembership();
+  if ((!existing || !existing.guest_token) && urlGuest) existing = { guest_token: urlGuest };
+  // Opened as the installed app: the code has done its job, so drop it from the address shown.
+  if (urlGuest && isStandalone()) { try { var cu = new URL(location.href); cu.searchParams.delete('g'); history.replaceState(null, '', cu.toString()); } catch (e) {} }
   if (existing && existing.guest_token) {
     join(null, existing.guest_token).then(function (row) {
       saveMembership({ guest_token: row.guest_token, display_name: row.display_name });

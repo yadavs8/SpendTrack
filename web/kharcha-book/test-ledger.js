@@ -529,3 +529,338 @@ t('tripSettlement: full settlement payment of 30,000 at once settles everyone sq
 
 console.log(n + ' tests passed');
 
+
+t('smartSearch: hair/salon find salons, petrol finds filling stations, typos tolerated', () => {
+  const m = (q, d) => L.smartSearch(q).test(d);
+  assert.ok(m('hair', '💈 Naturals Unisex Salon'));
+  assert.ok(m('salon', 'Jawed Habib'));
+  assert.ok(m('hair', 'Barber shop'));
+  assert.ok(m('petrol', 'Indian Oil Filling Station'));
+  assert.ok(m('petrol', 'HP Pump Sector 4'));
+  assert.ok(m('petrol', 'Bharat Petroleum'));
+  assert.ok(m('fuel', 'Shell'));
+  assert.ok(!m('petrol', 'Lavish Kirana Store'));
+  assert.ok(!m('hair', 'Cola corner'));       // short term "ola" must not match inside a word
+  assert.ok(m('saloon', 'Style Salon'));       // typo/spelling variant
+  assert.ok(m('grocry', 'Lavish Kirana Store') === false); // unknown misspelling of concept stays strict
+  assert.ok(m('swigy', 'Swiggy order'));       // one typo
+  assert.ok(m('king', 'King Food'));           // plain substring still works
+  assert.ok(m('food king', 'King Food'));      // all words must match
+});
+
+t('smsAccounts: one account per bank + number, newest balance', () => {
+  const e = [
+    { id: 'a', ts: 1, raw: 'JX-PNBSMS-S Ac XX0096 Credited with Rs.20000.00,27-10-2026.Avl Bal Rs.1314829.66CR.Helpline', bank: 'PNB' },
+    { id: 'b', ts: 2, raw: 'JX-PNBSMS-S Ac XX0096 Credited with Rs.38000.00.Avl Bal Rs.1314826.66CR', bank: 'PNB' },
+    { id: 'c', ts: 3, raw: 'AX-ICICIT-S ICICI Bank Acct XX602 debited for Rs 72.00', bank: 'ICICI' },
+    { id: 'd', ts: 4, raw: 'HDFC Bank Credit Card XX1014 spent Rs 500. Avl Bal Rs 9000', bank: 'HDFC' }
+  ];
+  const r = L.smsAccounts(e);
+  assert.strictEqual(r.length, 1);
+  assert.strictEqual(r[0].name, 'PNB'); assert.strictEqual(r[0].last4, '0096'); assert.strictEqual(r[0].balance, 1314826.66);
+});
+t('askQuery answers plain questions', () => {
+  const now = new Date(2026, 9, 27, 12).getTime(), D = 86400000;
+  const E = [{ id: 1, ts: now - D * 40, amount: 500, desc: 'Naturals Salon' }, { id: 2, ts: now - 1000, amount: 104, desc: 'King Food' }, { id: 3, ts: now - 2000, amount: 72, desc: 'Lavish Kirana' }];
+  const ex = () => true;
+  assert.strictEqual(L.askQuery(E, 'hair', now, ex), null);
+  assert.strictEqual(L.askQuery(E, 'how much on hair all time spent', now, ex).total, 500);
+  assert.strictEqual(L.askQuery(E, 'food today', now, ex).total, 104);
+  assert.strictEqual(L.askQuery(E, 'spent today', now, ex).total, 176);
+});
+t('forecastMonth and unusualSpends run', () => {
+  const now = new Date(2026, 9, 27, 12).getTime(), D = 86400000;
+  const E = []; for (let i = 1; i <= 5; i++) E.push({ id: 'p' + i, ts: now - i * 5 * D, amount: 1000, desc: 'HP Petrol Pump' });
+  E.push({ id: 'big', ts: now - 1000, amount: 3400, desc: 'HP Petrol Pump' });
+  const f = L.forecastMonth(E, now, () => true, 0); assert.ok(f.projected >= f.spent);
+  const u = L.unusualSpends(E, now, () => true); assert.strictEqual(u.length, 1); assert.ok(u[0].times > 3);
+});
+
+t('another bank SMS never sets an ICICI balance, and old mistakes are repaired', () => {
+  const pnb = { id: 'p', ts: 500, raw: 'JX-PNBSMS-S Ac XX0096 Credited with Rs.38000.00.Avl Bal Rs.1314826.66CR', bank: 'PNB' };
+  const ic = { id: 'i', ts: 300, raw: 'ICICI Bank Account XX602 credited. Avl Bal Rs 32,387.62', bank: 'ICICI' };
+  const icici = { id: 'a1', name: 'ICICI SALARY account', snapshots: [{ ts: 100, balance: 1000 }, { ts: 300, balance: 32387.62, src: 'sms' }, { ts: 500, balance: 1314826.66, src: 'sms' }] };
+  const pnbAcct = { id: 'a2', name: 'PNB', snapshots: [{ ts: 500, balance: 1314826.66, src: 'sms' }] };
+  const r = L.cleanBankAccounts([icici, pnbAcct], [pnb, ic], ['icici', 'hdfc']);
+  assert.strictEqual(r.accts.length, 1);
+  assert.strictEqual(r.accts[0].snapshots[r.accts[0].snapshots.length - 1].balance, 32387.62);
+  const got = L.balanceFromSms([pnb], { id: 'a1', name: 'ICICI', snapshots: [{ ts: 1, balance: 5 }] }, () => 'a1', () => false);
+  assert.strictEqual(got, null);
+  assert.strictEqual(L.routeAccount(pnb, [{ id: 'a1', name: 'ICICI' }], {}, [], 'a1', null), null);
+});
+
+t('money back from the same person: Rishabh 10,700 out and back', () => {
+  const D = 86400000, now = Date.UTC(2026, 9, 27);
+  const out = { id: 'o1', ts: now - 17 * D, amount: 10700, desc: '👤 Rishabh Shokeen', raw: 'ICICI Bank Acct XX602 debited for Rs 10700.00 on 10-Oct-26; RISHABH SHOKEEN credited. UPI:664919325392.', kind: 'expense' };
+  const small = { id: 'o2', ts: now - 14 * D, amount: 5, desc: '🔨 Family function: Rishabh Shokeen', raw: 'Acct XX602 debited for Rs 5.00 on 13-Oct-26; RISHABH SHOKEEN credited. UPI:665219955363.', kind: 'expense' };
+  const back = { id: 'i1', ts: now - 1 * D, amount: 10700, desc: '💰 Received · Rishabh Shokeen', raw: 'Dear Customer, Acct XX602 is credited with Rs 10700.00 on 26-Oct-26 from RISHABH SHOKEEN. UPI:666530867505-ICICI Bank.', kind: 'income' };
+  assert.strictEqual(L.personOf(out), 'rishabh shokeen');
+  assert.strictEqual(L.personOf(back), 'rishabh shokeen');
+  const pred = { isOut: e => e.kind === 'expense', isIn: e => e.kind === 'income' };
+  const r = L.findPaybacks([out, small, back], [], {}, now, pred, ['sanjeev yadav']);
+  assert.strictEqual(r.auto.length, 1); assert.deepStrictEqual(r.auto[0].outIds, ['o1']);
+  // Already paired: not offered again
+  assert.strictEqual(L.findPaybacks([out, small, back], r.auto, {}, now, pred, []).auto.length, 0);
+  // Partial: 4,000 back of 10,700 is asked, not done
+  const part = Object.assign({}, back, { id: 'i2', amount: 4000 });
+  const r2 = L.findPaybacks([out, part], [], {}, now, pred, []);
+  assert.strictEqual(r2.auto.length, 0); assert.strictEqual(r2.ask.length, 1);
+  // Never by amount alone: someone else sending 10,700 does not match
+  const other = Object.assign({}, back, { id: 'i3', desc: '💰 Received · Amit Kumar', raw: 'Acct XX602 is credited with Rs 10700.00 on 26-Oct-26 from AMIT KUMAR. UPI:1.' });
+  assert.strictEqual(L.findPaybacks([out, other], [], {}, now, pred, []).auto.length, 0);
+  // People ledger
+  const pl = L.peopleLedger([out, small, back], { isSent: e => e.kind === 'expense', isGot: e => e.kind === 'income' }, now, 180, []);
+  assert.strictEqual(pl.length, 1); assert.strictEqual(pl[0].name, 'Rishabh Shokeen'); assert.strictEqual(pl[0].net, 5);
+});
+
+t('categoryOf gives a picture per spend', () => {
+  const c = (d, r) => L.categoryOf(d, r).key;
+  assert.strictEqual(c('Netflix'), 'subscription');
+  assert.strictEqual(c('👤 Google Play'), 'subscription');
+  assert.strictEqual(c('Food & Dining (Swiggy)'), 'food');
+  assert.strictEqual(c('🏠 Lavish Kirana Store'), 'grocery');
+  assert.strictEqual(c('HP Petrol Pump'), 'petrol');
+  assert.strictEqual(c('Naturals Salon'), 'salon');
+  assert.strictEqual(c('👤 Rishabh Shokeen'), 'person');
+  assert.strictEqual(c('Cash', 'Rs 2000 withdrawn at ATM'), 'cash');
+  assert.strictEqual(c('🏠 Milk vendor'), 'milk');
+  assert.strictEqual(c('Amazon order'), 'online');
+  assert.strictEqual(c('Daily Vegetables'), 'veg');
+  assert.strictEqual(c('Lavish Kirana Store'), 'grocery');
+  assert.strictEqual(c('King Food'), 'food');
+  assert.strictEqual(c('Xyz Traders'), 'other');
+});
+
+t('trip diary labels: petrol, meals by time, place', () => {
+  const at = (h) => new Date(2026, 10, 20, h, 15).getTime();
+  const places = [{ ts: at(6), place: 'Gurgaon' }, { ts: at(13), place: 'Chandigarh' }];
+  assert.strictEqual(L.tripDiaryLabel({ ts: at(7), desc: 'HP Petrol Pump' }, { kind: 'fuel', fuelBefore: 0, places }).title, 'Filled petrol in Gurgaon');
+  assert.strictEqual(L.tripDiaryLabel({ ts: at(9), desc: 'Sukhdev Dhaba' }, { kind: 'food', places }).title, 'Breakfast in Gurgaon');
+  assert.strictEqual(L.tripDiaryLabel({ ts: at(14), desc: 'Haveli restaurant' }, { kind: 'food', places }).title, 'Lunch in Chandigarh');
+  assert.strictEqual(L.tripDiaryLabel({ ts: at(17), desc: 'Indian Oil MANALI' }, { kind: 'fuel', fuelBefore: 1, places }).title, 'Refilled petrol in Manali');
+  assert.strictEqual(L.tripDiaryLabel({ ts: at(20), desc: 'Cafe 1947' }, { kind: 'food', places: [] }).title, 'Dinner');
+  assert.strictEqual(L.tripDiaryLabel({ ts: at(7), desc: '✈️ Manali Trip: HP Petrol Pump' }, { kind: 'fuel', fuelBefore: 0, places }).title, 'Filled petrol in Gurgaon');
+  assert.strictEqual(L.tripItemCategory('✈️ Manali Trip: Indian Oil MANALI').key, 'fuel');
+  assert.strictEqual(L.tripDiaryLabel({ ts: at(10), desc: 'Starbucks' }, { kind: 'food', places: [] }).title, 'Coffee & snacks');
+});
+
+t('searchInsights: milk this month vs last, habits, estimate', () => {
+  const now = new Date(2026, 9, 15, 12).getTime(), D = 864e5;
+  const rows = [];
+  for (let i = 0; i < 14; i++) rows.push({ id: 'm' + i, amount: 60, desc: '🏠 Milk vendor', ts: now - i * D - 4 * 3600e3 });       // daily, mornings, this month
+  for (let i = 0; i < 20; i++) rows.push({ id: 'l' + i, amount: 55, desc: '🏠 Milk vendor', ts: new Date(2026, 8, 1 + i, 7).getTime() }); // last month
+  rows.push({ id: 'big', amount: 450, desc: 'Amul ghee', ts: now - 2 * D });
+  const r = L.searchInsights(rows, now, () => true);
+  assert.strictEqual(r.thisMonth.n, 15); assert.strictEqual(r.thisMonth.p, 14 * 60 + 450);
+  assert.strictEqual(r.lastMonth.p, 1100);
+  assert.ok(r.estimate > r.thisMonth.p);
+  assert.strictEqual(r.topPayee.name, 'Milk vendor');
+  assert.strictEqual(r.everyDays, 1);
+  assert.strictEqual(r.timeOfDay, 'mornings');
+  assert.strictEqual(r.biggest.id, 'big');
+  assert.strictEqual(r.months.length, 6); assert.strictEqual(r.months[5].label, 'Oct');
+});
+
+t('smsSourceBank: bank column first, else the SMS opening only', () => {
+  assert.strictEqual(L.smsSourceBank({ bank: 'PNB', raw: 'A/c XX12 credited INR 5000' }), 'pnb');
+  assert.strictEqual(L.smsSourceBank({ raw: 'ICICI Bank Acct XX123 debited for Rs 500; credited to PNB a/c of RAMESH' }), 'icici');
+  assert.strictEqual(L.smsSourceBank({ raw: 'Your a/c XX9 is credited with INR 2,000.00 by UPI. -Punjab National Bank' }), '');
+  assert.strictEqual(L.smsSourceBank({ desc: 'Milk', amount: 60 }), '');
+});
+
+t('recurringSeries: monthly bills, not daily habits; status, price change', () => {
+  const now = new Date(2026, 9, 12, 12).getTime(), at = (mo, d) => new Date(2026, mo, d, 10).getTime();
+  const rows = [];
+  [6, 7, 8].forEach((mo) => rows.push({ id: 'emi' + mo, amount: 5718, desc: '👤 Flat emi', ts: at(mo, 5) }));
+  rows.push({ id: 'emi9', amount: 5718, desc: '👤 Flat emi', ts: at(9, 5) });                    // paid this month
+  [7, 8].forEach((mo) => rows.push({ id: 'air' + mo, amount: 949, desc: 'WWW AIRTEL (ICICI Card XX1014)', ts: at(mo, 6) }));
+  rows.push({ id: 'air9', amount: 999, desc: 'WWW AIRTEL (ICICI Card XX1014)', ts: at(9, 6) }); // price went up
+  [7, 8].forEach((mo) => rows.push({ id: 'net' + mo, amount: 649, desc: 'Netflix', ts: at(mo, 20) }));
+  [7, 8].forEach((mo) => rows.push({ id: 'lic' + mo, amount: 5000, desc: '📈 LIC premium', ts: at(mo, 2) }));     // 2nd, not paid: late
+  for (let mo = 7; mo <= 9; mo++) for (let d = 1; d <= 28; d++) rows.push({ id: 'milk' + mo + d, amount: 60, desc: '🏠 Milk vendor', ts: at(mo, d) });
+  const s = L.recurringSeries(rows, now, () => true), by = Object.fromEntries(s.map((x) => [x.key, x]));
+  assert.ok(!by['milk vendor'], 'daily milk is a habit, not a bill');
+  assert.strictEqual(by['flat emi'].status, 'paid'); assert.strictEqual(by['flat emi'].amount, 5718);
+  assert.strictEqual(by['www airtel'].change, 50);
+  assert.strictEqual(by['netflix'].status, 'upcoming'); assert.strictEqual(by['netflix'].daysTo, 8);
+  assert.strictEqual(by['lic premium'].status, 'late');
+});
+
+t('safeToSpend: pool over the days left, today and from tomorrow', () => {
+  const r = L.safeToSpend({ incomeGot: 58000, incomeExpected: 38000, spent: 40000, billsDue: 6000, keepAside: 10000, todaySpent: 500, day: 11, daysInMonth: 31 });
+  assert.strictEqual(r.pool, 40000); assert.strictEqual(r.daysLeft, 21);
+  assert.strictEqual(r.allowance, Math.round(40500 / 21)); assert.strictEqual(r.todayLeft, Math.round(40500 / 21 - 500));
+  assert.strictEqual(r.fromTomorrow, 2000); assert.strictEqual(r.status, 'ok');
+  assert.strictEqual(L.safeToSpend({ incomeGot: 1000, spent: 3000, day: 5, daysInMonth: 30 }).status, 'over');
+  // month-end with lots left: a day is capped at 1.5x a normal day's share, the rest is spare
+  const e = L.safeToSpend({ incomeGot: 90000, spent: 20000, billsDue: 0, fixedMonth: 15000, todaySpent: 0, day: 29, daysInMonth: 30 });
+  assert.strictEqual(e.share, 2500); assert.strictEqual(e.allowance, 3750); assert.strictEqual(e.fromTomorrow, 3750);
+  assert.strictEqual(e.spare, 70000 - 3750 * 2);
+});
+
+t('creepingSpends: last 30 days against the usual', () => {
+  const now = new Date(2026, 9, 28, 12).getTime(), D = 864e5, rows = [];
+  for (let i = 0; i < 120; i += 10) rows.push({ id: 'f' + i, amount: i < 30 ? 1500 : 500, desc: 'Swiggy order', ts: now - i * D - 1000 });
+  for (let i = 0; i < 120; i += 15) rows.push({ id: 'p' + i, amount: i < 30 ? 300 : 1500, desc: 'HP Petrol Pump', ts: now - i * D - 1000 });
+  const r = L.creepingSpends(rows, now, () => true);
+  assert.strictEqual(r.up[0].key, 'food'); assert.ok(r.up[0].pct > 100);
+  assert.strictEqual(r.down[0].key, 'petrol');
+});
+
+t('routeAccount: an SMS goes to its own bank\'s account; family accounts survive the repair', () => {
+  const accts = L.parseBank(JSON.stringify([
+    { id: 'i', name: 'ICICI SALARY account', snapshots: [{ ts: 1, balance: 100 }] },
+    { id: 'h', name: 'HDFC bak', snapshots: [{ ts: 1, balance: 50 }] },
+    { id: 'p', name: "PNB · Mom's pension", role: 'family', snapshots: [{ ts: 1, balance: 9, src: 'sms' }] }]));
+  assert.strictEqual(accts[2].role, 'family');
+  const hd = { id: 'x1', desc: 'Swiggy', raw: 'Update! INR 200.00 debited from HDFC Bank A/c XX8749', bank: 'HDFC', ts: 5, amount: 200 };
+  const pn = { id: 'x2', desc: 'Received', raw: 'Ac XX0096 Credited with Rs.5000.00. Avl Bal Rs.245310.66CR -PNB', bank: 'PNB', ts: 6, amount: 5000 };
+  const typed = { id: 'x3', desc: 'Milk', ts: 7, amount: 60 };
+  assert.strictEqual(L.routeAccount(hd, accts, {}, [], 'i', null), 'h');
+  assert.strictEqual(L.routeAccount(pn, accts, {}, [], 'i', null), 'p');
+  assert.strictEqual(L.routeAccount(typed, accts, {}, [], 'i', null), 'i');
+  assert.strictEqual(L.routeAccount({ id: 'x4', desc: 'x', raw: 'SBI a/c debited', bank: 'SBI', ts: 8, amount: 1 }, accts, {}, [], 'i', null), null);
+  const r = L.cleanBankAccounts(accts, [pn], ['icici', 'hdfc']);
+  assert.ok(r.accts.some((a) => a.id === 'p'), 'the family account is kept');
+  assert.deepStrictEqual(L.balanceFromSms([pn], accts[2], (e) => L.routeAccount(e, accts, {}, [], 'i', null), () => false), { ts: 6, balance: 245310.66 });
+});
+
+t('findRefunds: same shop + amount is matched, partial or shop-less ones are asked', () => {
+  const D = 864e5, now = new Date(2026, 9, 30, 12).getTime();
+  const isIn = (e) => e.kind === 'income', isOut = (e) => e.kind === 'expense';
+  const rows = [
+    { id: 'p1', amount: 1261.5, desc: '🏠 amazon shopping', raw: 'INR 1,261.50 spent using ICICI Bank Card XX1014 on 11-Oct-26 on AMAZON PAY IN G.', kind: 'expense', ts: now - 19 * D },
+    { id: 'r1', amount: 1261.5, desc: 'Refund', raw: 'Refund of INR 1,261.50 from AMAZON PAY IN G credited to ICICI Bank Card XX1014', kind: 'income', ts: now - 2 * D },
+    { id: 'p2', amount: 2400, desc: 'Myntra order', raw: 'ICICI Bank Acct XX602 debited Rs 2400 UPI MYNTRA DESIGNS', kind: 'expense', ts: now - 10 * D },
+    { id: 'r2', amount: 899, desc: 'Received', raw: 'ICICI Bank Acct XX602 credited Rs 899 refund from MYNTRA DESIGNS', kind: 'income', ts: now - D },
+    { id: 'p3', amount: 350, desc: 'Swiggy', kind: 'expense', ts: now - 5 * D },
+    { id: 'r3', amount: 350, desc: 'Received', raw: 'Rs 350 credited to your a/c. Txn reversed.', kind: 'income', ts: now - 4 * D },
+    { id: 's1', amount: 59581, desc: '💼 Salary', raw: 'credited with salary', kind: 'income', ts: now - D }
+  ];
+  const r = L.findRefunds(rows, [], {}, now, { isIn, isOut });
+  assert.deepStrictEqual(r.auto.map((p) => [p.inId, p.outIds[0], p.partial]), [['r1', 'p1', false]]);
+  const ask = Object.fromEntries(r.ask.map((p) => [p.inId, p]));
+  assert.strictEqual(ask.r2.outIds[0], 'p2'); assert.strictEqual(ask.r2.partial, true);
+  assert.strictEqual(ask.r3.outIds[0], 'p3'); assert.strictEqual(ask.r3.partial, false);
+  assert.ok(!ask.s1, 'a salary is not a refund');
+  assert.strictEqual(L.refundShop(rows[1]), 'Amazon');
+  assert.strictEqual(L.findRefunds(rows, [{ inId: 'r1', outIds: ['p1'] }], { r2: 1 }, now, { isIn, isOut }).auto.length, 0);
+});
+
+t('looksLikeCardBill: Amazon Pay / CRED card payments, not swipes or CRED wallet', () => {
+  const raw = (x) => 'AD-ICICIT-S ICICI Bank Acct XX602 debited for Rs 62000.00 on 30-Oct-26; ' + x + ' credited. UPI:1234.';
+  assert.strictEqual(L.looksLikeCardBill({ amount: 62000, desc: 'Amazon', kind: 'expense', method: 'upi', raw: raw('Amazon Pay Cred') }), true);
+  assert.strictEqual(L.looksLikeCardBill({ amount: 9000, desc: 'CRED', kind: 'expense', method: 'upi', raw: raw('CRED Club') }), true);
+  assert.strictEqual(L.looksLikeCardBill({ amount: 4274.91, desc: 'credit card repayment', kind: 'expense', method: 'upi', raw: raw('Shop') }), true);
+  assert.strictEqual(L.looksLikeCardBill({ amount: 804, desc: 'Amazon', kind: 'expense', method: 'credit_card', raw: 'INR 804.00 spent using ICICI Bank Card XX1014 on AMAZON PAY IN E' }), false);
+  assert.strictEqual(L.looksLikeCardBill({ amount: 25, desc: '💰 Cred wallet', kind: 'income', raw: '₹25 has been credited to your CRED wallet' }), false);
+  assert.strictEqual(L.looksLikeCardBill({ amount: 62000, desc: '🔁 Credit card bill · ICICI ··1014', kind: 'transfer', raw: raw('Amazon Pay Cred') }), false);
+  assert.strictEqual(L.looksLikeCardBill({ amount: 499, desc: 'Amazon', kind: 'expense', method: 'upi', raw: raw('Amazon Pay Groceries') }), false);
+});
+
+t('kitchen: your milk and coffee amounts, typed items, monthly use', () => {
+  const ids = (l) => l.map((x) => x.id + ':' + x.qty + x.unit + '=' + x.amount).join(' ');
+  assert.strictEqual(ids(L.itemsFromPattern(136)), 'coffee:10pkt=100 amul:0.5L=36');
+  assert.strictEqual(ids(L.itemsFromPattern(172)), 'coffee:10pkt=100 amul:1L=72');
+  assert.strictEqual(ids(L.itemsFromPattern(72)), 'amul:1L=72');
+  assert.strictEqual(ids(L.itemsFromPattern(40)), 'a2:0.5L=40');
+  assert.strictEqual(L.itemsFromPattern(165), null);
+  assert.strictEqual(ids(L.parseItemsText('adrak 40, sabzi 250g 30, 10 coffee, a2 1L')), 'adrak:nullkg=40 sabzi:0.25kg=30 coffee:10pkt=100 a2:1L=80');
+  assert.strictEqual(ids(L.parseItemsText('doodh 2 packet and paneer 200g 90')), 'amul:1L=72 paneer:0.2kg=90');
+  assert.strictEqual(ids(L.parseItemsText('2 amul')), 'amul:1L=72');
+  const fresh = L.parseItemsText('lauki 1kg 40');
+  assert.strictEqual(fresh[0].name, 'Lauki'); assert.ok(fresh[0].fresh);
+  const D = 864e5, t0 = new Date(2026, 9, 1).getTime();
+  const rows = [1, 2, 3, 4].map((d) => ({ ts: t0 + d * D, items: L.itemsFromPattern(72) })).concat([{ ts: t0 + 5 * D, items: L.itemsFromPattern(172) }]);
+  const s = L.summarizeItems(rows, t0, t0 + 31 * D, t0 + 6 * D);
+  const amul = s.find((x) => x.id === 'amul');
+  assert.strictEqual(amul.qty, 5); assert.strictEqual(amul.amount, 360); assert.strictEqual(amul.perUnit, 72); assert.strictEqual(amul.everyDays, 1);
+  assert.strictEqual(s.find((x) => x.id === 'coffee').qty, 10);
+});
+
+t('vendors: who sold it, what they sell, and what an amount means at that shop', () => {
+  const sms = (x) => ({ raw: 'AX-ICICIT-S ICICI Bank Acct XX602 debited for Rs 100.00 on 30-Oct-26; ' + x + ' credited. UPI:1.', desc: 'whatever' });
+  assert.deepStrictEqual(L.vendorOf(sms('Lavish kirana s')), { key: 'lavish kirana', name: 'Lavish Kirana' });
+  assert.strictEqual(L.vendorOf(sms('SANSKRITI S STO')).key, 'sanskriti');
+  assert.strictEqual(L.vendorOf(sms('VIJAY VEGETABLE')).key, 'vijay vegetable');
+  assert.strictEqual(L.vendorOf(sms('VIJAY HARDWARE')).key, 'vijay hardware');
+  assert.strictEqual(L.vendorOf({ desc: '🏠 Banana', amount: 40 }).key, 'banana');
+  assert.strictEqual(L.vendorKind('apna hair saloo').always, 'haircut');
+  assert.strictEqual(L.vendorKind('vijay').kind, 'veg'); assert.strictEqual(L.vendorKind('vijay hardware'), null);
+  assert.strictEqual(L.vendorKind('lavish kirana').kind, 'kirana');
+  const lav = L.vendorOf(sms('Lavish kirana s')), kind = L.vendorKind(lav.key);
+  // known pattern at a milk-selling shop
+  assert.strictEqual(L.vendorGuess(null, kind, 172).auto.map((l) => l.id).join(','), 'coffee,amul');
+  // learns: Rs 100 = 10 coffee here
+  const coffee = L.parseItemsText('10 coffee');
+  let pr = L.learnVendor({}, lav, 100, coffee);
+  assert.strictEqual(L.vendorGuess(pr[lav.key], kind, 100).auto[0].id, 'coffee');
+  // the same Rs 100 was rice once: two readings -> ask with both, coffee first
+  pr = L.learnVendor(pr, lav, 100, L.parseItemsText('rice 1kg 100'));
+  let g = L.vendorGuess(pr[lav.key], kind, 100);
+  assert.strictEqual(g.auto, null); assert.strictEqual(g.options.length, 2);
+  pr = L.learnVendor(L.learnVendor(L.learnVendor(pr, lav, 100, coffee), lav, 100, coffee), lav, 100, coffee);
+  g = L.vendorGuess(pr[lav.key], kind, 100);
+  assert.strictEqual(g.auto[0].id, 'coffee', 'four coffees to one rice: coffee is the usual');
+  // salon: always a haircut, money only
+  const sal = L.vendorGuess(null, L.vendorKind('apna hair saloo'), 50);
+  assert.strictEqual(sal.auto[0].id, 'haircut'); assert.strictEqual(sal.auto[0].amount, 50); assert.strictEqual(sal.auto[0].qty, null);
+  // a veg seller learned from 3 tags of sabzi only -> always sabzi
+  const vj = L.vendorOf(sms('VIJAY')); let pv = {};
+  [60, 30, 80].forEach((a) => { pv = L.learnVendor(pv, vj, a, [{ id: 'sabzi', name: 'Vegetables', icon: '🥬', qty: null, unit: 'kg', amount: a }]); });
+  assert.strictEqual(L.vendorGuess(pv[vj.key], L.vendorKind(vj.key), 55).auto[0].id, 'sabzi');
+});
+
+t('parseOrderText: an order screen read from a screenshot', () => {
+  const blinkit = ['Order summary', 'Arrived in 9 minutes', '5 items in this order',
+    'Amul Taaza Toned Fresh Milk', '500 ml x 2', '₹54',
+    'Tata Salt, Vacuum Evaporated Iodised', '1 kg x 1', '₹28',
+    'Aashirvaad Shudh Chakki Atta', '5 kg x 1', '₹240 ₹285',
+    'Fresh Onion (Pyaz)', '1 kg', '₹39',
+    'Nescafe Classic Coffee Sachet 2 x ₹20',
+    'Bill details', 'MRP ₹434', 'Product discount -₹45', 'Item total ₹389', 'Handling charge ₹2', 'Delivery charges FREE', 'Bill total ₹391'].join('\n');
+  const r = L.parseOrderText(blinkit);
+  assert.strictEqual(r.total, 391);
+  const by = Object.fromEntries(r.lines.map((l) => [l.id, l]));
+  assert.strictEqual(r.lines.length, 5, r.lines.map((l) => l.name + '=' + l.amount).join(', '));
+  assert.strictEqual(by.amul.qty, 1); assert.strictEqual(by.amul.amount, 54);
+  assert.strictEqual(by.atta.amount, 240, 'paid price, not the struck MRP'); assert.strictEqual(by.atta.qty, 5);
+  assert.strictEqual(by.pyaz.qty, 1); assert.strictEqual(by.pyaz.amount, 39);
+  assert.strictEqual(by.coffee.amount, 20); assert.strictEqual(by.coffee.qty, 2);
+  assert.ok(r.lines.some((l) => /Tata Salt/.test(l.name) && l.amount === 28));
+  // OCR often reads the rupee sign as % or F; Zepto puts count first
+  const zepto = L.parseOrderText('2 x Amul Gold Full Cream Milk 500 ml %68\nBanana Robusta 6 pcs F49\nItem Total %117\nTo Pay %117');
+  assert.strictEqual(zepto.total, 117);
+  assert.deepStrictEqual(zepto.lines.map((l) => [l.id, l.amount, l.qty]), [['amul', 68, 1], ['banana', 49, 0.5]]);
+});
+
+t('parseOrderText: the real text the reader got from a Blinkit order screen', () => {
+  const ocr = ['Order summary', '5 items in this order', 'Amul Taaza Toned Fresh Milk %54', '500 ml x 2', 'Tata Salt Vacuum Evaporated £28', 'lkgx1',
+    'Aashirvaad Shudh Chakki Atta £240', '5kgx1', 'Fresh Onion (Pyaz) £39', 'lkgx1', 'Nescafe Classic Coffee Sachet £20', '1 pack x 2',
+    'Bill details', 'MRP 3434', 'Product discount -X45', 'Item total 389', 'Handling charge 2', 'Delivery charges FREE', 'Bill total X391'].join('\n');
+  const r = L.parseOrderText(ocr);
+  assert.strictEqual(r.total, 391);
+  assert.deepStrictEqual(r.lines.map((l) => [l.id, l.qty, l.amount]),
+    [['amul', 1, 54], ['tata-salt-vacuum-evapora', 1, 28], ['atta', 5, 240], ['pyaz', 1, 39], ['coffee', 2, 20]]);
+});
+
+t('parseOrderText: a dark-mode Blinkit list (photos beside each name, struck MRP, ₹ misread)', () => {
+  // what the reader got from the real screenshot, then the same with each price read again on its own (⟦…⟧)
+  const plain = ["1231 @ = a oo @ » NON R30 %Kil@78%", "« Ww", "Roff Cera Clean Advance Tile Floor Cleaner", "TItr x 1 F249 #195", "# Patanjali Mustard Oil Kachi Ghani (Cold Pressed)", "© 11tr x 1 $240 £232", "| 3+", "8 Matchbox by Homelites", "y", "Tage } 5 pcs x 20 200", "Mao :", "LS: wee ** Cotton Phool Diya Batti by Shubhkart", "A, J. 100 pcsx1 ¥17", "a Whole Farm Premium Coriander Seeds", "on 200g x1 Fo TN", "= Whole Farm Premium Black Small Mustard Seeds", "on | 4 200g x1 7 ¥43", "md Mangaldeep 5 In 1 Wet Dhoop", "HA i 100 pcs x 1 75 ¥69", "ay BE om", "RS", "ox Cotton Long Diya Batti by Sohum", "a 100 pcs x 1 40 #19", "Tp iL ~ ge", "| wou N Catch - Cumin Seeds / Jeera Seeds", "food 100g x1 ¥F5T65", "LE Tn", "pe Organic Box - Seeds Mix", "v stils | 250 g x 1 £799 #199", "=", "= Organic Box Anjeer", "ANJEER", "250g x1 F999 ¥299", "E=E3", "Repeat Order", "VIEW CART ON NEXT STEP"].join('\n');
+  const checked = ["@ = a oo @ » NON R30 %Kil@78%", "Ww", "Roff Cera Clean Advance Tile Floor Cleaner", "TItr x 1 F249 #195 ⟦F195⟧", "Patanjali Mustard Oil Kachi Ghani (Cold Pressed)", "11tr x 1 $240 £232 ⟦3232⟧", "Matchbox by Homelites", "y", "5 pcs x 20 200 ⟦2200⟧", ":", "Cotton Phool Diya Batti by Shubhkart", "100 pcsx1 ¥17 ⟦217⟧", "Whole Farm Premium Coriander Seeds", "200g x1 Fo TN ⟦¥71⟧", "Whole Farm Premium Black Small Mustard Seeds", "200g x1 7 ¥43 ⟦¥43⟧", "Mangaldeep 5 In 1 Wet Dhoop", "100 pcs x 1 75 ¥69 ⟦¥69⟧", "Cotton Long Diya Batti by Sohum", "100 pcs x 1 40 #19 ⟦19⟧", "Catch - Cumin Seeds / Jeera Seeds", "100g x1 ¥F5T65 ⟦¥55⟧", "Organic Box - Seeds Mix", "250 g x 1 £799 #199 ⟦199⟧", "Organic Box Anjeer", "250g x1 F999 ¥299 ⟦¥299⟧", "Repeat Order", "VIEW CART ON NEXT STEP"].join('\n');
+  const want = [195, 232, 200, 17, 71, 43, 69, 19, 55, 199, 299];
+  const r = L.parseOrderText(checked);
+  assert.deepStrictEqual(r.lines.map((l) => l.amount), want);
+  assert.deepStrictEqual(r.lines.map((l) => l.name.slice(0, 18)), ['Roff Cera Clean Ad', 'Patanjali Mustard ', 'Matchbox By Homeli', 'Cotton Phool Diya ', 'Whole Farm Premium', 'Whole Farm Premium', 'Mangaldeep 5 In 1 ', 'Cotton Long Diya B', 'Catch - Cumin Seed', 'Organic Box - Seed', 'Organic Box Anjeer']);
+  assert.strictEqual(r.lines[1].id, 'oil'); assert.strictEqual(r.lines[1].qty, 1);
+  assert.notStrictEqual(r.lines[3].id, 'flowers', 'diya batti is not flowers');
+  assert.notStrictEqual(r.lines[4].id, 'dhaniya', 'coriander seeds are not fresh dhaniya');
+  assert.strictEqual(r.lines[4].size, '200 g');
+  // without the second read, the payment's total fills the one price that could not be read
+  const p = L.parseOrderText(plain, null, 1399);
+  assert.strictEqual(p.lines.length, 11);
+  assert.deepStrictEqual(p.lines.map((l, i) => i === 4 || i === 8 ? null : l.amount), want.map((v, i) => i === 4 || i === 8 ? null : v));
+  assert.ok(p.lines[4].guess); assert.strictEqual(p.lines.reduce((t, l) => t + l.amount, 0), 1399);
+  // the reader's ₹ slips
+  assert.deepStrictEqual(L.parseOrderText('Amul Butter\n100 g x 1 ⟦3200⟧\nTata Tea Gold\n250 g x 1 ⟦T232⟧\nParle G\n1 pack x 1 ⟦743⟧ $50 ₹43').lines.map((l) => l.amount), [200, 232, 43]);
+});

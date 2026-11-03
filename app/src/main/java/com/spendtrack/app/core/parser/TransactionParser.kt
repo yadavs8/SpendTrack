@@ -33,6 +33,9 @@ object TransactionParser {
 
     // Patterns for merchant extraction
     private val MERCHANT_PATTERNS = listOf(
+        // ICICI card: "...Card XX1014 on 12-Oct-26 at Airbnb Payments." / "...on 03-Oct-26 on AMAZON PAY IN E. Avl Limit"
+        // Checked first: these SMS end with "SMS BLOCK 1014 to 9215676766", which the generic "to" pattern grabs.
+        Regex("""(?i)\bcard\b[^;]{0,40}?\bon\s+\d{1,2}[-/ ][A-Za-z0-9]{2,3}[-/ ]\d{2,4}\s+(?:at|on)\s+([A-Za-z0-9][A-Za-z0-9 &'\-_*]{1,40}?)\s*(?:\.(?:\s|$)|$)"""),
         // ICICI: "Acct XX602 debited for Rs 90.00 on 05-Oct-26; Piyush Yadav credited."
         Regex("""(?i);\s*([a-zA-Z][a-zA-Z0-9\s&.\-_']{1,40}?)\s+credited"""),
         Regex("""(?i)(?:paid\s*to|sent\s*to|transfer\s*to|to\s*VPA|to)\s+([a-zA-Z0-9\s&.\-_]+?)(?:\s+(?:on|via|using|ref|utr|through|from|for|dated|\.|$))"""),
@@ -70,7 +73,7 @@ object TransactionParser {
     // words below can. When in doubt here, the right call is to NOT record it: a missed real expense
     // is far less harmful than a phantom one that never happened.
     private val NOT_YET_COMPLETED_REGEX = Regex(
-        """(?i)\b(?:will\s+be\s+(?:debited|deducted|charged|executed)|scheduled\s+(?:on|for)|due\s+on|upcoming\s+payment|payment\s+reminder|collect\s+request|payment\s+request|has\s+requested|requested\s+(?:a\s+payment\s+of|rs\.?|inr|₹)|awaiting\s+(?:your\s+)?approval|enter\s+(?:your\s+)?upi\s+pin|approve\s+(?:this\s+|the\s+)?(?:payment|transaction|request)|tap\s+to\s+pay)\b"""
+        """(?i)\b(?:(?:will|to)\s+be\s+(?:debited|deducted|charged|executed)|is\s+due\s+(?:by|on)|scheduled\s+(?:on|for)|due\s+on|upcoming\s+payment|payment\s+reminder|collect\s+request|payment\s+request|has\s+requested|requested\s+(?:a\s+payment\s+of|rs\.?|inr|₹)|awaiting\s+(?:your\s+)?approval|enter\s+(?:your\s+)?upi\s+pin|approve\s+(?:this\s+|the\s+)?(?:payment|transaction|request)|tap\s+to\s+pay)\b"""
     )
 
     /** True for scheduled/pending/requested payments that have not actually completed yet. */
@@ -84,6 +87,21 @@ object TransactionParser {
     private val NON_TRANSACTION_REGEX = Regex(
         """(?i)\b(?:claim|unlock(?:ed)?|tap to|offer|deal|starting (?:from|at)|get it for|\d+\s*%\s*off|flat\s*(?:rs\.?|₹)?\s*\d+\s*off|win|won|reward|coupon|voucher|scratch|coins?|hurry|limited (?:time|period)|pre-approved|apply now|otp|one[- ]time password|verification code)\b"""
     )
+
+    // Insurance marketing, quotes, renewal pitches, and policy offers (not completed debits).
+    private val INSURANCE_PROMO_REGEX = Regex(
+        """(?i)\b(?:term\s+insurance|health\s+insurance|car\s+insurance|bike\s+insurance|motor\s+insurance|life\s+insurance|sum\s+insured|life\s+cover|term\s+cover|health\s+cover|mediclaim|policybazaar|renew\s+(?:your\s+)?policy|policy\s+(?:is\s+)?expir(?:ing|ed)|buy\s+insurance|get\s+insured|insurance\s+quote|insure\s+your)\b"""
+    )
+
+    // Mention of zero cost, zero premium, zero charges promotional spam
+    private val ZERO_AMOUNT_PROMO_REGEX = Regex(
+        """(?i)\b(?:zero\s*(?:cost|premium|charges?|effective\s*price|processing\s*fee|balance|interest|down\s*payment)|0%\s*interest|no\s*cost\s*emi)\b"""
+    )
+
+    /** True for insurance promotions, marketing quotes, and zero-amount pitches. */
+    fun isInsurancePromo(text: String): Boolean {
+        return INSURANCE_PROMO_REGEX.containsMatchIn(text) || ZERO_AMOUNT_PROMO_REGEX.containsMatchIn(text)
+    }
 
     // Money actually leaving the account. Note "credited" can still appear in a debit SMS for the payee
     // ("...debited for Rs 90.00; Piyush Yadav credited"), so a strong outgoing verb wins over it.
@@ -112,6 +130,28 @@ object TransactionParser {
     )
 
     fun looksLikeBankSms(text: String): Boolean = BANK_SMS_SHAPE_REGEX.containsMatchIn(text)
+
+    // WhatsApp is read only for WhatsApp Pay. Its chats are everything else: a dealer's "insurance
+    // payment of Rs 4,500 received", a friend's "I paid ₹500", a ₹0 invoice. Those used to become
+    // expenses (and "₹0 at Unknown Merchant" prompts), so a WhatsApp notification counts only when it
+    // reads like WhatsApp Pay's own short status line about *your* money.
+    val WHATSAPP_PACKAGES = setOf("com.whatsapp", "com.whatsapp.w4b")
+    private val WHATSAPP_PAY_REGEX = Regex(
+        """(?i)^\s*(?:you\s+(?:have\s+)?(?:paid|sent)\s+(?:rs\.?|inr|₹)\s*[0-9,]+|(?:rs\.?|inr|₹)\s*[0-9,]+(?:\.[0-9]{1,2})?\s+(?:paid|sent)\s+to\b|payment\s+(?:of\s+(?:rs\.?|inr|₹)\s*[0-9,]+(?:\.[0-9]{1,2})?\s+)?(?:to\s+[^.\n]{1,40}?\s+)?(?:sent|successful|completed)\b|[a-z][a-z .'-]{1,40}?\s+(?:paid|sent)\s+you\s+(?:rs\.?|inr|₹)|you\s+(?:have\s+)?received\s+(?:rs\.?|inr|₹))"""
+    )
+
+    /**
+     * True for WhatsApp Pay's own payment notification text ("You paid ₹200 to Rahul"), not a chat message.
+     * [anchored] = false also finds it after a title (stored entries keep "title text" together).
+     */
+    fun looksLikeWhatsAppPayment(text: String?, anchored: Boolean = true): Boolean {
+        val t = text?.trim().orEmpty()
+        if (t.isEmpty() || t.length > 260) return false
+        if (anchored) return WHATSAPP_PAY_REGEX.containsMatchIn(t)
+        val words = t.split(' ')
+        // Try the text after a title of up to five words ("Rahul Sharma You paid ₹200 to ...").
+        return (0..minOf(5, words.size - 1)).any { WHATSAPP_PAY_REGEX.containsMatchIn(words.drop(it).joinToString(" ")) }
+    }
 
     /** A bank credit alert ("A/c XX12 credited with ..."), the only shape income is taken from an SMS app. */
     fun looksLikeBankCreditSms(text: String): Boolean = BANK_CREDIT_SHAPE_REGEX.containsMatchIn(text)
@@ -153,11 +193,16 @@ object TransactionParser {
 
         val lowerContent = fullContent.lowercase(Locale.ROOT)
 
-        // 0. Ads, offers and OTPs -> DO NOT RECORD
-        if (isNonTransaction(fullContent)) return null
+        // 0. Ads, offers, OTPs, insurance promos and zero amounts -> DO NOT RECORD
+        if (isNonTransaction(fullContent) || isInsurancePromo(fullContent)) return null
 
-        // 1. Check for Failed / Declined payments -> DO NOT RECORD
-        for (failedKey in FAILED_KEYWORDS) {
+        // 1. Check for Failed / Declined payments -> DO NOT RECORD.
+        // Except money credited back for a cancelled booking/order: "Refund of Rs 13,566 for your
+        // cancelled booking has been credited" is a refund, not a failed payment.
+        val isCreditedRefund = REFUND_KEYWORDS.any { lowerContent.contains(it) } &&
+            Regex("""\b(?:credited|reversed|refunded)\b""").containsMatchIn(lowerContent) &&
+            !Regex("""\b(?:failed|declined|unsuccessful)\b""").containsMatchIn(lowerContent)
+        if (!isCreditedRefund) for (failedKey in FAILED_KEYWORDS) {
             if (lowerContent.contains(failedKey)) {
                 return null
             }
@@ -220,8 +265,9 @@ object TransactionParser {
             return null
         }
 
-        // 6. Extract Amount
+        // 6. Extract Amount. Nothing was spent in a "₹0" message (a zero invoice, a ₹0 balance due).
         val amount = extractAmount(fullContent) ?: return null
+        if (amount <= 0) return null
 
         // 7. Extract VPA (UPI ID)
         val vpa = VPA_REGEX.find(fullContent)?.value
@@ -299,12 +345,16 @@ object TransactionParser {
         return null
     }
 
+    // A phone number or the bank's own footer ("9215676766. To Convert This Txn To Emi..."), not a payee.
+    private val NOT_A_MERCHANT = Regex("""(?i)^\d{6,}|missed call|convert this|sms block|\bdispute\b|call \d""")
+
     private fun extractMerchant(text: String, vpa: String?): String? {
         for (pattern in MERCHANT_PATTERNS) {
             val match = pattern.find(text)
             if (match != null) {
                 val candidate = match.groupValues[1].trim()
-                if (candidate.isNotBlank() && candidate.length > 1 && !candidate.equals("vpa", ignoreCase = true)) {
+                if (candidate.isNotBlank() && candidate.length > 1 && !candidate.equals("vpa", ignoreCase = true) &&
+                    !NOT_A_MERCHANT.containsMatchIn(candidate)) {
                     return candidate
                 }
             }

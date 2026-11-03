@@ -230,4 +230,21 @@ class TransactionParserTest {
         assertEquals(1299.0, TransactionParser.extractAmount("Rs 1299 debited")!!, 0.01)
         assertEquals(90.0, TransactionParser.extractAmount("Paid ₹ 90 to Rahul")!!, 0.01)
     }
+
+    @Test
+    fun parse_zeroAmount_isRejected() {
+        assertNull(TransactionParser.parse("Bank", "Your A/c XX123 is debited by Rs 0.00 on 10-Oct-26"))
+        assertNull(TransactionParser.parse("Google Pay", "Paid ₹0 to Rahul", "com.google.android.apps.nbu.paisa.user"))
+        assertNull(TransactionParser.parse("PhonePe", "Paid Rs 0.0 spent", "com.phonepe.app"))
+    }
+
+    @Test
+    fun parse_insurancePromotions_areRejected() {
+        assertNull(TransactionParser.parse("Policybazaar", "Get Term Insurance cover of Rs 1 Crore at just Rs 490/month. Apply now!"))
+        assertNull(TransactionParser.parse("HDFCERGO", "Renew your car insurance policy now starting at Rs 2094. Limited period offer."))
+        assertNull(TransactionParser.parse("StarHealth", "Special health insurance offer: Rs 5 Lakhs cover with zero premium for first month."))
+        assertNull(TransactionParser.parse("Bank", "Dear customer, buy bike insurance at just Rs 450. Click to get insured."))
+        assertTrue(TransactionParser.isInsurancePromo("Term insurance cover of 1 Cr at Rs 490"))
+        assertTrue(TransactionParser.isInsurancePromo("Zero cost health insurance"))
+    }
 }

@@ -54,7 +54,12 @@ class SpendTrackNotificationListener : NotificationListenerService() {
 
         val packageName = sbn.packageName
         if (packageName == applicationContext.packageName) return
-        val extras = sbn.notification?.extras ?: return
+        val notification = sbn.notification ?: return
+        val extras = notification.extras ?: return
+        // A group summary repeats its children (the payment itself arrives as its own notification).
+        if ((notification.flags and android.app.Notification.FLAG_GROUP_SUMMARY) != 0) return
+        // WhatsApp group chats never carry WhatsApp Pay status lines about your own money.
+        if (packageName in TransactionParser.WHATSAPP_PACKAGES && extras.getBoolean("android.isGroupConversation", false)) return
 
         // Extract text fields
         val title = extras.getCharSequence("android.title")?.toString()
@@ -83,6 +88,14 @@ class SpendTrackNotificationListener : NotificationListenerService() {
                         packageName.contains("bank", ignoreCase = true)
 
                 if (!isMonitored) return@launch
+
+                // The same message seen again (re-posted notification, the SMS app's copy of an SMS already
+                // read, a refresh after reconnecting): read once, so one payment is asked about once.
+                // Only messages that mention money are remembered; chats never reach this store.
+                if (com.spendtrack.app.core.parser.TransactionParser.extractAmount(fullText) != null &&
+                    com.spendtrack.app.core.deduplication.SeenMessages.checkAndRemember(applicationContext, fullText, notification.`when`.takeIf { it > 0 } ?: sbn.postTime)) {
+                    return@launch
+                }
 
                 // Credit card statement / bill payment: remember the due date, or mark it paid.
                 // (A statement is never an expense; a bill payment is a transfer, handled by the parser.)
@@ -149,7 +162,8 @@ class SpendTrackNotificationListener : NotificationListenerService() {
                                         activeProjectName = activeProject,
                                         isProjectPaused = isProjectPaused,
                                         trips = knownTrips,
-                                        projects = knownProjects
+                                        projects = knownProjects,
+                                        duplicateOf = repo.duplicateCandidateFor(txn)
                                     )
                                 }
                             }
