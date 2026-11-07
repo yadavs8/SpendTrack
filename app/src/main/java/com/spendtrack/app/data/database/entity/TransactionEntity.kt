@@ -51,6 +51,9 @@ data class TransactionEntity(
     val linkedTransactionId: String? = null,
     /** Was pushed to Kharcha Book but no longer belongs there (became a transfer / fully refunded). */
     val needsCloudDelete: Boolean = false,
+    /** Kharcha Book's id for this payment's row once it is there. v139 pushes an unanswered payment straight
+     *  away as "⏳ to sort"; answering then updates that row in place instead of adding a second one. */
+    val cloudRowId: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis()
 )

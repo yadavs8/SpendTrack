@@ -240,13 +240,14 @@
     s = s.replace(/^[✈\u{2708}\u{FE0F}\u{1F6EB}\u{1F6EC}]+\s*(?:[^:]+:\s*)?/u, '').trim();
     // Strip leading project prefix (🔨 ProjectName: or 🔨 )
     s = s.replace(/^🔨\s*(?:[^:\[]{1,40}:\s*)?/u, '').trim();
-    // Strip other leading scope tags (🏠, 👤, 📈, 💰, 🔁)
-    s = s.replace(/^[\u{1F3E0}\u{1F464}\u{1F4C8}\u{1F4B0}\u{1F501}]\s*/u, '').trim();
+    // Strip other leading scope tags (🏠, 👤, 📈, 💰, 🔁) and the phone's "⏳ not sorted yet" (v139)
+    s = s.replace(/^[\u{1F3E0}\u{1F464}\u{1F4C8}\u{1F4B0}\u{1F501}\u{23F3}]\s*/u, '').trim();
+    s = s.replace(/^\u{23F3}\s*/u, '').trim();
     return s;
   }
 
   function shiftScopeDesc(desc, targetScope, tripName, projectName) {
-    var clean = cleanScopePrefix(desc);
+    var clean = cleanScopePrefix(String(desc || '').replace(/\u{23F3}\s*/gu, ''));
     if (!clean) clean = 'Expense';
     if (targetScope === 'family') return '🏠 ' + clean;
     if (targetScope === 'investment') return '📈 ' + clean;
@@ -7067,6 +7068,28 @@
     });
 
     wrap.appendChild(b);
+    // v139: the phone sends a payment straight away, before its "Personal / Family / Trip?" question is answered.
+    // Sort it here in one tap (the phone sees it and stops asking).
+    if (/^\s*\u{23F3}/u.test(e.desc || '') && !e.isGuestEntry && !e.synthetic) {
+      wrap.classList.add('unsorted');
+      var bar = el('div', 'sort-bar');
+      bar.appendChild(el('span', 'sort-q', '⏳ Not sorted yet'));
+      var opts = [['personal', '👤 Personal'], ['family', '🏠 Family']];
+      var trip = getActiveTripName();
+      if (trip && !isTripPaused()) opts.push(['trip', '✈️ ' + trip]);
+      opts.forEach(function (o) {
+        var sb = el('button', 'sort-btn', o[1]); sb.type = 'button';
+        sb.addEventListener('click', function () {
+          Array.prototype.forEach.call(bar.querySelectorAll('button'), function (x) { x.disabled = true; });
+          store.update(e.id, { amount: e.amount, desc: shiftScopeDesc(e.desc, o[0], o[0] === 'trip' ? trip : null), spent_at: new Date(e.ts).toISOString() })
+            .then(function () { toast('Moved to ' + o[1].replace(/^\S+\s/, '')); })
+            .catch(function (err) { toast('Could not move: ' + ((err && err.message) || 'check your connection')); })
+            .then(function () { refreshData(); });
+        });
+        bar.appendChild(sb);
+      });
+      wrap.appendChild(bar);
+    }
     return wrap;
   }
 

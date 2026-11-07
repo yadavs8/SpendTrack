@@ -21,7 +21,10 @@ object PromptReconciler {
         val row = withTimeoutOrNull(6000) {
             runCatching { ServiceLocator.cloudSyncRepository.findHandEntry(txn) }.getOrNull()
         } ?: return false
-        repo.adoptCloudEntry(transactionId, row.description)
+        // v139: it was already pushed as "⏳ to sort"; the hand-typed row is the one that stays.
+        val own = txn.cloudRowId
+        if (own != null && row.id != own && !ServiceLocator.cloudSyncRepository.deleteCloudRow(own)) return false
+        repo.adoptCloudEntry(transactionId, row.description, row.id ?: own)
         NudgeScheduler.cancel(context, transactionId)
         ExpensePromptNotifier.dismiss(context, transactionId)
         SafeLogger.i("Prompt $transactionId resolved from an entry already in Kharcha Book")

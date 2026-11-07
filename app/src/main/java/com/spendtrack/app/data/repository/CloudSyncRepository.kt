@@ -109,6 +109,37 @@ class CloudSyncRepository(
                 )
             }
 
+            // v139: a payment pushed before it was answered that turned out not to count leaves Kharcha Book.
+            for (gone in transactionDao.getEarlyRowsToRemove()) {
+                val rowId = gone.cloudRowId ?: continue
+                var del = withContext(Dispatchers.IO) { syncClient.deleteById(token, rowId) }
+                if (del.isFailure && isUnauthorized(del.exceptionOrNull())) {
+                    token = refreshAccessToken() ?: return
+                    del = withContext(Dispatchers.IO) { syncClient.deleteById(token, rowId) }
+                }
+                if (del.isSuccess) transactionDao.setCloudRowId(gone.id, null)
+            }
+
+            // v139: payments still waiting for their "Personal / Family / Trip?" answer go to Kharcha Book now,
+            // as "⏳ <payee>". An ignored question no longer means a missing payment; answering updates the row.
+            val now = System.currentTimeMillis()
+            for (unsorted in transactionDao.getUnsortedToPush(now - com.spendtrack.app.core.sync.UnsortedSync.WINDOW_MS)) {
+                if (!com.spendtrack.app.core.sync.UnsortedSync.shouldPush(unsorted, now, REREAD_AFTER_MS)) continue
+                val desc = com.spendtrack.app.core.sync.UnsortedSync.description(unsorted)
+                var pushed = withContext(Dispatchers.IO) { syncClient.insertUnsorted(token, unsorted, desc) }
+                if (pushed.isFailure && isUnauthorized(pushed.exceptionOrNull())) {
+                    token = refreshAccessToken() ?: return
+                    pushed = withContext(Dispatchers.IO) { syncClient.insertUnsorted(token, unsorted, desc) }
+                }
+                pushed.fold(
+                    onSuccess = { rowId -> if (rowId != null) transactionDao.setCloudRowId(unsorted.id, rowId) },
+                    onFailure = { error ->
+                        SafeLogger.e("Early push failed for transaction ${unsorted.id}", error as? Exception)
+                        settingsManager.setCloudSyncError(error.message ?: "Sync failed")
+                    }
+                )
+            }
+
             val pending = transactionDao.getUnsyncedExpenses()
             if (pending.isEmpty()) {
                 // Nothing left to send is itself a successful sync (e.g. right after a fresh
@@ -124,6 +155,36 @@ class CloudSyncRepository(
                 if (transaction.amount <= 0.0 || effectiveAmount <= 0.0) {
                     transactionDao.deleteById(transaction.id)
                     continue
+                }
+
+                // v139: it is already in Kharcha Book as "⏳ to sort": rewrite that row with the answer.
+                val rowId = transaction.cloudRowId
+                if (rowId != null) {
+                    var upd = withContext(Dispatchers.IO) { syncClient.updateById(token, rowId, transaction) }
+                    if (upd.isFailure && isUnauthorized(upd.exceptionOrNull())) {
+                        token = refreshAccessToken() ?: break
+                        upd = withContext(Dispatchers.IO) { syncClient.updateById(token, rowId, transaction) }
+                    }
+                    val clash = upd.exceptionOrNull()?.message?.let { it.contains("(409)") || it.contains("23505") } == true
+                    if (!clash) {
+                        upd.fold(
+                            onSuccess = {
+                                // Ok(false): the user deleted that row in Kharcha Book -- it stays deleted.
+                                transactionDao.markSynced(transaction.id)
+                                settingsManager.setCloudSyncLastSuccessAt(System.currentTimeMillis())
+                                settingsManager.setCloudSyncError(null)
+                            },
+                            onFailure = { error ->
+                                SafeLogger.e("Cloud sync failed for transaction ${transaction.id}", error as? Exception)
+                                settingsManager.setCloudSyncError(error.message ?: "Sync failed")
+                            }
+                        )
+                        continue
+                    }
+                    // Another row already has this payment's ref: drop the early copy, the ref's row takes the answer.
+                    val del = withContext(Dispatchers.IO) { syncClient.deleteById(token, rowId) }
+                    if (del.isFailure) continue
+                    transactionDao.setCloudRowId(transaction.id, null)
                 }
 
                 // An auto-detected income the user already typed in by hand (e.g. "💼 Salary 1")
@@ -235,18 +296,10 @@ class CloudSyncRepository(
         val rows = fetchCloudRows(txn.dateTime - window, txn.dateTime + window) ?: return null
         val ref = (txn.upiReference ?: txn.bankReference)?.take(40)
         val amount = Math.round((txn.amount - txn.refundedAmount) * 100) / 100.0
-        val sameAmount = rows.filter { r ->
-            Math.abs(r.amount - amount) < 0.01 && (r.kind == null || r.kind == "expense" || r.kind == "transfer")
-        }
-        sameAmount.firstOrNull { r -> r.refNo != null && r.refNo == ref && SCOPE_MARKS.any { r.description.trimStart().startsWith(it) } }
-            ?.let { return it }
-        val byHand = sameAmount.filter { it.refNo == null }
-        if (byHand.isEmpty()) return null
         val alreadyUsed = transactionDao.findSameAmountNear(txn.amount, txn.dateTime - window, txn.dateTime + window, txn.id)
             .count { it.syncedToCloud && it.transactionType == com.spendtrack.app.core.model.TransactionType.EXPENSE &&
                 it.upiReference.isNullOrBlank() && it.bankReference.isNullOrBlank() }
-        if (byHand.size <= alreadyUsed) return null
-        return byHand.minByOrNull { Math.abs(it.spentAt - txn.dateTime) }
+        return com.spendtrack.app.core.sync.UnsortedSync.pickHandEntry(rows, amount, ref, txn.cloudRowId, txn.dateTime, alreadyUsed, SCOPE_MARKS)
     }
 
     /** Signed-in access token, refreshed if needed; null when Cloud Sync is off or signed out. */
