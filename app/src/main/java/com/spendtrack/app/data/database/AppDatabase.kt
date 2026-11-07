@@ -30,7 +30,7 @@ import kotlinx.coroutines.launch
         UserAccountEntity::class,
         TemplateRuleEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -54,7 +54,7 @@ abstract class AppDatabase : RoomDatabase() {
                     "spendtrack_database"
                 )
                     .addCallback(DatabaseCallback())
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .fallbackToDestructiveMigration(false)
                     .build()
                 INSTANCE = instance
@@ -180,6 +180,13 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE transactions ADD COLUMN bankName TEXT DEFAULT NULL")
                 db.execSQL("ALTER TABLE transactions ADD COLUMN linkedTransactionId TEXT DEFAULT NULL")
                 db.execSQL("ALTER TABLE transactions ADD COLUMN needsCloudDelete INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        // Kharcha Book's row id, for payments pushed before they were answered (v139).
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE transactions ADD COLUMN cloudRowId TEXT DEFAULT NULL")
             }
         }
 

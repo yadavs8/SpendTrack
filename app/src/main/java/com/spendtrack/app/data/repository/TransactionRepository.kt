@@ -382,7 +382,7 @@ class TransactionRepository(
      * The user already entered this payment in Kharcha Book (Family / Personal / a trip...): take their
      * answer instead of asking again, and never push our own copy on top of theirs.
      */
-    suspend fun adoptCloudEntry(transactionId: String, description: String) {
+    suspend fun adoptCloudEntry(transactionId: String, description: String, cloudRowId: String? = null) {
         val t = transactionDao.getTransactionById(transactionId) ?: return
         transactionDao.updateTransaction(
             t.copy(
@@ -390,6 +390,7 @@ class TransactionRepository(
                 needsReview = false,
                 isEdited = true,
                 syncedToCloud = true,
+                cloudRowId = cloudRowId,
                 updatedAt = System.currentTimeMillis()
             )
         )

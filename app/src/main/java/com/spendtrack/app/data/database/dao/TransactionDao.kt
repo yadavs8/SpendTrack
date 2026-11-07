@@ -182,6 +182,28 @@ interface TransactionDao {
     @Query("UPDATE transactions SET syncedToCloud = 1 WHERE id = :id")
     suspend fun markSynced(id: String)
 
+    /** Unanswered spends not yet in Kharcha Book (v139 pushes them as "⏳ to sort"; UnsortedSync.shouldPush decides). */
+    @Query("""
+        SELECT * FROM transactions
+        WHERE needsReview = 1 AND syncedToCloud = 0 AND cloudRowId IS NULL
+            AND isExcluded = 0 AND isDemo = 0 AND needsCloudDelete = 0
+            AND transactionType = 'EXPENSE' AND amount > 0 AND linkedTransactionId IS NULL
+            AND dateTime >= :since
+        ORDER BY dateTime ASC
+    """)
+    suspend fun getUnsortedToPush(since: Long): List<TransactionEntity>
+
+    /** Pushed early, but no longer a spend that counts (not a payment, a transfer, a duplicate copy). */
+    @Query("""
+        SELECT * FROM transactions
+        WHERE cloudRowId IS NOT NULL AND syncedToCloud = 0
+            AND (isExcluded = 1 OR isDemo = 1 OR transactionType != 'EXPENSE')
+    """)
+    suspend fun getEarlyRowsToRemove(): List<TransactionEntity>
+
+    @Query("UPDATE transactions SET cloudRowId = :rowId WHERE id = :id")
+    suspend fun setCloudRowId(id: String, rowId: String?)
+
     /** Rows that were pushed to Kharcha Book but must now be removed there (transfer / fully refunded). */
     @Query("SELECT * FROM transactions WHERE needsCloudDelete = 1 AND isDemo = 0")
     suspend fun getPendingCloudDeletes(): List<TransactionEntity>

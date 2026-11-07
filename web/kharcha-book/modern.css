@@ -1035,3 +1035,13 @@ html.kt-open, html.kt-open body { overflow: hidden; }
 :root[data-theme="dark"] .kt-shot-b { color: #c4b5fd; } @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .kt-shot-b { color: #c4b5fd; } }
 .kt-shot-note { margin: 8px 2px 0; font-size: .8rem; line-height: 1.35; color: var(--muted); }
 .kt-shot-chrome { display: block; margin-top: 8px; padding: 10px 12px; border-radius: 12px; background: #1a73e8; color: #fff; font-weight: 800; font-size: .86rem; text-align: center; text-decoration: none; }
+
+/* v139: a payment the phone sent before its "Personal / Family / Trip?" was answered */
+.entry-swipe-wrap.unsorted { border-left: 3px solid #f59e0b; border-radius: 14px; }
+.sort-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 2px 12px 10px 14px; }
+.sort-q { font-size: .74rem; font-weight: 600; color: #b45309; margin-right: 2px; }
+.sort-btn { border: 1px solid var(--line); background: var(--surface); color: var(--text, inherit); border-radius: 999px; padding: 5px 11px; font-size: .78rem; font-weight: 600; min-height: 30px; }
+.sort-btn:active { background: var(--accent-soft); }
+.sort-btn:disabled { opacity: .5; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .sort-q { color: #fbbf24; } }
+:root[data-theme="dark"] .sort-q { color: #fbbf24; }

@@ -410,3 +410,20 @@ Tested on a real dark-mode Blinkit "Repeat Order" list: 11 items, product photo 
 - The phone's status bar (clock, battery) and buttons like "Repeat Order" / "View cart" are ignored.
 - "Cotton Phool Diya Batti" is no longer taken for flowers, and "Coriander Seeds" not for fresh dhaniya. Mustard oil still maps to Oil.
 - Long product names get a full line above their − qty + ₹ controls, so similar items ("Whole Farm … Coriander Seeds" and "… Mustard Seeds") can be told apart.
+
+## No more missing payments: sent before you answer (v139, new APK)
+
+Why payments went missing: the phone sent a payment to Kharcha Book only after you answered its "Personal / Family / Trip?" notification. An ignored or swiped notification meant a missing payment (₹9,283 insurance and ₹2,640 to Anju on 7 Nov).
+
+- **Phone app (new APK):**
+  - Every payment is now sent the moment it is read, as **"⏳ <payee>"** (not sorted yet).
+  - Answering the notification updates that same row in place, using its Kharcha Book id, so it never becomes two rows. Card payments have no UPI ref and are handled the same way.
+  - Not sent early:
+    - possible duplicate copies, until the duplicate question is answered;
+    - old messages read again after a reinstall;
+    - transfers and anything that isn't a spend.
+  - If a payment sent early turns out not to count ("Not a payment", a transfer, a duplicate copy), its row is removed.
+  - If you typed the payment in by hand already, the early row is removed and your entry is kept.
+- **Kharcha Book:**
+  - An unsorted payment shows a **⏳ Not sorted yet** bar with one-tap **👤 Personal / 🏠 Family** buttons, plus the active trip if one is on.
+  - Sorting it here is seen by the phone, which stops asking.

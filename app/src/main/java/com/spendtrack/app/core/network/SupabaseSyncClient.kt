@@ -45,17 +45,14 @@ class SupabaseSyncClient(private val client: OkHttpClient = OkHttpClient()) {
     private fun isMissingColumn(message: String): Boolean =
         message.contains("PGRST204") || message.contains("42703") || Regex("(?i)could not find the '.*' column").containsMatchIn(message)
 
-    private fun upsertOnce(accessToken: String, transaction: TransactionEntity, withTypes: Boolean): Result<Unit> {
+    /** The row as Kharcha Book stores it; null for an amount that is fully refunded (nothing to send). */
+    private fun rowJson(transaction: TransactionEntity, description: String, withTypes: Boolean): JSONObject? {
         val refNo = (transaction.upiReference ?: transaction.bankReference)?.take(40)
-        val description = buildDescription(transaction)
         val rawSms = transaction.rawNotificationText?.take(500)
         // A partly refunded expense shows what was really spent.
         val amount = Math.round((transaction.amount - transaction.refundedAmount) * 100) / 100.0
-        if (amount <= 0.0) {
-            return Result.success(Unit) // Do not send invalid <= 0 amounts to Supabase
-        }
-
-        val row = JSONObject().apply {
+        if (amount <= 0.0) return null
+        return JSONObject().apply {
             put("amount", amount)
             put("description", description)
             put("spent_at", isoFormat.format(Date(transaction.dateTime)))
@@ -68,6 +65,12 @@ class SupabaseSyncClient(private val client: OkHttpClient = OkHttpClient()) {
                 transaction.bankName?.takeIf { it.isNotBlank() }?.let { put("bank", it.take(40)) }
             }
         }
+    }
+
+    private fun upsertOnce(accessToken: String, transaction: TransactionEntity, withTypes: Boolean): Result<Unit> {
+        val refNo = (transaction.upiReference ?: transaction.bankReference)?.take(40)
+        val row = rowJson(transaction, buildDescription(transaction), withTypes)
+            ?: return Result.success(Unit) // Do not send invalid <= 0 amounts to Supabase
         // user_id defaults server-side to auth.uid() -- never send it explicitly.
 
         val payload = JSONArray().put(row).toString().toRequestBody(jsonMediaType)
@@ -92,6 +95,97 @@ class SupabaseSyncClient(private val client: OkHttpClient = OkHttpClient()) {
                     val body = response.body?.string().orEmpty()
                     throw IOException("Sync failed (${response.code}): $body")
                 }
+            }
+        }
+    }
+
+    /**
+     * v139: puts a payment that is still waiting for its "Personal / Family / Trip?" answer into Kharcha Book,
+     * as "⏳ <payee>". Returns the row's id (to update it in place once answered). A row Kharcha Book already
+     * has for the same bank/UPI ref is left exactly as it is, and its id is returned.
+     */
+    fun insertUnsorted(accessToken: String, transaction: TransactionEntity, description: String): Result<String?> {
+        val first = insertUnsortedOnce(accessToken, transaction, description, hasMoneyTypeColumns)
+        if (hasMoneyTypeColumns && first.isFailure && isMissingColumn(first.exceptionOrNull()?.message.orEmpty())) {
+            hasMoneyTypeColumns = false
+            return insertUnsortedOnce(accessToken, transaction, description, false)
+        }
+        return first
+    }
+
+    private fun insertUnsortedOnce(accessToken: String, transaction: TransactionEntity, description: String, withTypes: Boolean): Result<String?> {
+        val refNo = (transaction.upiReference ?: transaction.bankReference)?.take(40)
+        val row = rowJson(transaction, description, withTypes) ?: return Result.success(null)
+        val url = buildString {
+            append("${SupabaseConfig.SUPABASE_URL}/rest/v1/daily_expenses?select=id")
+            if (refNo != null) append("&on_conflict=user_id,ref_no")
+        }
+        val request = Request.Builder()
+            .url(url)
+            .addHeader("apikey", SupabaseConfig.SUPABASE_ANON_KEY)
+            .addHeader("Authorization", "Bearer $accessToken")
+            .addHeader("Content-Type", "application/json")
+            .addHeader("Prefer", if (refNo != null) "resolution=ignore-duplicates,return=representation" else "return=representation")
+            .post(JSONArray().put(row).toString().toRequestBody(jsonMediaType))
+            .build()
+        return runCatching {
+            val id = client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) throw IOException("Sync failed (${response.code}): $body")
+                val arr = runCatching { JSONArray(body) }.getOrNull()
+                if (arr != null && arr.length() > 0) arr.getJSONObject(0).optString("id").takeIf { it.isNotBlank() } else null
+            }
+            // Nothing new was added: Kharcha Book already has this ref. Use that row.
+            id ?: refNo?.let { fetchIdByRef(accessToken, it).getOrThrow() }
+                ?: throw IOException("Sync failed: no row id came back")
+        }
+    }
+
+    /** The id of the row with this bank/UPI ref, or null when there is none. */
+    fun fetchIdByRef(accessToken: String, refNo: String): Result<String?> {
+        val url = "${SupabaseConfig.SUPABASE_URL}/rest/v1/daily_expenses?select=id&limit=1&ref_no=eq.${enc(refNo)}"
+        val request = Request.Builder().url(url)
+            .addHeader("apikey", SupabaseConfig.SUPABASE_ANON_KEY)
+            .addHeader("Authorization", "Bearer $accessToken")
+            .get().build()
+        return runCatching {
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) throw IOException("Lookup failed (${response.code}): $body")
+                val arr = JSONArray(body)
+                if (arr.length() == 0) null else arr.getJSONObject(0).optString("id").takeIf { it.isNotBlank() }
+            }
+        }
+    }
+
+    /**
+     * v139: the answered payment rewrites the row it was pushed as (by id). Ok(false) when that row is gone
+     * (the user deleted it in Kharcha Book). A clash with another row's ref fails with "(409)".
+     */
+    fun updateById(accessToken: String, id: String, transaction: TransactionEntity): Result<Boolean> {
+        val first = updateByIdOnce(accessToken, id, transaction, hasMoneyTypeColumns)
+        if (hasMoneyTypeColumns && first.isFailure && isMissingColumn(first.exceptionOrNull()?.message.orEmpty())) {
+            hasMoneyTypeColumns = false
+            return updateByIdOnce(accessToken, id, transaction, false)
+        }
+        return first
+    }
+
+    private fun updateByIdOnce(accessToken: String, id: String, transaction: TransactionEntity, withTypes: Boolean): Result<Boolean> {
+        val row = rowJson(transaction, buildDescription(transaction), withTypes) ?: return Result.success(true)
+        val request = Request.Builder()
+            .url("${SupabaseConfig.SUPABASE_URL}/rest/v1/daily_expenses?id=eq.${enc(id)}&select=id")
+            .addHeader("apikey", SupabaseConfig.SUPABASE_ANON_KEY)
+            .addHeader("Authorization", "Bearer $accessToken")
+            .addHeader("Content-Type", "application/json")
+            .addHeader("Prefer", "return=representation")
+            .patch(row.toString().toRequestBody(jsonMediaType))
+            .build()
+        return runCatching {
+            client.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) throw IOException("Sync failed (${response.code}): $body")
+                runCatching { JSONArray(body).length() > 0 }.getOrDefault(true)
             }
         }
     }
@@ -160,14 +254,14 @@ class SupabaseSyncClient(private val client: OkHttpClient = OkHttpClient()) {
     }
 
     /** A row of the user's Kharcha Book, as the automations need it. */
-    data class CloudRow(val amount: Double, val description: String, val spentAt: Long, val refNo: String?, val kind: String?, val method: String?)
+    data class CloudRow(val amount: Double, val description: String, val spentAt: Long, val refNo: String?, val kind: String?, val method: String?, val id: String? = null)
 
     /**
      * The user's rows between two instants (RLS limits it to their own). Used by budget alerts,
      * the weekly summary and the settle-up reminder, so they see web-typed entries too.
      */
     fun fetchRows(accessToken: String, fromMillis: Long, toMillis: Long): Result<List<CloudRow>> {
-        val cols = if (hasMoneyTypeColumns) "amount,description,spent_at,ref_no,kind,method" else "amount,description,spent_at,ref_no"
+        val cols = if (hasMoneyTypeColumns) "id,amount,description,spent_at,ref_no,kind,method" else "id,amount,description,spent_at,ref_no"
         val url = "${SupabaseConfig.SUPABASE_URL}/rest/v1/daily_expenses?select=$cols" +
             "&spent_at=gte.${enc(isoFormat.format(Date(fromMillis)))}&spent_at=lt.${enc(isoFormat.format(Date(toMillis)))}&order=spent_at.asc&limit=5000"
         val request = Request.Builder()
@@ -195,7 +289,8 @@ class SupabaseSyncClient(private val client: OkHttpClient = OkHttpClient()) {
                         spentAt = parseIso(o.optString("spent_at")),
                         refNo = o.optString("ref_no").takeIf { !o.isNull("ref_no") && it.isNotBlank() },
                         kind = o.optString("kind").takeIf { !o.isNull("kind") && it.isNotBlank() },
-                        method = o.optString("method").takeIf { !o.isNull("method") && it.isNotBlank() }
+                        method = o.optString("method").takeIf { !o.isNull("method") && it.isNotBlank() },
+                        id = o.optString("id").takeIf { !o.isNull("id") && it.isNotBlank() }
                     )
                 }
             }
