@@ -357,6 +357,19 @@
   function walletTopupDesc(name, note) { return W_UP + ' ' + cleanName(name) + (note ? ' · ' + String(note).trim() : ''); }
   function walletSpendDesc(name, what) { return W_SP + ' ' + cleanName(name) + (what ? ' · ' + String(what).trim() : ''); }
 
+  // v140: payments that only move money, never spending. A card charge that loads the Amazon Pay balance
+  // ("... on AMAZON PAY WALL") is a top-up: what you buy from the balance is the spending. The Amazon Pay Later
+  // auto-repayment ("towards AXIO via UPI AutoPay") pays off orders already logged on the day you made them.
+  function autoMoneyMove(e) {
+    var raw = String(e && e.raw || ''), d = String(e && e.desc || '').trim();
+    if (!raw || /^(\u{1F45B}|\u{1F501})/u.test(d)) return null;
+    if (/\bamazon\s*pay\s*wall/i.test(raw)) {
+      var last = (/(?:card|xx)\s*(\d{4})/i.exec(raw) || [])[1];
+      return walletTopupDesc('Amazon Pay', 'ICICI card' + (last ? ' \u00b7\u00b7' + last : ''));
+    }
+    if (/\btowards\s+axio\b/i.test(raw) || /\bamazon\s*pay\s*later\b/i.test(raw)) return '\u{1F501} Amazon Pay Later bill (Axio)';
+    return null;
+  }
   function parseWalletDesc(desc) {
     var d = String(desc || '').trim(), kind, rest;
     if (d.indexOf(W_UP) === 0) { kind = 'topup'; rest = d.slice(W_UP.length); }
@@ -1734,7 +1747,7 @@
     tripItemCategory: tripItemCategory, tripCategoriesSummary: tripCategoriesSummary, TRIP_CATEGORY_DEFS: TRIP_CATEGORY_DEFS,
     cleanName: cleanName, nameKey: nameKey, parseLoans: parseLoans, repaid: repaid, outstanding: outstanding,
     addPayment: addPayment, editLoan: editLoan, editPayment: editPayment, summarize: summarize,
-    walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, parseWalletDesc: parseWalletDesc,
+    walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, parseWalletDesc: parseWalletDesc, autoMoneyMove: autoMoneyMove,
     parseWallets: parseWallets, walletState: walletState, walletReconcile: walletReconcile,
     smartSearch: smartSearch, smsAccounts: smsAccounts, searchInsights: searchInsights, payeeName: payeeName, tripDiaryLabel: tripDiaryLabel, placeIn: placeIn, categoryOf: categoryOf, personOf: personOf, findPaybacks: findPaybacks, peopleLedger: peopleLedger, cleanBankAccounts: cleanBankAccounts, smsSourceBank: smsSourceBank, findRefunds: findRefunds, isRefundText: isRefundText, looksLikeCardBill: looksLikeCardBill, KITCHEN_SEED: KITCHEN_SEED, parseOrderText: parseOrderText, vendorOf: vendorOf, vendorKind: vendorKind, learnVendor: learnVendor, vendorGuess: vendorGuess, kitchenItemFor: kitchenItemFor, parseItemsText: parseItemsText, itemsFromPattern: itemsFromPattern, summarizeItems: summarizeItems, refundShop: refundShop, recurringSeries: recurringSeries, safeToSpend: safeToSpend, creepingSpends: creepingSpends, seriesKey: seriesKey, askQuery: askQuery, forecastMonth: forecastMonth, unusualSpends: unusualSpends,
     payCycles: payCycles, lastWorkingDay: lastWorkingDay, nextPayday: nextPayday, parseBank: parseBank, parseAvlBalance: parseAvlBalance, balanceFromSms: balanceFromSms, bankEstimate: bankEstimate, parseTransfers: parseTransfers
