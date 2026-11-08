@@ -864,3 +864,14 @@ t('parseOrderText: a dark-mode Blinkit list (photos beside each name, struck MRP
   // the reader's ₹ slips
   assert.deepStrictEqual(L.parseOrderText('Amul Butter\n100 g x 1 ⟦3200⟧\nTata Tea Gold\n250 g x 1 ⟦T232⟧\nParle G\n1 pack x 1 ⟦743⟧ $50 ₹43').lines.map((l) => l.amount), [200, 232, 43]);
 });
+
+t('autoMoneyMove: an Amazon Pay top-up by card and the Pay Later bill are not spending', () => {
+  const top = L.autoMoneyMove({ desc: 'Amazon', raw: 'BP-ICICIT-S INR 1,387.88 spent using ICICI Bank Card XX1014 on 02-Nov-26 on AMAZON PAY WALL. Avl Limit: INR 72,916.06.' });
+  assert.strictEqual(top, '👛➕ Amazon Pay · ICICI card ··1014');
+  assert.strictEqual(L.parseWalletDesc(top).kind, 'topup');
+  assert.strictEqual(L.autoMoneyMove({ desc: '⏳ Axio', raw: 'AD-ICICIT-S Rs 1286.65 successfully debited from ICICI Bank XX602 on 05-Nov-26 towards AXIO via UPI AutoPay mandate . RRN: 111092730283' }), '🔁 Amazon Pay Later bill (Axio)');
+  // real Amazon shopping through the Amazon Pay gateway stays spending; already-moved rows are left alone
+  assert.strictEqual(L.autoMoneyMove({ desc: 'Amazon', raw: 'INR 804.00 spent using ICICI Bank Card XX1014 on 30-Oct-26 on AMAZON PAY IN E.' }), null);
+  assert.strictEqual(L.autoMoneyMove({ desc: '🔁 Amazon Pay Later bill (Axio)', raw: 'towards AXIO via UPI AutoPay' }), null);
+  assert.strictEqual(L.autoMoneyMove({ desc: 'Typed by hand', raw: '' }), null);
+});

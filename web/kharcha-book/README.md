@@ -427,3 +427,13 @@ Why payments went missing: the phone sent a payment to Kharcha Book only after y
 - **Kharcha Book:**
   - An unsorted payment shows a **⏳ Not sorted yet** bar with one-tap **👤 Personal / 🏠 Family** buttons, plus the active trip if one is on.
   - Sorting it here is seen by the phone, which stops asking.
+
+## Amazon Pay top-ups and the Pay Later bill are not spending (v140)
+
+These two only move money:
+- **Card top-ups:** a card charge that adds money to your Amazon Pay balance ("… on AMAZON PAY WALL") is now a 👛 top-up. What you buy from the balance is the spending.
+- **The Pay Later bill:** the Amazon Pay Later auto-repayment ("towards AXIO via UPI AutoPay") is now **🔁 Amazon Pay Later bill**. The Zomato orders it pays for are logged on the days you placed them.
+
+Before this, both were counted twice: once as the top-up or bill, once as the purchase.
+
+Kharcha Book recognises both by itself, including ones the phone sends as "⏳ to sort". The next Pay Later bill on 5 Dec will be filed the same way.
