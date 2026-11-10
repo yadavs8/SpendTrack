@@ -98,6 +98,8 @@ assert(money(250.50).includes('250.50'), 'money(250.50) formats INR decimal');
 assert(isFamilyEntry('⚡ Electricity Bill') === true, 'isFamilyEntry identifies electricity bill as family');
 assert(isFamilyEntry('👧 Niece Allowance') === true, 'isFamilyEntry identifies niece allowance as family');
 assert(isFamilyEntry('🛒 Grocery') === false, 'isFamilyEntry identifies grocery as personal');
+assert(isFamilyEntry('👤 credit card bill payment') === false, 'an entry marked Personal is never Family because of a word like bill');
+assert(isFamilyEntry('credit card bill payment') === false, 'a card bill is not a household bill');
 
 // 5. Group by Day
 const sampleEntries = [

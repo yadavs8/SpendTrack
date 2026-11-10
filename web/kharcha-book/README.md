@@ -457,3 +457,8 @@ A purchase paid from the Amazon Pay balance or with Amazon Pay Later (Blinkit, Z
 - **Choose your pages** (More → 🧹 Choose pages).
   - Pages with nothing in them are tucked away from More and the side menu by themselves.
   - You switch any page off or on. Nothing is deleted; a page and its data come back with one tap.
+
+## Your choice wins over keywords (v143)
+
+- **Fix:** an entry you marked 👤 Personal was shown under Family when its name had a word like "bill" in it ("👤 credit card bill payment"). What you chose now always wins; the keyword guesses only apply to entries with no mark. A card bill is no longer taken for a household bill. Lavish Kirana stays Family, as before.
+- A credit card bill paid through CRED is filed as a 🔁 bill payment (it pays for card spends already logged), and a bank's auto sweep into its own FD as 🔁, not as spending.
