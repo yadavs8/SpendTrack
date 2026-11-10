@@ -77,11 +77,17 @@ class SpendTrackNotificationListener : NotificationListenerService() {
             return
         }
 
+        // v141: Gmail is read only for Amazon Pay's "payment successful" emails (wallet / Pay Later purchases
+        // have no bank SMS). Any other email stops here, unread.
+        val amazonMail = if (packageName == com.spendtrack.app.core.parser.AmazonPayMail.GMAIL_PACKAGE) {
+            com.spendtrack.app.core.parser.AmazonPayMail.parse(title, fullText, sbn.postTime) ?: return
+        } else null
+
         serviceScope.launch {
             try {
                 // Check if package is monitored
                 val monitoredApps = ServiceLocator.settingsManager.monitoredAppsFlow.first()
-                val isMonitored = monitoredApps.contains(packageName) ||
+                val isMonitored = amazonMail != null || monitoredApps.contains(packageName) ||
                         TransactionParser.MONITORED_UPI_PACKAGES.contains(packageName) ||
                         // Bank SMS shown by the SMS app; works even when SMS permission isn't granted
                         TransactionParser.MESSAGING_PACKAGES.contains(packageName) ||
@@ -108,7 +114,7 @@ class SpendTrackNotificationListener : NotificationListenerService() {
                     com.spendtrack.app.core.automation.AutomationRunner.onCardPayment(it)
                 }
 
-                val parsed = ServiceLocator.rulePackEngine.parse(
+                val parsed = amazonMail ?: ServiceLocator.rulePackEngine.parse(
                     title = title,
                     text = fullText,
                     sourcePackage = packageName,

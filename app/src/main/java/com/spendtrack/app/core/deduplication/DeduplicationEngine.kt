@@ -69,7 +69,11 @@ class DeduplicationEngine(
         // "Unknown Merchant" is the normaliser's placeholder, not a name: it must match like an empty one.
         val knownMerchant = normalizedMerchant.takeUnless { isUnknownMerchant(it) }.orEmpty()
 
+        val gmail = com.spendtrack.app.core.parser.AmazonPayMail.GMAIL_PACKAGE
         for (candidate in candidates) {
+            // An Amazon Pay purchase (read from its email) is never the same payment as a bank message of the
+            // same amount: that one is the card charge that topped the balance up (₹144 top-up, ₹144 order).
+            if ((parsed.sourcePackage == gmail) != (candidate.sourcePackage == gmail)) continue
             val candidateMerchant = candidate.merchantName?.takeUnless { isUnknownMerchant(it) }
             val candidateRef = candidate.upiReference?.takeIf { it.isNotBlank() }
                 ?: candidate.bankReference?.takeIf { it.isNotBlank() }

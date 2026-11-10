@@ -437,3 +437,14 @@ These two only move money:
 Before this, both were counted twice: once as the top-up or bill, once as the purchase.
 
 Kharcha Book recognises both by itself, including ones the phone sends as "⏳ to sort". The next Pay Later bill on 5 Dec will be filed the same way.
+
+## Amazon Pay purchases logged in real time (v141, new APK)
+
+A purchase paid from the Amazon Pay balance or with Amazon Pay Later (Blinkit, Zomato) sends no bank SMS, so the phone never saw it.
+
+- **Phone app:** it now reads Amazon's "Your payment of ₹318 to Blinkit was successful" email from its Gmail notification, the moment it arrives.
+  - The purchase is logged and asked about like any other payment.
+  - Only these Amazon Pay emails are read from Gmail. Every other email is ignored unread.
+  - A purchase is never merged with the card top-up of the same amount.
+- **Kharcha Book:** once sorted, a balance purchase is filed as a 👛 Amazon Pay spend, so the wallet balance stays right.
+- **Needs:** Gmail notifications switched on for these emails. They land in the "Updates" tab.

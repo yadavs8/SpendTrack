@@ -3369,7 +3369,7 @@
       // v140: an Amazon Pay top-up by card, or the Pay Later bill, only moves money -- never spending
       var move = e.ts >= since && KL.autoMoneyMove ? KL.autoMoneyMove(e) : null;
       if (move) {
-        try { await store.update(e.id, { amount: e.amount, desc: move, spent_at: new Date(e.ts).toISOString() }); n++; done[/Pay Later/.test(move) ? 'Amazon Pay Later bill' : 'Amazon Pay top-up'] = 1; } catch (err) { break; }
+        try { await store.update(e.id, { amount: e.amount, desc: move, spent_at: new Date(e.ts).toISOString() }); n++; done[/Pay Later/.test(move) ? 'Amazon Pay Later bill' : /\u2795/.test(move) ? 'Amazon Pay top-up' : 'Amazon Pay purchase'] = 1; } catch (err) { break; }
         continue;
       }
       if (e.ts < since || scopeWord(e.desc)) continue;

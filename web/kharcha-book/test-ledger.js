@@ -875,3 +875,11 @@ t('autoMoneyMove: an Amazon Pay top-up by card and the Pay Later bill are not sp
   assert.strictEqual(L.autoMoneyMove({ desc: '🔁 Amazon Pay Later bill (Axio)', raw: 'towards AXIO via UPI AutoPay' }), null);
   assert.strictEqual(L.autoMoneyMove({ desc: 'Typed by hand', raw: '' }), null);
 });
+
+t('autoMoneyMove: an Amazon Pay purchase read from its email becomes a wallet spend once sorted', () => {
+  const raw = 'Amazon Pay: Your payment of ₹ 318.0 to Blinkit. was successful';
+  assert.strictEqual(L.autoMoneyMove({ desc: '⏳ Blinkit (Amazon Pay)', raw }), null);
+  assert.strictEqual(L.autoMoneyMove({ desc: '🏠 Blinkit (Amazon Pay)', raw }), '👛 Amazon Pay · 🏠 Blinkit');
+  assert.strictEqual(L.parseWalletDesc('👛 Amazon Pay · 🏠 Blinkit').kind, 'spend');
+  assert.strictEqual(L.autoMoneyMove({ desc: '👤 Zomato (Amazon Pay Later)', raw: 'Amazon Pay: Your payment of ₹ 1818.76 to Zomato APL was successful' }), null);
+});
