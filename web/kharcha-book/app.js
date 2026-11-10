@@ -221,7 +221,11 @@
     if (isProjectMotherPaid(d)) return false;
     // If it's a project entry paid by User, it IS included in family settlement reimbursement!
     if (isProjectEntry(d)) return true;
-    return d.includes('🏠') || d.includes('family') || d.includes('niece') || d.includes('electricity') || d.includes('gas') || d.includes('bill') || d.includes('lavish kirana');
+    if (d.includes('🏠') || d.includes('lavish kirana')) return true;
+    // v143: what you chose wins. An entry you marked Personal (👤), or a transfer / wallet / investment / income row,
+    // is never pulled into Family by a word in its name ("👤 credit card bill payment" has "bill" in it).
+    if (/^\s*(?:\u{1F464}|\u{1F501}|\u{1F45B}|\u{1F4C8}|\u{1F4B0})/u.test(desc || '')) return false;
+    return d.includes('family') || d.includes('niece') || d.includes('electricity') || /\bgas\b/.test(d) || /\bbills?\b/.test(d) && !/card\s*bill/.test(d) || d.includes('lavish kirana');
   }
 
   function getEntryScope(e) {

@@ -908,3 +908,10 @@ t('v142: balance watchdog, credit names, learned payees', () => {
   assert.strictEqual(L.learnedScope(H, { id: 'n', desc: '⏳ Anju' }), null, 'once is not a habit');
   assert.strictEqual(L.learnedScope(H, { id: 'n', desc: '⏳ Ravi' }), null, 'mixed answers: keep asking');
 });
+
+t('v143: a card bill paid via CRED and an auto sweep are money moves', () => {
+  const raw = 'ICICI Bank Acct XX602 debited for Rs 11990.00 on 10-Nov-26; CRED Club credited. UPI:668013515409.';
+  assert.strictEqual(L.autoMoneyMove({ desc: '👤 credit card bill payment', raw }), '🔁 Credit card bill (paid via CRED)');
+  assert.strictEqual(L.autoMoneyMove({ desc: '⏳ Cred Club', raw }), null, 'CRED also pays rent and other things: only when you call it a card bill');
+  assert.strictEqual(L.autoMoneyMove({ desc: '⏳ Ffd', raw: 'Rs. 3000.00 has been transferred to FFD from Ac XX0096 under Auto Sweep option.' }), '🔁 Auto sweep to FD');
+});

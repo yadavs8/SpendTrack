@@ -365,6 +365,9 @@
     if (!raw || /^(\u{1F45B}|\u{1F501})/u.test(d)) return null;
     // v141: an Amazon Pay balance purchase the phone read from Amazon's email, once it has been sorted
     if (/^Amazon Pay: Your payment/i.test(raw) && / \(Amazon Pay\)/.test(d) && !/^\u{23F3}/u.test(d)) return W_SP + ' Amazon Pay \u00b7 ' + d.replace(' (Amazon Pay)', '');
+    // v143: paying the credit card through CRED, and a bank's auto sweep into its own FD, only move money
+    if (/;\s*CRED Club credited/i.test(raw) && /credit\s*card|card\s*bill|cc\s*bill/i.test(d)) return '\u{1F501} Credit card bill (paid via CRED)';
+    if (/under Auto Sweep/i.test(raw)) return '\u{1F501} Auto sweep to FD';
     if (/\bamazon\s*pay\s*wall/i.test(raw)) {
       var last = (/(?:card|xx)\s*(\d{4})/i.exec(raw) || [])[1];
       return walletTopupDesc('Amazon Pay', 'ICICI card' + (last ? ' \u00b7\u00b7' + last : ''));
