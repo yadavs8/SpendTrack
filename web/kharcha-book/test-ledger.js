@@ -883,3 +883,28 @@ t('autoMoneyMove: an Amazon Pay purchase read from its email becomes a wallet sp
   assert.strictEqual(L.parseWalletDesc('👛 Amazon Pay · 🏠 Blinkit').kind, 'spend');
   assert.strictEqual(L.autoMoneyMove({ desc: '👤 Zomato (Amazon Pay Later)', raw: 'Amazon Pay: Your payment of ₹ 1818.76 to Zomato APL was successful' }), null);
 });
+
+t('v142: balance watchdog, credit names, learned payees', () => {
+  const sms = (b) => 'ICICI Bank Account XX602 credited. Available Balance is Rs. ' + b + '.';
+  const E = [
+    { id: 'a', ts: 1, amount: 100, desc: '💰 Received · X', kind: 'income', bank: 'ICICI', raw: sms('61,748.56') },
+    { id: 'b', ts: 2, amount: 40853, desc: 'spends', kind: 'expense', bank: 'ICICI', method: 'upi', raw: 'debited' },
+    { id: 'c', ts: 3, amount: 148, desc: '👛➕ Amazon Pay', kind: 'transfer', bank: 'ICICI', method: 'credit_card', raw: 'card' },
+    { id: 'd', ts: 4, amount: 46600, desc: '💰 Received · Cash', kind: 'income', bank: 'ICICI', raw: sms('67,318.56') },
+    { id: 'e', ts: 5, amount: 1000, desc: '💰 Received · Cash', kind: 'income', bank: 'ICICI', raw: sms('68,318.56') },
+    { id: 'p', ts: 6, amount: 5, desc: '💰 x', kind: 'income', bank: 'PNB', raw: 'Avl Bal Rs.10.00CR' }, { id: 'q', ts: 7, amount: 5, desc: '💰 x', kind: 'income', bank: 'PNB', raw: 'Avl Bal Rs.99.00CR' }
+  ];
+  const g = L.balanceGaps(E, ['pnb']);
+  assert.strictEqual(g.length, 1);
+  assert.deepStrictEqual([g[0].bank, g[0].amount, g[0].dir, g[0].from, g[0].to], ['ICICI', 177, 'out', 1, 4]);
+  assert.strictEqual(L.smsBalance('Avl Bal Rs.1329780.66CR.Helpline'), 1329780.66);
+  assert.strictEqual(L.creditName('credited:Rs. 46,600.00 on 10-Nov-26. Info CAM*03581HHR*CA. Available'), 'Cash deposit (ATM)');
+  assert.strictEqual(L.creditName('credited with Rs 1,488.00 by Account linked to mobile number XXXXX11111. IMPS Ref'), 'IMPS from mobile ··11111');
+  assert.strictEqual(L.creditName('Info ACH*IRFC LTD*IR2310. Available'), 'Irfc Ltd');
+  assert.strictEqual(L.creditName('Ac XX0096 Credited with Rs.43000.00'), null);
+  const H = [{ id: '1', desc: '🏠 Vijay', kind: 'expense' }, { id: '2', desc: '🏠 Vijay', kind: 'expense' }, { id: '3', desc: 'King Food', kind: 'expense' }, { id: '4', desc: 'King Food', kind: 'expense' }, { id: '5', desc: '🏠 Anju (paid via CRED)', kind: 'expense' }, { id: '6', desc: '🏠 Ravi' }, { id: '7', desc: 'Ravi' }];
+  assert.strictEqual(L.learnedScope(H, { id: 'n', desc: '⏳ Vijay' }), 'family');
+  assert.strictEqual(L.learnedScope(H, { id: 'n', desc: '⏳ King Food' }), 'personal');
+  assert.strictEqual(L.learnedScope(H, { id: 'n', desc: '⏳ Anju' }), null, 'once is not a habit');
+  assert.strictEqual(L.learnedScope(H, { id: 'n', desc: '⏳ Ravi' }), null, 'mixed answers: keep asking');
+});

@@ -357,6 +357,7 @@
       g[1].forEach(function (t) {
         if (t[0] === '__settings' && !(window.KharchaNative && window.KharchaNative.openSettings)) return;   // only inside the phone app
         var b = el('button', 'mtile'); b.type = 'button';
+        b.dataset.stream = t[0];
         b.appendChild(el('span', 'e', t[1]));
         var tx = el('span', 'mt'); tx.appendChild(el('b', null, t[2])); if (t[3]) tx.appendChild(el('small', null, t[3]));
         b.appendChild(tx);

@@ -448,3 +448,12 @@ A purchase paid from the Amazon Pay balance or with Amazon Pay Later (Blinkit, Z
   - A purchase is never merged with the card top-up of the same amount.
 - **Kharcha Book:** once sorted, a balance purchase is filed as a 👛 Amazon Pay spend, so the wallet balance stays right.
 - **Needs:** Gmail notifications switched on for these emails. They land in the "Updates" tab.
+
+## Smarter by itself, less to look at (v142)
+
+- **Balance watchdog.** Bank SMS carry the balance after each payment. When the logged ins and outs between two of them don't add up, Home says so, e.g. "🔎 ₹177 left ICICI and isn't logged · between 5 Nov and 10 Nov", with **Log it** and **Ignore**. Banks marked "not mine" are skipped.
+- **Files payees it has learned.** A payee you filed the same way at least twice (Vijay → Family) is filed by itself when the phone sends it as "⏳ not sorted", and the phone stops asking. Mixed answers or a single past answer: it keeps asking.
+- **Real names for money in.** "💰 Received · Received" becomes what the bank's info line says: "Cash deposit (ATM)", "IMPS from mobile ··11111", or the sender's name.
+- **Choose your pages** (More → 🧹 Choose pages).
+  - Pages with nothing in them are tucked away from More and the side menu by themselves.
+  - You switch any page off or on. Nothing is deleted; a page and its data come back with one tap.
