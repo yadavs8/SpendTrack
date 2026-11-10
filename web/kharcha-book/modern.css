@@ -1045,3 +1045,19 @@ html.kt-open, html.kt-open body { overflow: hidden; }
 .sort-btn:disabled { opacity: .5; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .sort-q { color: #fbbf24; } }
 :root[data-theme="dark"] .sort-q { color: #fbbf24; }
+
+/* v142: balance watchdog card + choose your pages */
+.sm-gap { margin: 0 0 14px; padding: 13px 14px; border-radius: 18px; border: 1px solid rgba(59, 130, 246, .35); background: linear-gradient(135deg, rgba(59, 130, 246, .10), rgba(99, 102, 241, .06)); display: grid; gap: 10px; }
+.sm-gap-t { display: grid; gap: 3px; } .sm-gap-t b { font-size: .92rem; line-height: 1.3; } .sm-gap-t small { color: var(--muted); font-size: .76rem; }
+.sm-gap-a { display: flex; gap: 8px; }
+.sm-gap-go { padding: 8px 16px; border-radius: 12px; border: 0; background: var(--accent, #2563eb); color: #fff; font-weight: 800; min-height: 36px; }
+.sm-gap-no { padding: 8px 14px; border-radius: 12px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-weight: 600; min-height: 36px; }
+.sm-back { position: fixed; inset: 0; z-index: 5000; background: rgba(15, 23, 42, .5); display: flex; align-items: flex-end; justify-content: center; }
+.sm-sheet { width: 100%; max-width: 34rem; max-height: 86vh; overflow: auto; background: var(--surface, #fff); color: var(--text, inherit); border-radius: 24px 24px 0 0; padding: 16px 16px calc(18px + env(safe-area-inset-bottom)); }
+.sm-head { display: flex; align-items: center; justify-content: space-between; font-size: 1.05rem; }
+.sm-x { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: transparent; color: inherit; font-size: 1.2rem; }
+.sm-note { margin: 6px 0 10px; color: var(--muted); font-size: .82rem; }
+.sm-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 4px; border-top: 1px solid var(--line); min-height: 48px; }
+.sm-row-t { display: grid; gap: 1px; } .sm-row-t small { color: var(--muted); font-size: .74rem; }
+.sm-row input { width: 22px; height: 22px; accent-color: var(--accent, #2563eb); }
+.mtile[hidden], .side-link[hidden], .msheet-grid[hidden], .msheet-h[hidden] { display: none !important; }

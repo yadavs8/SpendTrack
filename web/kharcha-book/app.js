@@ -1544,7 +1544,7 @@
   /* ---------- Shared settings: one row in Supabase kharcha_settings, used by web + phone ----------
      Same keys and string values as localStorage, so feature code just swaps localStorage for kv.
      localStorage stays as the offline cache, and is all there is until the v4 SQL has been run. */
-  var SHARED_KEYS = ['kharcha_item_catalog', 'kharcha_item_patterns', 'kharcha_cardbill_no', 'kharcha_salary_seen', 'kharcha_family_acct_off', 'kharcha_autopilot_bills', 'kharcha_autopilot_hide', 'kharcha_autopilot_keep', 'kharcha_not_mine_banks', 'kharcha_trip_mirror_map', 'kharcha_trip_phones', 'kharcha_paybacks', 'kharcha_payback_no', 'kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
+  var SHARED_KEYS = ['kharcha_item_catalog', 'kharcha_pages', 'kharcha_gap_seen', 'kharcha_item_patterns', 'kharcha_cardbill_no', 'kharcha_salary_seen', 'kharcha_family_acct_off', 'kharcha_autopilot_bills', 'kharcha_autopilot_hide', 'kharcha_autopilot_keep', 'kharcha_not_mine_banks', 'kharcha_trip_mirror_map', 'kharcha_trip_phones', 'kharcha_paybacks', 'kharcha_payback_no', 'kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
     'kharcha_is_trip_paused', 'kharcha_all_projects_list', 'kharcha_is_project_paused', 'kharcha_legacy_project_name',
     'kharcha_active_trip_name', 'kharcha_all_trips_list', 'kharcha_category_budgets', 'kharcha_merchant_memory',
     'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers', 'kharcha_loans', 'kharcha_wallets', 'kharcha_bank', 'kharcha_cycle', 'kharcha_rules', 'kharcha_acctmap', 'kharcha_primary_acct', 'kharcha_rule_skips', 'kharcha_transfers', 'kharcha_own', 'kharcha_xfer_dismissed', 'kharcha_goal', 'kharcha_receipts', 'kharcha_rules_seeded', 'kharcha_card', 'kharcha_dup_dismissed'];
@@ -3371,6 +3371,19 @@
       if (move) {
         try { await store.update(e.id, { amount: e.amount, desc: move, spent_at: new Date(e.ts).toISOString() }); n++; done[/Pay Later/.test(move) ? 'Amazon Pay Later bill' : /\u2795/.test(move) ? 'Amazon Pay top-up' : 'Amazon Pay purchase'] = 1; } catch (err) { break; }
         continue;
+      }
+      // v142: "Received · Received" gets the bank's own description (cash deposit, who sent it)
+      if (e.ts >= since && /^\s*\u{1F4B0}\s*Received\s*\u00b7\s*Received\s*$/u.test(e.desc || '') && KL.creditName) {
+        var cn = KL.creditName(e.raw);
+        if (cn) { try { await store.update(e.id, { amount: e.amount, desc: '\u{1F4B0} Received \u00b7 ' + cn, spent_at: new Date(e.ts).toISOString() }); n++; } catch (err) { break; } continue; }
+      }
+      // v142: a payee you filed the same way twice or more is filed by itself (the phone then stops asking)
+      if (e.ts >= since && /^\s*\u{23F3}/u.test(e.desc || '') && KL.learnedScope && !KL.matchRule(e.desc, rules, { amount: e.amount, ts: e.ts })) {
+        var ls = KL.learnedScope(state.entries, e);
+        if (ls) {
+          try { await store.update(e.id, { amount: e.amount, desc: shiftScopeDesc(e.desc, ls), spent_at: new Date(e.ts).toISOString() }); n++; done[cleanScopePrefix(e.desc) + ' \u2192 ' + (ls === 'family' ? 'Family' : 'Personal')] = 1; } catch (err) { break; }
+          continue;
+        }
       }
       if (e.ts < since || scopeWord(e.desc)) continue;
       var r = KL.matchRule(e.desc, rules, { amount: e.amount, ts: e.ts });

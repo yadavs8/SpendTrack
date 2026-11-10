@@ -372,6 +372,64 @@
     if (/\btowards\s+axio\b/i.test(raw) || /\bamazon\s*pay\s*later\b/i.test(raw)) return '\u{1F501} Amazon Pay Later bill (Axio)';
     return null;
   }
+  /* ---------- v142: smarter by itself ---------- */
+  // Bank SMS carry the balance after each payment. Between two of them, the logged ins and outs must add up;
+  // when they don't, money moved that is not in the book ("₹177 left ICICI between 5 and 10 Nov").
+  function smsBalance(raw) {
+    var m = /(?:avl|available)\s*(?:bal|balance)[^0-9]{0,12}([0-9][0-9,]*\.?[0-9]*)/i.exec(String(raw || ''));
+    if (!m) return null;
+    var v = Number(m[1].replace(/,/g, '').replace(/\.$/, ''));
+    return isFinite(v) ? v : null;
+  }
+  function balanceGaps(entries, skipBanks) {
+    var by = {}, out = [], skip = {};
+    (skipBanks || []).forEach(function (b) { skip[String(b).toLowerCase()] = 1; });
+    (entries || []).forEach(function (e) {
+      if (!e || e.synthetic || !e.bank || e.method === 'credit_card' || skip[String(e.bank).toLowerCase()]) return;
+      (by[e.bank] = by[e.bank] || []).push(e);
+    });
+    Object.keys(by).forEach(function (bank) {
+      var prev = null, delta = 0;
+      by[bank].sort(function (a, b) { return a.ts - b.ts; }).forEach(function (e) {
+        var isIn = e.kind === 'income' || e.kind === 'refund' || /^\s*\u{1F4B0}/u.test(e.desc || '');
+        delta += (isIn ? 1 : -1) * Math.round(Number(e.amount) * 100);
+        var bal = smsBalance(e.raw);
+        if (bal == null) return;
+        if (prev) {
+          var diff = Math.round(bal * 100) - (Math.round(prev.bal * 100) + delta);
+          if (Math.abs(diff) >= 100) out.push({ bank: bank, from: prev.ts, to: e.ts, amount: Math.abs(diff) / 100, dir: diff < 0 ? 'out' : 'in', key: bank + '|' + e.ts });
+        }
+        prev = { ts: e.ts, bal: bal }; delta = 0;
+      });
+    });
+    return out.sort(function (a, b) { return b.to - a.to; });
+  }
+  // "💰 Received · Received" says nothing. The bank's own info line does: a cash deposit, a dividend, a person.
+  function creditName(raw) {
+    var r = String(raw || ''), m;
+    if (/\bInfo:?\s*CAM\*/i.test(r) || /cash deposit/i.test(r) && /\bCAM\b/.test(r)) return 'Cash deposit (ATM)';
+    if ((m = /linked to mobile number\s*X*(\d{3,5})/i.exec(r))) return 'IMPS from mobile ··' + m[1];
+    if ((m = /\bInfo:?\s*(?:ACH|NEFT|IMPS|UPI|BIL|INF)\*([^*.]{3,40})/i.exec(r))) return m[1].trim().toLowerCase().replace(/\b[a-z]/g, function (c) { return c.toUpperCase(); });
+    return null;
+  }
+  // A payee you filed the same way at least twice gets filed by itself next time.
+  function payeeCore(desc) {
+    return String(desc || '').replace(/\([^)]*\)/g, ' ').replace(/^[^A-Za-z0-9]+/, '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').trim().split(/\s+/).slice(0, 2).join(' ');
+  }
+  function learnedScope(entries, e) {
+    var core = payeeCore(e && e.desc), fam = 0, per = 0;
+    if (!core || core.length < 3 || /^(expense|unknown|received|payee)\b/.test(core)) return null;
+    (entries || []).forEach(function (x) {
+      if (!x || x === e || x.id === e.id || x.synthetic || /^\s*\u{23F3}/u.test(x.desc || '') || payeeCore(x.desc) !== core) return;
+      if (x.kind === 'income' || x.kind === 'transfer') return;
+      var d = String(x.desc || '').trim();
+      if (/^\u{1F3E0}/u.test(d)) fam++;
+      else if (/^\u{1F464}/u.test(d) || /^[A-Za-z0-9]/.test(d)) per++;
+    });
+    if (fam >= 2 && per === 0) return 'family';
+    if (per >= 2 && fam === 0) return 'personal';
+    return null;
+  }
   function parseWalletDesc(desc) {
     var d = String(desc || '').trim(), kind, rest;
     if (d.indexOf(W_UP) === 0) { kind = 'topup'; rest = d.slice(W_UP.length); }
@@ -1749,7 +1807,7 @@
     tripItemCategory: tripItemCategory, tripCategoriesSummary: tripCategoriesSummary, TRIP_CATEGORY_DEFS: TRIP_CATEGORY_DEFS,
     cleanName: cleanName, nameKey: nameKey, parseLoans: parseLoans, repaid: repaid, outstanding: outstanding,
     addPayment: addPayment, editLoan: editLoan, editPayment: editPayment, summarize: summarize,
-    walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, parseWalletDesc: parseWalletDesc, autoMoneyMove: autoMoneyMove,
+    walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, parseWalletDesc: parseWalletDesc, autoMoneyMove: autoMoneyMove, smsBalance: smsBalance, balanceGaps: balanceGaps, creditName: creditName, learnedScope: learnedScope, payeeCore: payeeCore,
     parseWallets: parseWallets, walletState: walletState, walletReconcile: walletReconcile,
     smartSearch: smartSearch, smsAccounts: smsAccounts, searchInsights: searchInsights, payeeName: payeeName, tripDiaryLabel: tripDiaryLabel, placeIn: placeIn, categoryOf: categoryOf, personOf: personOf, findPaybacks: findPaybacks, peopleLedger: peopleLedger, cleanBankAccounts: cleanBankAccounts, smsSourceBank: smsSourceBank, findRefunds: findRefunds, isRefundText: isRefundText, looksLikeCardBill: looksLikeCardBill, KITCHEN_SEED: KITCHEN_SEED, parseOrderText: parseOrderText, vendorOf: vendorOf, vendorKind: vendorKind, learnVendor: learnVendor, vendorGuess: vendorGuess, kitchenItemFor: kitchenItemFor, parseItemsText: parseItemsText, itemsFromPattern: itemsFromPattern, summarizeItems: summarizeItems, refundShop: refundShop, recurringSeries: recurringSeries, safeToSpend: safeToSpend, creepingSpends: creepingSpends, seriesKey: seriesKey, askQuery: askQuery, forecastMonth: forecastMonth, unusualSpends: unusualSpends,
     payCycles: payCycles, lastWorkingDay: lastWorkingDay, nextPayday: nextPayday, parseBank: parseBank, parseAvlBalance: parseAvlBalance, balanceFromSms: balanceFromSms, bankEstimate: bankEstimate, parseTransfers: parseTransfers
