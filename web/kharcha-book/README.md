@@ -476,3 +476,8 @@ A purchase paid from the Amazon Pay balance or with Amazon Pay Later (Blinkit, Z
 - The app name fits beside the version button on small phones (it was cut to "Kharcha Boo").
 - Home says "✨ All caught up" when nothing needs you.
 - **Aurora:** the back bar is a floating pill; the big cards on Monthly, Kitchen and Autopilot are dark glass lit in their own colour instead of flat colour blocks (red when you're over, green otherwise); empty states and active pills glow.
+
+## The calendar is back on Home (v146)
+
+- The spend calendar is on Home again, between the reminders and your days. v144 had tucked it behind "More about this month"; that button now holds only the category breakdown, the card summary and the list of months.
+- In Aurora the calendar days are lit by how much you spent: faint cyan for small days, violet for bigger ones, and a warm glow for the highest day. Today has a bright ring.

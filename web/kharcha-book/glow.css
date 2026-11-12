@@ -95,12 +95,12 @@
 .sm-sort b { flex: 1; font-size: .9rem; } .sm-sort span { color: var(--muted); font-size: .8rem; }
 .sm-more-btn { display: flex; align-items: center; justify-content: space-between; width: 100%; margin: 6px 0 14px; padding: 14px 16px; border-radius: 18px; border: 1px solid var(--line); background: var(--surface); color: inherit; font-weight: 700; font-size: .92rem; }
 .sm-more-btn small { color: var(--muted); font-weight: 500; }
-#spends-view.sm-compact:not(.sm-open) > #cal-sec, #spends-view.sm-compact:not(.sm-open) > #cat-est, #spends-view.sm-compact:not(.sm-open) > #months-sec, #spends-view.sm-compact:not(.sm-open) > #cc-home { display: none !important; }
+#spends-view.sm-compact:not(.sm-open) > #cat-est, #spends-view.sm-compact:not(.sm-open) > #months-sec, #spends-view.sm-compact:not(.sm-open) > #cc-home { display: none !important; }
 #spends-view.sm-compact { display: flex; flex-direction: column; }
 #spends-view.sm-compact > * { order: 5; }
 #spends-view.sm-compact > #sm-attn { order: 1; } #spends-view.sm-compact > .quick-add-bar { order: 2; } #spends-view.sm-compact > .actions-bar { order: 3; }
-#spends-view.sm-compact > #due-box { order: 4; } #spends-view.sm-compact > #days-sec { order: 5; } #spends-view.sm-compact > #sm-more-btn { order: 6; }
-#spends-view.sm-compact > #cc-home { order: 7; } #spends-view.sm-compact > #cat-est { order: 8; } #spends-view.sm-compact > #cal-sec { order: 9; } #spends-view.sm-compact > #months-sec { order: 10; }
+#spends-view.sm-compact > #due-box { order: 4; } #spends-view.sm-compact > #cal-sec { order: 4; } #spends-view.sm-compact > #days-sec { order: 5; } #spends-view.sm-compact > #sm-more-btn { order: 6; }
+#spends-view.sm-compact > #cc-home { order: 7; } #spends-view.sm-compact > #cat-est { order: 8; } #spends-view.sm-compact > #months-sec { order: 10; }
 
 /* ---------- v145: every page checked ---------- */
 /* the app name fits next to the version button on small phones */
@@ -130,3 +130,17 @@ body[data-stream="incomings"] #sticky-month-bar, body[data-stream="settlement"] 
 :root[data-theme="glow"] .empty-ill { background: radial-gradient(circle at 30% 25%, rgba(124, 140, 255, 0.35), rgba(34, 211, 238, 0.10)); box-shadow: 0 0 30px -6px rgba(124, 140, 255, 0.6); }
 :root[data-theme="glow"] .story-card.s1 { background: linear-gradient(135deg, #1e3a8a, #0e7490); } :root[data-theme="glow"] .story-card.s2 { background: linear-gradient(135deg, #5b21b6, #1d4ed8); }
 :root[data-theme="glow"] .scope-pill.active, :root[data-theme="glow"] .streambtn.active { box-shadow: 0 0 0 1px rgba(124, 140, 255, 0.5), 0 0 18px -4px rgba(124, 140, 255, 0.7); }
+
+/* ---------- v146: the calendar is back on Home, and lit up in Aurora ---------- */
+:root[data-theme="glow"] .cal-day { background: rgba(124, 140, 255, 0.06); border: 1px solid rgba(140, 150, 255, 0.10); color: var(--ink); border-radius: 14px; }
+:root[data-theme="glow"] .cal-day.lvl1 { background: linear-gradient(160deg, rgba(34, 211, 238, 0.16), rgba(34, 211, 238, 0.06)); border-color: rgba(34, 211, 238, 0.30); }
+:root[data-theme="glow"] .cal-day.lvl2 { background: linear-gradient(160deg, rgba(34, 211, 238, 0.30), rgba(124, 140, 255, 0.14)); border-color: rgba(34, 211, 238, 0.45); }
+:root[data-theme="glow"] .cal-day.lvl3 { background: linear-gradient(160deg, rgba(124, 140, 255, 0.50), rgba(34, 211, 238, 0.22)); border-color: rgba(140, 150, 255, 0.65); box-shadow: 0 0 14px -4px rgba(124, 140, 255, 0.7); }
+:root[data-theme="glow"] .cal-day.lvl4 { background: linear-gradient(160deg, rgba(124, 92, 255, 0.80), rgba(255, 92, 168, 0.45)); border-color: rgba(190, 160, 255, 0.8); color: #fff; box-shadow: 0 0 18px -4px rgba(124, 92, 255, 0.9); }
+:root[data-theme="glow"] .cal-day.hot { background: linear-gradient(160deg, #ffc857, #ff7a59 55%, #ff3d77); border-color: rgba(255, 200, 87, 0.9); color: #fff; box-shadow: 0 0 22px -2px rgba(255, 92, 120, 0.85); }
+:root[data-theme="glow"] .cal-amt { background: rgba(5, 6, 15, 0.55); color: #fff; box-shadow: none; border: 1px solid rgba(255, 255, 255, 0.12); }
+:root[data-theme="glow"] .cal-day.hot .cal-amt { color: #fff; background: rgba(60, 10, 20, 0.45); }
+:root[data-theme="glow"] .cal-day.today { outline: 2px solid #b9c2ff; outline-offset: 2px; box-shadow: 0 0 0 5px rgba(124, 140, 255, 0.18), 0 0 20px -2px rgba(124, 140, 255, 0.9); }
+:root[data-theme="glow"] .cal-day.future { opacity: 0.38; }
+:root[data-theme="glow"] .cal-n { opacity: 0.95; }
+:root[data-theme="glow"] .cal-cat { background: rgba(124, 140, 255, 0.07); border-color: var(--line); }

@@ -147,7 +147,7 @@
     function paintMore() {
       var o = home.classList.contains('sm-open'); btn.textContent = '';
       btn.appendChild(el('span', null, o ? '📊 Less about this month' : '📊 More about this month'));
-      btn.appendChild(el('small', null, o ? 'Hide ▴' : 'Calendar, categories, months ▾'));
+      btn.appendChild(el('small', null, o ? 'Hide ▴' : 'Categories, card, months ▾'));
       btn.setAttribute('aria-expanded', o ? 'true' : 'false');
     }
     paintMore();
