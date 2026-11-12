@@ -1,0 +1,103 @@
+/* Kharcha Book v144: "Aurora" — a dark, glowing, animated look (inspired by React Bits: aurora background,
+   glass cards, border beam, shiny text, spotlight). A theme like Midnight and Thanos: pick it under
+   More > Look and feel. No blur over large areas (it renders badly in the Android app). */
+:root[data-theme="glow"] {
+  --bg: #05060f; --surface: #0d1022; --surface-glass: rgba(13, 16, 34, 0.9); --ink: #eef1ff; --muted: #8f97bd; --line: rgba(140, 150, 255, 0.16);
+  --accent: #7c8cff; --accent-ink: #060714; --accent-soft: rgba(124, 140, 255, 0.16);
+  --hero-grad: linear-gradient(145deg, rgba(31, 27, 78, 0.92) 0%, rgba(14, 20, 52, 0.94) 55%, rgba(7, 44, 62, 0.92) 100%); --hero-bg: #14143a; --hero-ink: #f5f6ff; --hero-muted: #a9b4ff; --hero-line: rgba(160, 170, 255, 0.22);
+  --danger: #ff6b8b; --success: #3ee6b0; --warning: #ffc857;
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5); --shadow-md: 0 8px 28px -6px rgba(0, 0, 0, 0.6); --shadow-lg: 0 14px 40px -6px rgba(92, 104, 255, 0.45);
+  --glow-a: #7c5cff; --glow-b: #22d3ee; --glow-c: #ff5ca8;
+  color-scheme: dark;
+}
+:root[data-theme="glow"] .scopetab.active { color: #1d1b5e; }
+
+/* aurora: three soft lights drifting behind everything */
+:root[data-theme="glow"] body { background: var(--bg); }
+:root[data-theme="glow"] body::before, :root[data-theme="glow"] body::after {
+  content: ""; position: fixed; z-index: -1; pointer-events: none; border-radius: 50%; filter: blur(70px); opacity: 0.55; will-change: transform;
+}
+:root[data-theme="glow"] body::before { width: 78vw; height: 78vw; max-width: 520px; max-height: 520px; left: -22vw; top: -14vw; background: radial-gradient(circle, var(--glow-a) 0%, transparent 68%); animation: gl-drift-a 18s ease-in-out infinite alternate; }
+:root[data-theme="glow"] body::after { width: 70vw; height: 70vw; max-width: 480px; max-height: 480px; right: -24vw; top: 34vh; background: radial-gradient(circle, var(--glow-b) 0%, transparent 68%); opacity: 0.32; animation: gl-drift-b 22s ease-in-out infinite alternate; }
+@keyframes gl-drift-a { to { transform: translate(18vw, 12vh) scale(1.15); } }
+@keyframes gl-drift-b { to { transform: translate(-16vw, -14vh) scale(1.2); } }
+
+/* hero: dark glass with a light travelling round its edge */
+@property --gl-ang { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+:root[data-theme="glow"] .hero { position: relative; border: 1px solid var(--hero-line); box-shadow: 0 18px 50px -18px rgba(124, 92, 255, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.08); }
+:root[data-theme="glow"] .hero::after {
+  content: ""; position: absolute; inset: -1px; border-radius: inherit; padding: 1.5px; pointer-events: none;
+  background: conic-gradient(from var(--gl-ang), transparent 0 62%, var(--glow-b) 76%, var(--glow-a) 88%, var(--glow-c) 96%, transparent 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude;
+  animation: gl-beam 7s linear infinite;
+}
+@keyframes gl-beam { to { --gl-ang: 360deg; } }
+:root[data-theme="glow"] .hero[data-pace="warn"] { --glow-b: #ffc857; }
+:root[data-theme="glow"] .hero[data-pace="bad"] { --glow-b: #ff6b8b; --glow-a: #ff5ca8; }
+:root[data-theme="glow"] .hero[data-pace="good"], :root[data-theme="glow"] .hero[data-pace="warn"], :root[data-theme="glow"] .hero[data-pace="bad"] { --hero-grad: linear-gradient(145deg, rgba(31, 27, 78, 0.92) 0%, rgba(14, 20, 52, 0.94) 55%, rgba(7, 44, 62, 0.92) 100%); }
+
+/* the month total: light sweeping across the digits */
+:root[data-theme="glow"] .hero-amount-block .total, :root[data-theme="glow"] .hero-amount-block #total, :root[data-theme="glow"] .hero .hero-total {
+  background: linear-gradient(110deg, #ffffff 0%, #ffffff 38%, #9fe9ff 48%, #c9b8ff 54%, #ffffff 64%, #ffffff 100%); background-size: 250% 100%;
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent;
+  animation: gl-shine 5.5s ease-in-out infinite; text-shadow: none; filter: drop-shadow(0 0 18px rgba(124, 140, 255, 0.45));
+}
+@keyframes gl-shine { 0%, 55% { background-position: 120% 0; } 100% { background-position: -130% 0; } }
+
+/* cards: glass with a lit top edge */
+:root[data-theme="glow"] .ans-card, :root[data-theme="glow"] .cal-sec, :root[data-theme="glow"] .cat-est, :root[data-theme="glow"] .cc-home,
+:root[data-theme="glow"] .wal-card, :root[data-theme="glow"] .quick-add-bar, :root[data-theme="glow"] .sm-attn, :root[data-theme="glow"] .sm-more-btn {
+  background: linear-gradient(180deg, rgba(22, 26, 54, 0.92), rgba(12, 15, 33, 0.94)); border: 1px solid var(--line);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 10px 30px -18px rgba(0, 0, 0, 0.8);
+}
+:root[data-theme="glow"] .mtile, :root[data-theme="glow"] .msheet-card, :root[data-theme="glow"] .sm-sheet, :root[data-theme="glow"] .side { background: #0d1022; border-color: var(--line); }
+:root[data-theme="glow"] .mtile { background: rgba(124, 140, 255, 0.07); }
+:root[data-theme="glow"] .mtile:active { background: rgba(124, 140, 255, 0.18); }
+
+/* bottom bar and the Add button */
+:root[data-theme="glow"] .bnav-bar { background: rgba(10, 12, 28, 0.94); border-color: rgba(140, 150, 255, 0.22); box-shadow: 0 -2px 0 rgba(255, 255, 255, 0.03) inset, 0 16px 40px -10px rgba(0, 0, 0, 0.9), 0 0 0 1px rgba(124, 140, 255, 0.05); }
+:root[data-theme="glow"] .bnav-btn.active { color: #b9c2ff; text-shadow: 0 0 14px rgba(124, 140, 255, 0.8); }
+:root[data-theme="glow"] .bnav-add .fab { background: linear-gradient(135deg, var(--glow-a), var(--glow-b)); border-color: var(--bg); box-shadow: 0 0 0 0 rgba(124, 140, 255, 0.55), 0 10px 26px -6px rgba(34, 211, 238, 0.7); animation: gl-pulse 2.8s ease-out infinite; }
+@keyframes gl-pulse { 0% { box-shadow: 0 0 0 0 rgba(124, 140, 255, 0.5), 0 10px 26px -6px rgba(34, 211, 238, 0.7); } 70%, 100% { box-shadow: 0 0 0 16px rgba(124, 140, 255, 0), 0 10px 26px -6px rgba(34, 211, 238, 0.7); } }
+
+/* buttons and bars glow in the accent */
+:root[data-theme="glow"] .primary, :root[data-theme="glow"] button.primary, :root[data-theme="glow"] .sm-gap-go, :root[data-theme="glow"] .kt-nudge-go, :root[data-theme="glow"] .kt-save {
+  background: linear-gradient(135deg, var(--glow-a), #5b7cff 60%, var(--glow-b)); color: #fff; border: 0; box-shadow: 0 8px 22px -8px rgba(124, 92, 255, 0.9);
+}
+:root[data-theme="glow"] .hero .bar.today, :root[data-theme="glow"] .hx .bar.on { box-shadow: 0 0 16px rgba(34, 211, 238, 0.7); }
+:root[data-theme="glow"] button.row { border-color: transparent; }
+:root[data-theme="glow"] button.row:active { background: rgba(124, 140, 255, 0.1); }
+:root[data-theme="glow"] button.row .a { font-variant-numeric: tabular-nums; }
+:root[data-theme="glow"] .sm-gap { border-color: rgba(34, 211, 238, 0.4); background: linear-gradient(135deg, rgba(34, 211, 238, 0.10), rgba(124, 92, 255, 0.10)); }
+:root[data-theme="glow"] .kt-nudge { border-color: rgba(255, 200, 87, 0.35); background: linear-gradient(135deg, rgba(255, 200, 87, 0.10), rgba(62, 230, 176, 0.06)); }
+:root[data-theme="glow"] input, :root[data-theme="glow"] select, :root[data-theme="glow"] textarea { background: rgba(8, 10, 24, 0.9); border-color: var(--line); color: var(--ink); }
+:root[data-theme="glow"] input:focus, :root[data-theme="glow"] select:focus, :root[data-theme="glow"] textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124, 140, 255, 0.25); outline: none; }
+
+/* rows arrive one after another */
+:root[data-theme="glow"] #days-sec button.row { animation: gl-rise 0.38s ease both; }
+:root[data-theme="glow"] #days-sec .entry-swipe-wrap:nth-child(2) button.row { animation-delay: 0.04s; }
+:root[data-theme="glow"] #days-sec .entry-swipe-wrap:nth-child(3) button.row { animation-delay: 0.08s; }
+:root[data-theme="glow"] #days-sec .entry-swipe-wrap:nth-child(4) button.row { animation-delay: 0.12s; }
+:root[data-theme="glow"] #days-sec .entry-swipe-wrap:nth-child(n+5) button.row { animation-delay: 0.16s; }
+@keyframes gl-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme="glow"] body::before, :root[data-theme="glow"] body::after, :root[data-theme="glow"] .hero::after, :root[data-theme="glow"] .bnav-add .fab,
+  :root[data-theme="glow"] #days-sec button.row, :root[data-theme="glow"] .hero-amount-block .total, :root[data-theme="glow"] .hero-amount-block #total { animation: none !important; }
+}
+
+/* ---------- v144: simpler Home (every theme) ---------- */
+.sm-attn { margin: 0 0 14px; padding: 12px 12px 2px; border-radius: 20px; border: 1px solid var(--line); background: var(--surface); }
+.sm-attn-h { display: flex; align-items: center; justify-content: space-between; margin: 0 2px 10px; font-size: .72rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.sm-attn-n { min-width: 22px; height: 22px; padding: 0 7px; border-radius: 999px; display: inline-grid; place-items: center; background: var(--accent); color: var(--accent-ink, #fff); font-size: .74rem; letter-spacing: 0; }
+.sm-attn > section, .sm-attn > div:not(.sm-attn-h), .sm-attn .sm-gap, .sm-attn .kt-nudge { margin-bottom: 10px; }
+.sm-sort { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 12px 14px; border-radius: 16px; border: 1px solid rgba(245, 158, 11, .4); background: rgba(245, 158, 11, .08); color: inherit; margin-bottom: 10px; }
+.sm-sort b { flex: 1; font-size: .9rem; } .sm-sort span { color: var(--muted); font-size: .8rem; }
+.sm-more-btn { display: flex; align-items: center; justify-content: space-between; width: 100%; margin: 6px 0 14px; padding: 14px 16px; border-radius: 18px; border: 1px solid var(--line); background: var(--surface); color: inherit; font-weight: 700; font-size: .92rem; }
+.sm-more-btn small { color: var(--muted); font-weight: 500; }
+#spends-view.sm-compact:not(.sm-open) > #cal-sec, #spends-view.sm-compact:not(.sm-open) > #cat-est, #spends-view.sm-compact:not(.sm-open) > #months-sec, #spends-view.sm-compact:not(.sm-open) > #cc-home { display: none !important; }
+#spends-view.sm-compact { display: flex; flex-direction: column; }
+#spends-view.sm-compact > * { order: 5; }
+#spends-view.sm-compact > #sm-attn { order: 1; } #spends-view.sm-compact > .quick-add-bar { order: 2; } #spends-view.sm-compact > .actions-bar { order: 3; }
+#spends-view.sm-compact > #due-box { order: 4; } #spends-view.sm-compact > #days-sec { order: 5; } #spends-view.sm-compact > #sm-more-btn { order: 6; }
+#spends-view.sm-compact > #cc-home { order: 7; } #spends-view.sm-compact > #cat-est { order: 8; } #spends-view.sm-compact > #cal-sec { order: 9; } #spends-view.sm-compact > #months-sec { order: 10; }
