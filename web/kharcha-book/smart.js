@@ -156,7 +156,12 @@
     ['sm-gaps', 'ap-nudges', 'kt-nudge'].forEach(function (id) { var n = $(id); if (n) keep.push(n); });
     var unsorted = ((K.visibleEntries && K.visibleEntries()) || []).filter(function (e) { return /^\s*\u{23F3}/u.test(e.desc || ''); });
     if (old) { keep.forEach(function (n) { if (old.contains(n)) home.insertBefore(n, old); }); old.remove(); }
-    if (!keep.length && !unsorted.length) return;
+    var done = $('sm-done'); if (done) done.remove();
+    if (!keep.length && !unsorted.length) {
+      // nothing waiting: say so, lightly
+      if (((K.visibleEntries && K.visibleEntries()) || []).length) { done = el('div', 'sm-done', '✨ All caught up. Nothing needs you.'); done.id = 'sm-done'; home.insertBefore(done, home.firstChild); }
+      return;
+    }
     var box = el('div', 'sm-attn'); box.id = 'sm-attn';
     var h = el('div', 'sm-attn-h'); h.appendChild(el('span', null, 'Needs you'));
     var count = unsorted.length + keep.reduce(function (t, n) { return t + Math.max(1, n.querySelectorAll('.sm-gap, .ap-nudge, .due-ask').length || 1); }, 0);

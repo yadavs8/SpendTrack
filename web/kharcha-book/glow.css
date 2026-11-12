@@ -101,3 +101,32 @@
 #spends-view.sm-compact > #sm-attn { order: 1; } #spends-view.sm-compact > .quick-add-bar { order: 2; } #spends-view.sm-compact > .actions-bar { order: 3; }
 #spends-view.sm-compact > #due-box { order: 4; } #spends-view.sm-compact > #days-sec { order: 5; } #spends-view.sm-compact > #sm-more-btn { order: 6; }
 #spends-view.sm-compact > #cc-home { order: 7; } #spends-view.sm-compact > #cat-est { order: 8; } #spends-view.sm-compact > #cal-sec { order: 9; } #spends-view.sm-compact > #months-sec { order: 10; }
+
+/* ---------- v145: every page checked ---------- */
+/* the app name fits next to the version button on small phones */
+@media (max-width: 400px) { header.top h1 { font-size: 0.96rem; gap: 6px; } header.top .installbtn { padding: 0 7px; font-size: 0.72rem; } }
+/* Income and Settle have their own numbers: keep the month switcher, drop the spending total and its chart */
+body[data-stream="incomings"] .hero .hero-amount-block, body[data-stream="incomings"] .hero #hero-extras, body[data-stream="incomings"] .hero #scope-filter, body[data-stream="incomings"] .hero .vs-last,
+body[data-stream="settlement"] .hero .hero-amount-block, body[data-stream="settlement"] .hero #hero-extras, body[data-stream="settlement"] .hero #scope-filter, body[data-stream="settlement"] .hero .vs-last { display: none !important; }
+body[data-stream="incomings"] .hero, body[data-stream="settlement"] .hero { padding-block: 10px; }
+body[data-stream="incomings"] .hero::after, body[data-stream="settlement"] .hero::after { display: none; }
+body[data-stream="incomings"] #sticky-month-bar, body[data-stream="settlement"] #sticky-month-bar { display: none !important; }
+/* a quiet line when nothing is waiting */
+.sm-done { order: 1; margin: 0 0 14px; padding: 11px 14px; border-radius: 16px; border: 1px dashed var(--line); color: var(--muted); font-size: .86rem; text-align: center; }
+/* back bar: a floating pill, not a box */
+:root[data-theme="glow"] .backbar { top: 8px; width: fit-content; max-width: calc(100% - 24px); margin: 4px auto 14px; padding: 8px 18px 8px 12px; border-radius: 999px; border: 1px solid var(--line); background: rgba(13, 16, 34, 0.94); box-shadow: 0 10px 26px -12px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.06); }
+:root[data-theme="glow"] .backbar .backttl { font-size: 1rem; }
+/* big page cards: dark glass lit by their own colour, instead of flat colour blocks */
+:root[data-theme="glow"] .mo-hero, :root[data-theme="glow"] .kt-hero, :root[data-theme="glow"] .ap-hero {
+  background: linear-gradient(150deg, rgba(62, 230, 176, 0.20) 0%, rgba(13, 16, 34, 0.96) 46%, rgba(34, 211, 238, 0.14) 100%);
+  border: 1px solid rgba(62, 230, 176, 0.38); box-shadow: 0 16px 44px -20px rgba(62, 230, 176, 0.8), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+:root[data-theme="glow"] .mo-hero.neg { background: linear-gradient(150deg, rgba(255, 107, 139, 0.24) 0%, rgba(13, 16, 34, 0.96) 48%, rgba(255, 92, 168, 0.12) 100%); border-color: rgba(255, 107, 139, 0.45); box-shadow: 0 16px 44px -20px rgba(255, 107, 139, 0.85), inset 0 1px 0 rgba(255, 255, 255, 0.07); }
+:root[data-theme="glow"] .mo-hero.neg .mo-hero-v { color: #ff8fa8; text-shadow: 0 0 22px rgba(255, 107, 139, 0.5); }
+:root[data-theme="glow"] .mo-hero:not(.neg) .mo-hero-v, :root[data-theme="glow"] .kt-hero > b, :root[data-theme="glow"] .ap-hero .ap-big { text-shadow: 0 0 22px rgba(62, 230, 176, 0.45); }
+:root[data-theme="glow"] .kt-hero .kt-nudge-go { background: linear-gradient(135deg, var(--glow-a), #5b7cff 60%, var(--glow-b)); color: #fff; }
+:root[data-theme="glow"] .ap-hero::after { background: radial-gradient(circle, rgba(62, 230, 176, 0.25), transparent 70%); }
+/* empty states and section cards on tool pages */
+:root[data-theme="glow"] .empty-ill { background: radial-gradient(circle at 30% 25%, rgba(124, 140, 255, 0.35), rgba(34, 211, 238, 0.10)); box-shadow: 0 0 30px -6px rgba(124, 140, 255, 0.6); }
+:root[data-theme="glow"] .story-card.s1 { background: linear-gradient(135deg, #1e3a8a, #0e7490); } :root[data-theme="glow"] .story-card.s2 { background: linear-gradient(135deg, #5b21b6, #1d4ed8); }
+:root[data-theme="glow"] .scope-pill.active, :root[data-theme="glow"] .streambtn.active { box-shadow: 0 0 0 1px rgba(124, 140, 255, 0.5), 0 0 18px -4px rgba(124, 140, 255, 0.7); }
