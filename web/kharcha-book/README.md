@@ -462,3 +462,10 @@ A purchase paid from the Amazon Pay balance or with Amazon Pay Later (Blinkit, Z
 
 - **Fix:** an entry you marked 👤 Personal was shown under Family when its name had a word like "bill" in it ("👤 credit card bill payment"). What you chose now always wins; the keyword guesses only apply to entries with no mark. A card bill is no longer taken for a household bill. Lavish Kirana stays Family, as before.
 - A credit card bill paid through CRED is filed as a 🔁 bill payment (it pays for card spends already logged), and a bank's auto sweep into its own FD as 🔁, not as spending.
+
+## Aurora look and a simpler Home (v144)
+
+- **New look, "✨ Aurora":** dark background with slow drifting lights, glass cards, a light that travels round the month card, a glowing Add button, and rows that rise in. Inspired by the React Bits components, rebuilt in the app's own CSS (no library, no cost).
+  - It is switched on once for everyone. Light, Midnight and Thanos are still under More → Look and feel, and the header button switches between Aurora and Light.
+  - Motion is off when the phone asks for reduced motion.
+- **Simpler Home (every look):** the month card, then **Needs you** (payments to sort, unlogged money, groceries to fill, reminders, with a count), then Add and your days. The calendar, category breakdown, card summary and month list sit behind one **📊 More about this month** button, which remembers whether you left it open.

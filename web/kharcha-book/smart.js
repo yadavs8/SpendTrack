@@ -125,6 +125,53 @@
     return true;
   }
 
-  document.addEventListener('kharcha:render', function () { setTimeout(function () { try { render(); addTile(); applyPages(); } catch (e) {} }, 40); });
+  /* ---------- 3. simpler Home (v144) ----------
+     Home shows three things: the month, what needs you, and your days. The calendar, the category breakdown,
+     the card summary and the list of months sit behind one "More about this month" button. */
+  var OPEN_KEY = 'kharcha_home_more';
+  function simpleHome() {
+    var home = $('spends-view'); if (!home) return;
+    home.classList.add('sm-compact');
+    var open = false; try { open = localStorage.getItem(OPEN_KEY) === '1'; } catch (e) {}
+    home.classList.toggle('sm-open', open);
+    var btn = $('sm-more-btn');
+    if (!btn) {
+      btn = el('button', 'sm-more-btn'); btn.type = 'button'; btn.id = 'sm-more-btn';
+      btn.addEventListener('click', function () {
+        var now = !home.classList.contains('sm-open'); home.classList.toggle('sm-open', now);
+        try { localStorage.setItem(OPEN_KEY, now ? '1' : '0'); } catch (e) {}
+        paintMore();
+      });
+      home.appendChild(btn);
+    }
+    function paintMore() {
+      var o = home.classList.contains('sm-open'); btn.textContent = '';
+      btn.appendChild(el('span', null, o ? '📊 Less about this month' : '📊 More about this month'));
+      btn.appendChild(el('small', null, o ? 'Hide ▴' : 'Calendar, categories, months ▾'));
+      btn.setAttribute('aria-expanded', o ? 'true' : 'false');
+    }
+    paintMore();
+    // everything that needs you, in one place
+    var old = $('sm-attn'); var keep = [];
+    ['sm-gaps', 'ap-nudges', 'kt-nudge'].forEach(function (id) { var n = $(id); if (n) keep.push(n); });
+    var unsorted = ((K.visibleEntries && K.visibleEntries()) || []).filter(function (e) { return /^\s*\u{23F3}/u.test(e.desc || ''); });
+    if (old) { keep.forEach(function (n) { if (old.contains(n)) home.insertBefore(n, old); }); old.remove(); }
+    if (!keep.length && !unsorted.length) return;
+    var box = el('div', 'sm-attn'); box.id = 'sm-attn';
+    var h = el('div', 'sm-attn-h'); h.appendChild(el('span', null, 'Needs you'));
+    var count = unsorted.length + keep.reduce(function (t, n) { return t + Math.max(1, n.querySelectorAll('.sm-gap, .ap-nudge, .due-ask').length || 1); }, 0);
+    h.appendChild(el('span', 'sm-attn-n', String(count))); box.appendChild(h);
+    if (unsorted.length) {
+      var sb = el('button', 'sm-sort'); sb.type = 'button';
+      sb.appendChild(el('b', null, '⏳ ' + unsorted.length + (unsorted.length === 1 ? ' payment' : ' payments') + ' to sort'));
+      sb.appendChild(el('span', null, 'Show ›'));
+      sb.addEventListener('click', function () { var t = document.querySelector('.entry-swipe-wrap.unsorted'); if (t) t.scrollIntoView({ behavior: 'smooth', block: 'center' }); });
+      box.appendChild(sb);
+    }
+    keep.forEach(function (n) { box.appendChild(n); });
+    home.insertBefore(box, home.firstChild);
+  }
+
+  document.addEventListener('kharcha:render', function () { setTimeout(function () { try { render(); addTile(); applyPages(); } catch (e) {} setTimeout(function () { try { simpleHome(); } catch (e) {} }, 60); }, 40); });
   window.__smart = { render: render, gaps: openGaps, applyPages: applyPages, hidden: hiddenNow };
 })();

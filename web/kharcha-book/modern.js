@@ -40,7 +40,7 @@
   var SUN = svg('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>');
   function effectiveTheme() {
     var t = document.documentElement.getAttribute('data-theme');
-    if (t === 'dark' || t === 'light' || t === 'thanos') return t;
+    if (t === 'dark' || t === 'light' || t === 'thanos' || t === 'glow') return t;
     return window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }
   function paintThemeButton() {
@@ -50,7 +50,7 @@
     b.setAttribute('aria-pressed', dark ? 'true' : 'false');
     b.title = dark ? 'Switch to day mode' : 'Switch to night mode';
     var m = document.querySelector('meta[name="theme-color"]');
-    if (m) m.setAttribute('content', effectiveTheme() === 'thanos' ? '#1a0b2e' : dark ? '#0B1120' : '#0369A1');
+    if (m) m.setAttribute('content', effectiveTheme() === 'glow' ? '#05060f' : effectiveTheme() === 'thanos' ? '#1a0b2e' : dark ? '#0B1120' : '#0369A1');
     document.querySelectorAll('.theme-pill').forEach(function (x) { x.classList.toggle('active', x.dataset.theme === effectiveTheme()); });
   }
   function setTheme(t) {
@@ -63,7 +63,7 @@
     if (!top) return;
     var b = el('button', 'installbtn theme-btn'); b.type = 'button'; b.id = 'theme-btn';
     b.setAttribute('aria-label', 'Night mode');
-    b.addEventListener('click', function () { setTheme(effectiveTheme() === 'light' ? 'dark' : 'light'); });
+    b.addEventListener('click', function () { setTheme(effectiveTheme() === 'light' ? 'glow' : 'light'); });
     top.insertBefore(b, top.firstChild);
     paintThemeButton();
     if (window.matchMedia) {
@@ -377,7 +377,7 @@
     });
     card.appendChild(el('div', 'msheet-h', 'Look and feel'));
     var tp = el('div', 'theme-row');
-    [['light', '☀️ Light'], ['dark', '🌙 Midnight'], ['thanos', '🟣 Thanos']].forEach(function (t) {
+    [['glow', '✨ Aurora'], ['light', '☀️ Light'], ['dark', '🌙 Midnight'], ['thanos', '🟣 Thanos']].forEach(function (t) {
       var pb = el('button', 'scope-pill theme-pill', t[1]); pb.type = 'button'; pb.dataset.theme = t[0];
       pb.addEventListener('click', function () { setTheme(t[0]); }); tp.appendChild(pb);
     });
