@@ -413,6 +413,7 @@
     var heroEl = document.querySelector('.hero');
     var tool = ['trips', 'projects', 'investments', 'udhaar', 'wallet', 'bank', 'rules', 'monthly', 'insights', 'autopilot', 'kitchen', 'card', 'phone'].indexOf(stream) >= 0;
     if (heroEl) heroEl.hidden = tool;
+    document.body.dataset.stream = stream;   // v145: pages can style themselves (Income and Settle keep only the month switcher)
     var stk = $('sticky-month-bar'); if (stk) stk.style.display = tool ? 'none' : '';
     if (backbar) {
       var other = key === 'more' && TITLES[stream];

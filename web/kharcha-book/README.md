@@ -469,3 +469,10 @@ A purchase paid from the Amazon Pay balance or with Amazon Pay Later (Blinkit, Z
   - It is switched on once for everyone. Light, Midnight and Thanos are still under More → Look and feel, and the header button switches between Aurora and Light.
   - Motion is off when the phone asks for reduced motion.
 - **Simpler Home (every look):** the month card, then **Needs you** (payments to sort, unlogged money, groceries to fill, reminders, with a count), then Add and your days. The calendar, category breakdown, card summary and month list sit behind one **📊 More about this month** button, which remembers whether you left it open.
+
+## Every page checked in the new look (v145)
+
+- **Income and Settle** no longer show the spending total and its chart on top; they keep only the month switcher.
+- The app name fits beside the version button on small phones (it was cut to "Kharcha Boo").
+- Home says "✨ All caught up" when nothing needs you.
+- **Aurora:** the back bar is a floating pill; the big cards on Monthly, Kitchen and Autopilot are dark glass lit in their own colour instead of flat colour blocks (red when you're over, green otherwise); empty states and active pills glow.
