@@ -1,8 +1,8 @@
 // Caches the app shell so it opens offline. Supabase calls are never cached.
 // Network first, revalidating with the server (no browser HTTP-cache shortcut), so a new deploy is what
 // opens next time -- on the main app and on installed trip apps alike, with nothing to reinstall.
-var CACHE = 'kharcha-shell-v145';
-var SHELL = ['./', './index.html', './styles.css?v=145', './modern.css?v=145', './glow.css?v=145', './modern.js?v=145', './insights.js?v=145', './card.js?v=145', './trips-home.js?v=145', './autopilot.js?v=145', './kitchen.js?v=145', './safety.js?v=145', './smart.js?v=145', './phone.js?v=145', './ledger-logic.js?v=145', './app.js?v=145', './config.js?v=145', './manifest.webmanifest', './icon-192.png?v=145', './logo-mark.png?v=145', './icon-512.png?v=145', './trip.html', './trip.js?v=145'];
+var CACHE = 'kharcha-shell-v146';
+var SHELL = ['./', './index.html', './styles.css?v=146', './modern.css?v=146', './glow.css?v=146', './modern.js?v=146', './insights.js?v=146', './card.js?v=146', './trips-home.js?v=146', './autopilot.js?v=146', './kitchen.js?v=146', './safety.js?v=146', './smart.js?v=146', './phone.js?v=146', './ledger-logic.js?v=146', './app.js?v=146', './config.js?v=146', './manifest.webmanifest', './icon-192.png?v=146', './logo-mark.png?v=146', './icon-512.png?v=146', './trip.html', './trip.js?v=146'];
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(SHELL); }).then(function () { return self.skipWaiting(); }));
 });
