@@ -634,9 +634,9 @@
   }
   function defaultRules() {
     return [
-      { id: 'r-emi', name: 'Flat EMI', words: ['emi', 'flat emi', 'home loan'], day: 5, amount: 0, scope: 'personal', acct: 'HDFC' },
-      { id: 'r-niece', name: 'Niece allowance', words: ['priyanka mehta', 'priyanka', 'bhabi'], day: 1, amount: 5000, scope: 'family', acct: '' },
-      { id: 'r-milk', name: 'Milk vendor', words: ['jagroop', 'shoshri chand'], day: 1, amount: 0, scope: 'family', acct: '' },
+      { id: 'r-emi', name: 'Flat EMI', words: ['emi', 'flat emi', 'home loan'], day: 0, amount: 0, scope: 'personal', acct: 'HDFC' },
+      { id: 'r-niece', name: 'Niece allowance', words: ['priyanka mehta', 'priyanka', 'bhabi'], day: 0, amount: 5000, scope: 'family', acct: '' },
+      { id: 'r-milk', name: 'Milk vendor', words: ['jagroop', 'shoshri chand'], day: 0, amount: 0, scope: 'family', acct: '' },
       { id: 'r-kirana', name: 'Lavish Kirana Store', words: ['lavish kirana', 'lavish kirana store'], day: 0, amount: 0, scope: 'family', acct: '' },
       { id: 'r-lic', name: 'LIC premium', words: ['lic', 'lic of india', 'life insurance corporation'], day: 22, amount: 5000, scope: 'investment', acct: '', strict: true },
       { id: 'r-insurance', name: 'Insurance premium', words: ['insurance premium', 'life insurance', 'health insurance', 'hdfc life', 'icici pru', 'max life', 'star health', 'bajaj allianz', 'tata aia', 'sbi life'], day: 16, amount: 0, max: 2000, scope: 'personal', acct: '', strict: true }
@@ -672,6 +672,37 @@
     return { rules: (rules || []).concat(add), seeded: Object.keys(gone) };
   }
   // Rules with a day of the month that are due now and have no matching entry yet this month.
+  /* v147: one strict list of what is still to pay. Only two kinds of bill exist:
+     - fixed: a rule with a day of the month (LIC on the 22nd, insurance on the 16th);
+     - sms: a bill the phone read from a bank SMS (a card statement with its amount and due date).
+     Nothing is guessed from past spending. A bill shows from `lead` days before it is due until it is paid:
+     paid = a payment with its name this month, or the very same amount close to the due date. */
+  function billsToPay(rules, entries, nowMs, skips, smsBills, lead) {
+    var now = new Date(nowMs), y = now.getFullYear(), m = now.getMonth(), dim = new Date(y, m + 1, 0).getDate();
+    var mk = y + '-' + (m + 1), start = new Date(y, m, 1).getTime(), day0 = new Date(y, m, now.getDate()).getTime(), out = [];
+    var DAY = 86400000, L = lead == null ? 5 : lead, list = (entries || []).filter(function (e) { return e && !e.synthetic && e.amount > 0; });
+    function sameAmount(e, amt) { return Math.abs(Number(e.amount) - amt) < 1; }
+    function isOut(e) { return e.kind !== 'income' && !/^\s*\u{1F4B0}/u.test(e.desc || ''); }
+    (rules || []).forEach(function (r) {
+      if (!r.day || (skips && skips[r.id] === mk)) return;
+      var due = new Date(y, m, Math.min(r.day, dim)).getTime(), daysTo = Math.round((due - day0) / DAY);
+      var hits = list.filter(function (e) { return matchRule(e.desc, [r], { amount: e.amount, ts: e.ts }); }).sort(function (a, b) { return b.ts - a.ts; });
+      var amount = r.amount || (hits[0] ? hits[0].amount : 0);
+      var paid = hits.filter(function (e) { return e.ts >= start; })[0] ||
+        (amount ? list.filter(function (e) { return isOut(e) && sameAmount(e, amount) && e.ts >= due - 3 * DAY && e.ts <= due + 10 * DAY && !matchRule(e.desc, (rules || []).filter(function (o) { return o !== r; })); })[0] : null);
+      if (paid || daysTo > L) return;
+      out.push({ id: r.id, kind: 'fixed', rule: r, label: r.name, amount: amount, due: due, daysTo: daysTo, monthKey: mk, acct: r.acct || '' });
+    });
+    (smsBills || []).forEach(function (b) {
+      if (!b || b.paid || !(b.amount > 0) || !b.due || (skips && skips[b.id])) return;
+      var due = new Date(new Date(b.due).getFullYear(), new Date(b.due).getMonth(), new Date(b.due).getDate()).getTime(), daysTo = Math.round((due - day0) / DAY);
+      if (daysTo > Math.max(L, 25) || daysTo < -20) return;
+      var paid = list.filter(function (e) { return isOut(e) && sameAmount(e, b.amount) && e.ts >= due - 30 * DAY && e.ts <= due + 20 * DAY; })[0];
+      if (paid) return;
+      out.push({ id: b.id, kind: 'sms', label: b.label || 'Card bill', amount: b.amount, due: due, daysTo: daysTo, monthKey: mk, acct: '' });
+    });
+    return out.sort(function (a, b) { return a.due - b.due; });
+  }
   function dueRules(rules, entries, nowMs, skips) {
     var now = new Date(nowMs), y = now.getFullYear(), m = now.getMonth(), dim = new Date(y, m + 1, 0).getDate();
     var mk = y + '-' + (m + 1), start = new Date(y, m, 1).getTime(), out = [];
@@ -1810,7 +1841,7 @@
     tripItemCategory: tripItemCategory, tripCategoriesSummary: tripCategoriesSummary, TRIP_CATEGORY_DEFS: TRIP_CATEGORY_DEFS,
     cleanName: cleanName, nameKey: nameKey, parseLoans: parseLoans, repaid: repaid, outstanding: outstanding,
     addPayment: addPayment, editLoan: editLoan, editPayment: editPayment, summarize: summarize,
-    walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, parseWalletDesc: parseWalletDesc, autoMoneyMove: autoMoneyMove, smsBalance: smsBalance, balanceGaps: balanceGaps, creditName: creditName, learnedScope: learnedScope, payeeCore: payeeCore,
+    walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, parseWalletDesc: parseWalletDesc, autoMoneyMove: autoMoneyMove, billsToPay: billsToPay, smsBalance: smsBalance, balanceGaps: balanceGaps, creditName: creditName, learnedScope: learnedScope, payeeCore: payeeCore,
     parseWallets: parseWallets, walletState: walletState, walletReconcile: walletReconcile,
     smartSearch: smartSearch, smsAccounts: smsAccounts, searchInsights: searchInsights, payeeName: payeeName, tripDiaryLabel: tripDiaryLabel, placeIn: placeIn, categoryOf: categoryOf, personOf: personOf, findPaybacks: findPaybacks, peopleLedger: peopleLedger, cleanBankAccounts: cleanBankAccounts, smsSourceBank: smsSourceBank, findRefunds: findRefunds, isRefundText: isRefundText, looksLikeCardBill: looksLikeCardBill, KITCHEN_SEED: KITCHEN_SEED, parseOrderText: parseOrderText, vendorOf: vendorOf, vendorKind: vendorKind, learnVendor: learnVendor, vendorGuess: vendorGuess, kitchenItemFor: kitchenItemFor, parseItemsText: parseItemsText, itemsFromPattern: itemsFromPattern, summarizeItems: summarizeItems, refundShop: refundShop, recurringSeries: recurringSeries, safeToSpend: safeToSpend, creepingSpends: creepingSpends, seriesKey: seriesKey, askQuery: askQuery, forecastMonth: forecastMonth, unusualSpends: unusualSpends,
     payCycles: payCycles, lastWorkingDay: lastWorkingDay, nextPayday: nextPayday, parseBank: parseBank, parseAvlBalance: parseAvlBalance, balanceFromSms: balanceFromSms, bankEstimate: bankEstimate, parseTransfers: parseTransfers

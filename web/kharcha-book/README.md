@@ -481,3 +481,18 @@ A purchase paid from the Amazon Pay balance or with Amazon Pay Later (Blinkit, Z
 
 - The spend calendar is on Home again, between the reminders and your days. v144 had tucked it behind "More about this month"; that button now holds only the category breakdown, the card summary and the list of months.
 - In Aurora the calendar days are lit by how much you spent: faint cyan for small days, violet for bigger ones, and a warm glow for the highest day. Today has a bright ring.
+
+## Bills to pay: only what is really fixed or read from SMS (v147, new APK)
+
+Before, three different guessers decided what was "due": payees that repeated in past months, built-in rules for the EMI, niece allowance and milk, and Autopilot's own list. They filled Home and the phone's reminders with bills that weren't bills.
+
+Now there is one strict list, `billsToPay`:
+- **Fixed premiums:** LIC on the 22nd and the insurance premium on the 16th. Nothing else has a date by default (the EMI, niece and milk rules still sort their payments, but are no longer "due on the Nth").
+- **Bills read from bank SMS:** a card statement with its amount and due date. The phone app shares these with Kharcha Book (new APK needed).
+- **Nothing is guessed** from past spending.
+
+How it behaves:
+- A bill appears on Home 5 days before it is due (a card bill as soon as its SMS arrives) and stays until paid.
+- It is ticked off by itself when a payment with its name arrives this month, or when the very same amount is paid close to the due date, whatever the payee is called.
+- Home no longer shows the guessed "Coming up" reminders or the salary plan card. Both are still on the Autopilot page.
+- The month forecast, safe-to-spend and the phone's bill reminders use this same list.

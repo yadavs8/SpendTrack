@@ -491,8 +491,8 @@
     if (!sw || (st.activeStream || 'spends') !== 'spends' || (K.selMonth && K.selMonth() !== curKey(new Date()))) return;
     var p = plan(); if (!p) return;
     var box = el('div', 'ap-nudges'); box.id = 'ap-nudges';
-    var sp = salaryPlan(p); if (sp) box.appendChild(salaryCard(sp, homeNudges));
-    var nl = billNudges(p); if (nl.length) box.appendChild(remindersCard(nl, homeNudges));
+    // v147: Home no longer shows guessed "coming up" bills or the salary plan. Bills to pay come from one strict
+    // list (your fixed premiums and bank SMS) in Home's own box; the salary plan lives on the Autopilot page.
     if (!box.children.length) return;
     var home = $('spends-view');   // inside Home's own section, so it can never show on another page
     if (home) home.insertBefore(box, home.firstChild); else { var anchor = $('ans-card') || sw; anchor.parentNode.insertBefore(box, anchor); }

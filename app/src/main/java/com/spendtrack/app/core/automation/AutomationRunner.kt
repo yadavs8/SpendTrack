@@ -155,7 +155,27 @@ object AutomationRunner {
     private suspend fun saveBills(bills: List<Bill>) {
         val cutoff = System.currentTimeMillis() - 40L * 24 * 3600 * 1000
         settings.saveBillsJson(JSONArray().apply { bills.filter { it.due >= cutoff }.forEach { put(it.toJson()) } }.toString())
+        shareSmsBills(bills.filter { it.due >= cutoff })
     }
+
+    /**
+     * v147: card bills read from bank SMS are shared with Kharcha Book (key "kharcha_sms_bills"), so the same
+     * bill shows there with its amount and due date and is ticked off when that amount is paid. Only bills that
+     * came from an SMS are shared; the web app's own list is never echoed back.
+     */
+    private suspend fun shareSmsBills(bills: List<Bill>) {
+        val arr = JSONArray()
+        bills.filter { it.source == "card" }.forEach {
+            arr.put(JSONObject().put("id", it.id).put("label", it.label).put("amount", it.amount).put("due", it.due).put("paid", it.paid))
+        }
+        val text = arr.toString()
+        runCatching {
+            if (settings.sharedValueFlow(SMS_BILLS_KEY).first() == text) return
+            val doc = settings.updateShared { it.put(SMS_BILLS_KEY, text) }
+            ServiceLocator.cloudSyncRepository.pushSharedSettings(doc)
+        }
+    }
+    private const val SMS_BILLS_KEY = "kharcha_sms_bills"
 
     /** A credit card statement SMS: remember the due date (one bill per card per due date). */
     suspend fun onCardStatement(s: CardBillParser.Statement) {
