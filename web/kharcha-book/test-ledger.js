@@ -942,3 +942,14 @@ t('v147: bills to pay are the two fixed premiums and bills read from SMS, ticked
   assert.deepStrictEqual(L.billsToPay([], [{ id: 'c', desc: '🔁 Credit card bill', amount: 3462.52, ts: D(14), kind: 'transfer' }], D(15), {}, sms), []);
   assert.deepStrictEqual(L.billsToPay([], [], D(13), {}, [Object.assign({}, sms[0], { paid: true })]), []);
 });
+
+t('v148: incomes file themselves', () => {
+  const I = (raw, desc, bank) => L.incomeKind({ kind: 'income', desc: desc || '💰 Received · Received', raw, bank: bank || 'ICICI' }, 'Rattan Singh');
+  assert.strictEqual(I('ICICI Bank Acc XX602 is credited with salary of Rs. 59,581.00 on 30-Oct-26. Info: CMS* INFY  SALA.', '💼 Salary · Salary'), '💼 Salary 1 · Infosys');
+  assert.strictEqual(I('Account XX602 credited:Rs. 1,000.00 on 10-Nov-26. Info CAM*03581HHR*CA.', '💰 Received · Cash deposit (ATM)'), '💼 Salary 2 · Cash deposit');
+  assert.strictEqual(I('Acct XX602 is credited with Rs 43928.00 on 02-Oct-26 from RATTAN SINGH. UPI:664107763203-ICICI Bank.', '💰 Received · Rattan Singh'), '👵 Withdrawn from Mother · Rattan Singh');
+  assert.strictEqual(I('Account XX602 credited:Rs. 218.50 on 05-Nov-26. Info ACH*IRFC LTD*IR2310262128372.', '💰 Received · Irfc'), '💰 Dividend · Irfc Ltd (ICICI)');
+  assert.strictEqual(I('Ac XX0096 Credited with Rs.43000.00 JD-PNBSMS-S', '💰 Received · Received', 'PNB'), null, "mother's own account is left alone");
+  assert.strictEqual(I('Acct XX602 is credited with Rs 10700.00 from RISHABH SHOKEEN. UPI:666530867505-ICICI Bank.', '💰 Received · Rishabh Shokeen'), null);
+  assert.strictEqual(I('... INFY ...', '💼 Salary 1 (September month salary)'), null, 'your own label wins');
+});
