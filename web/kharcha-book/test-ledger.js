@@ -1,6 +1,8 @@
 // Run: node web/kharcha-book/test-ledger.js
 const assert = require('assert');
 const L = require('./ledger-logic.js');
+// v147: only LIC and insurance are dated by default. The older tests below were written for the dated EMI / niece / milk rules.
+{ const dr = L.defaultRules; const days = { 'r-emi': 5, 'r-niece': 1, 'r-milk': 1 }; L.defaultRulesDated = () => dr().map((r) => days[r.id] ? Object.assign({}, r, { day: days[r.id] }) : r); }
 let n = 0;
 function t(name, fn) { fn(); n++; console.log('ok -', name); }
 
@@ -236,7 +238,7 @@ t('editPayment corrects a repayment but not beyond the loan', () => {
 });
 
 t('smart rules recognise payees and route banks', () => {
-  const rules = L.parseRules(JSON.stringify(L.defaultRules()));
+  const rules = L.parseRules(JSON.stringify(L.defaultRulesDated()));
   assert.strictEqual(L.matchRule('UPI-JAGROOP SHOSHRI CHAND', rules).name, 'Milk vendor');
   assert.strictEqual(L.matchRule('Priyanka Mehta', rules).name, 'Niece allowance');
   assert.strictEqual(L.matchRule('Premium paid', rules), null);
@@ -248,7 +250,7 @@ t('smart rules recognise payees and route banks', () => {
   assert.strictEqual(L.routeAccount({ id: '5', desc: 'Cred wallet' }, accts, { '5': 'none' }, rules, 'i'), null);
 });
 t('due rules appear from the due day until logged or skipped', () => {
-  const rules = L.parseRules(JSON.stringify(L.defaultRules()));
+  const rules = L.parseRules(JSON.stringify(L.defaultRulesDated()));
   const D2 = (y, m, d) => new Date(y, m - 1, d, 12).getTime();
   assert.deepStrictEqual(L.dueRules(rules, [], D2(2026, 10, 4), {}).map(x => x.rule.id).sort(), ['r-milk', 'r-niece']);
   const logged = [{ id: 'a', desc: '🏠 Milk vendor', amount: 2400, ts: D2(2026, 10, 2) }];
@@ -356,7 +358,7 @@ t('bills still to come before payday', () => {
 });
 
 t('LIC on the 22nd and small insurance on the 16th are recognised; look-alikes are not', () => {
-  const rules = L.parseRules(JSON.stringify(L.defaultRules()));
+  const rules = L.parseRules(JSON.stringify(L.defaultRulesDated()));
   const on = (d, day, amount) => L.matchRule(d, rules, { amount, ts: D(2026, 10, day) });
   assert.strictEqual(on('LIC of India', 22, 5000).scope, 'investment');
   assert.strictEqual(on('LIC of India', 9, 5000), null);                 // not near its day
@@ -914,4 +916,29 @@ t('v143: a card bill paid via CRED and an auto sweep are money moves', () => {
   assert.strictEqual(L.autoMoneyMove({ desc: '👤 credit card bill payment', raw }), '🔁 Credit card bill (paid via CRED)');
   assert.strictEqual(L.autoMoneyMove({ desc: '⏳ Cred Club', raw }), null, 'CRED also pays rent and other things: only when you call it a card bill');
   assert.strictEqual(L.autoMoneyMove({ desc: '⏳ Ffd', raw: 'Rs. 3000.00 has been transferred to FFD from Ac XX0096 under Auto Sweep option.' }), '🔁 Auto sweep to FD');
+});
+
+t('v147: bills to pay are the two fixed premiums and bills read from SMS, ticked off when paid', () => {
+  const D = (d, h) => new Date(2026, 10, d, h || 12).getTime();
+  const rules = L.parseRules(JSON.stringify(L.defaultRules()));
+  assert.deepStrictEqual(rules.filter((r) => r.day).map((r) => [r.id, r.day]), [['r-lic', 22], ['r-insurance', 16]]);
+  const past = [{ id: 'o', desc: '👤 Insurance premium (Axis Max Life)', amount: 1618.58, ts: new Date(2026, 9, 16).getTime(), kind: 'expense' }];
+  // 10 Nov: nothing is due within 5 days
+  assert.deepStrictEqual(L.billsToPay(rules, past, D(10), {}, []), []);
+  // 13 Nov: insurance (16th) is 3 days away, LIC (22nd) not yet
+  const a = L.billsToPay(rules, past, D(13), {}, []);
+  assert.deepStrictEqual(a.map((b) => [b.id, b.daysTo, b.amount]), [['r-insurance', 3, 1618.58]]);
+  // paid by name on the 16th: gone
+  assert.deepStrictEqual(L.billsToPay(rules, past.concat([{ id: 'p', desc: '⏳ Max Life insurance premium', amount: 1618.58, ts: D(16), kind: 'expense' }]), D(16, 20), {}, []), []);
+  // LIC: the very same amount near the 22nd ticks it, whatever the payee is called; the niece's 5,000 on the 1st does not
+  const lic = [{ id: 'n', desc: '🏠 Niece allowance (Priyanka Mehta)', amount: 5000, ts: D(1), kind: 'expense' }];
+  assert.deepStrictEqual(L.billsToPay(rules, lic, D(20), { 'r-insurance': '2026-11' }, []).map((b) => b.id), ['r-lic']);
+  assert.deepStrictEqual(L.billsToPay(rules, lic.concat([{ id: 'x', desc: '⏳ Billdesk', amount: 5000, ts: D(22), kind: 'expense' }]), D(23), { 'r-insurance': '2026-11' }, []), []);
+  // overdue and unpaid: still shown
+  assert.deepStrictEqual(L.billsToPay(rules, lic, D(25), { 'r-insurance': '2026-11' }, []).map((b) => [b.id, b.daysTo]), [['r-lic', -3]]);
+  // a card bill read from SMS shows until that exact amount is paid
+  const sms = [{ id: 'card|ICICI|1014|2026-11-23', label: 'ICICI Credit Card ··1014', amount: 3462.52, due: D(23), paid: false }];
+  assert.deepStrictEqual(L.billsToPay([], [], D(13), {}, sms).map((b) => [b.kind, b.amount, b.daysTo]), [['sms', 3462.52, 10]]);
+  assert.deepStrictEqual(L.billsToPay([], [{ id: 'c', desc: '🔁 Credit card bill', amount: 3462.52, ts: D(14), kind: 'transfer' }], D(15), {}, sms), []);
+  assert.deepStrictEqual(L.billsToPay([], [], D(13), {}, [Object.assign({}, sms[0], { paid: true })]), []);
 });

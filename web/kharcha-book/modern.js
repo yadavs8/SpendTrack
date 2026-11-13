@@ -1388,12 +1388,12 @@
       var busy = false, openDue = false;
       var tidy = function () {
         if (busy) return; busy = true;
-        var cards = due.querySelectorAll('.due-card:not(.due-ask)');   // questions (card bill, refund, money back) always stay open
+        var cards = due.querySelectorAll('.due-card:not(.due-ask):not(.bill-card)');   // bills to pay are never folded away   // questions (card bill, refund, money back) always stay open
         var old = due.querySelector('.due-sum'); if (old) old.remove();
         due.classList.toggle('due-fold', cards.length > 1 && !openDue);
         if (cards.length > 1) {
           var s = el('button', 'due-sum'); s.type = 'button';
-          s.textContent = '\uD83D\uDCC5 ' + cards.length + ' payments due this month ' + (openDue ? '\u25B4' : '\u25BE');
+          s.textContent = cards.length + ' suggestions to check ' + (openDue ? '\u25B4' : '\u25BE');
           s.addEventListener('click', function () { openDue = !openDue; tidy(); });
           due.insertBefore(s, due.firstChild);
         }

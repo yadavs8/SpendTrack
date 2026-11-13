@@ -322,12 +322,12 @@
     return bills.sort(function (a, b) { return a.day - b.day; });
   }
   // Projected month-end spend = spent so far + bills still due + the daily pace of everything else.
-  function monthForecast(entries, curMonthKey, now) {
+  function monthForecast(entries, curMonthKey, now, strictBills) {
     var monthList = (entries || []).filter(function (e) { return monthKey(e.ts) === curMonthKey && isExpense(e); });
     var cashLine = unaccountedCashEntry(entries, curMonthKey);
     if (cashLine) monthList.push(cashLine);
     var spent = sumRupees(monthList);
-    var bills = recurringBills(entries, curMonthKey).filter(function (b) { return b.isExpense; });
+    var bills = strictBills || recurringBills(entries, curMonthKey).filter(function (b) { return b.isExpense; });
     var due = bills.filter(function (b) { return !b.paidThisMonth; });
     var upcoming = due.reduce(function (s, b) { return s + b.amount; }, 0);
     var paidBills = bills.filter(function (b) { return b.paidThisMonth; }).reduce(function (s, b) { return s + b.amount; }, 0);
@@ -774,6 +774,14 @@
     if (!KL || !KL.seedRules) return;
     var cur = KL.parseRules(kv.get(RULES_KEY));
     if (!cur) return;
+    // v147: only the LIC and insurance premiums are fixed dates. The EMI, niece and milk rules keep sorting
+    // their payments but no longer count as "due on the Nth" (done once; set a day again in Auto rules to bring one back).
+    if (kv.get('kharcha_rules_v147') !== '1') {
+      var touched = false;
+      cur.forEach(function (r) { if (['r-emi', 'r-niece', 'r-milk'].indexOf(r.id) >= 0 && r.day) { r.day = 0; touched = true; } });
+      if (touched) saveRules(cur);
+      kv.set('kharcha_rules_v147', '1');
+    }
     var seeded = []; try { seeded = JSON.parse(kv.get('kharcha_rules_seeded') || '[]'); } catch (e) {}
     if (!Array.isArray(seeded)) seeded = [];
     var r = KL.seedRules(cur, seeded);
@@ -1548,7 +1556,7 @@
   /* ---------- Shared settings: one row in Supabase kharcha_settings, used by web + phone ----------
      Same keys and string values as localStorage, so feature code just swaps localStorage for kv.
      localStorage stays as the offline cache, and is all there is until the v4 SQL has been run. */
-  var SHARED_KEYS = ['kharcha_item_catalog', 'kharcha_pages', 'kharcha_gap_seen', 'kharcha_item_patterns', 'kharcha_cardbill_no', 'kharcha_salary_seen', 'kharcha_family_acct_off', 'kharcha_autopilot_bills', 'kharcha_autopilot_hide', 'kharcha_autopilot_keep', 'kharcha_not_mine_banks', 'kharcha_trip_mirror_map', 'kharcha_trip_phones', 'kharcha_paybacks', 'kharcha_payback_no', 'kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
+  var SHARED_KEYS = ['kharcha_item_catalog', 'kharcha_pages', 'kharcha_gap_seen', 'kharcha_sms_bills', 'kharcha_rules_v147', 'kharcha_item_patterns', 'kharcha_cardbill_no', 'kharcha_salary_seen', 'kharcha_family_acct_off', 'kharcha_autopilot_bills', 'kharcha_autopilot_hide', 'kharcha_autopilot_keep', 'kharcha_not_mine_banks', 'kharcha_trip_mirror_map', 'kharcha_trip_phones', 'kharcha_paybacks', 'kharcha_payback_no', 'kharcha_merchant_scope_map', 'kharcha_monthly_budget', 'kharcha_active_project_name',
     'kharcha_is_trip_paused', 'kharcha_all_projects_list', 'kharcha_is_project_paused', 'kharcha_legacy_project_name',
     'kharcha_active_trip_name', 'kharcha_all_trips_list', 'kharcha_category_budgets', 'kharcha_merchant_memory',
     'kharcha_owner_identity', 'kharcha_my_upi', 'kharcha_family_payers', 'kharcha_loans', 'kharcha_wallets', 'kharcha_bank', 'kharcha_cycle', 'kharcha_rules', 'kharcha_acctmap', 'kharcha_primary_acct', 'kharcha_rule_skips', 'kharcha_transfers', 'kharcha_own', 'kharcha_xfer_dismissed', 'kharcha_goal', 'kharcha_receipts', 'kharcha_rules_seeded', 'kharcha_card', 'kharcha_dup_dismissed'];
@@ -2252,12 +2260,30 @@
     return list;
   }
 
+  // v147: the only bills the app counts as "still to pay": your fixed premiums (rules with a day) and bills read
+  // from bank SMS. Nothing is guessed from past spending. Used by the forecast, Home and the phone's reminders.
+  var SMS_BILLS_KEY = 'kharcha_sms_bills';
+  function smsBills() { try { var a = JSON.parse(kv.get(SMS_BILLS_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+  function strictBills() {
+    var KL = window.KharchaLedger, now = Date.now(), d = new Date(now), start = new Date(d.getFullYear(), d.getMonth(), 1).getTime();
+    if (!KL || !KL.billsToPay) return [];
+    var open = KL.billsToPay(loadRules(), state.entries, now, loadJsonObj(SKIPS_KEY), smsBills(), 40), openIds = {};
+    open.forEach(function (b) { openIds[b.id] = b; });
+    var out = loadRules().filter(function (r) { return r.day; }).map(function (r) {
+      var o = openIds[r.id], last = state.entries.filter(function (e) { return e && !e.synthetic && KL.matchRule(e.desc, [r]); }).sort(function (a, b) { return b.ts - a.ts; })[0];
+      return { key: r.id, label: r.name, amount: Math.round(o ? o.amount : (r.amount || (last ? last.amount : 0))), day: r.day, paidThisMonth: !o, isExpense: true };
+    });
+    open.filter(function (b) { return b.kind === 'sms' && b.due >= start; }).forEach(function (b) {
+      out.push({ key: b.id, label: b.label, amount: Math.round(b.amount), day: new Date(b.due).getDate(), paidThisMonth: false, isExpense: true });
+    });
+    return out.filter(function (b) { return b.amount > 0; });
+  }
   function renderForecast(nowKey) {
     var card = $('forecast-card');
     if (!card) return;
     if (state.sel !== nowKey) { card.hidden = true; return; }
-    var fc = monthForecast(state.entries, nowKey, new Date());
-    var bills = recurringBills(state.entries, nowKey);
+    var bills = strictBills();
+    var fc = monthForecast(state.entries, nowKey, new Date(), bills);
     if (!fc.spent && !bills.length) { card.hidden = true; return; }
     card.hidden = false;
     $('fc-projected').textContent = money(fc.projected);
@@ -2277,19 +2303,10 @@
     var bridge = window.KharchaNative;
     if (!bridge || !bridge.reportSummary) return;
     try {
-      var fc = monthForecast(state.entries, nowKey, new Date());
-      // Recurring bills go to the phone, which reminds you a couple of days before each is due.
-      var bills = recurringBills(state.entries, nowKey).filter(function (b) { return b.isExpense; }).slice(0, 40)
-        .map(function (b) { return { key: b.key, label: b.label, amount: b.amount, day: b.day, paidThisMonth: b.paidThisMonth }; });
-      var ap = window.__autopilot && window.__autopilot.plan ? window.__autopilot.plan() : null;
-      if (ap && ap.bills && ap.bills.length) {
-        var seen = {};
-        bills = ap.bills.map(function (b) {
-          var key = recurringKey((b.sample && b.sample.desc) || b.label); seen[key] = 1;
-          var label = b.label + (b.acctShort ? ' · ' + b.acctShort : '') + (b.short > 0 ? ' (low bal)' : '');
-          return { key: key, label: label.slice(0, 40), amount: b.amount, day: b.day, paidThisMonth: b.status === 'paid' };
-        }).concat(bills.filter(function (b) { return !seen[b.key]; })).slice(0, 40);
-      }
+      // v147: the phone reminds only about your fixed premiums. Card bills it reads from SMS by itself.
+      var bills = strictBills().filter(function (b) { return String(b.key).indexOf('card|') !== 0; })
+        .map(function (b) { return { key: recurringKey(b.label), label: b.label, amount: b.amount, day: b.day, paidThisMonth: b.paidThisMonth }; });
+      var fc = monthForecast(state.entries, nowKey, new Date(), strictBills());
       bridge.reportSummary(JSON.stringify({
         month: monthLabel(nowKey),
         spentLabel: money(fc.spent),
@@ -3404,7 +3421,7 @@
     var box = $('due-box'), KL = window.KharchaLedger;
     if (!box || !KL) return;
     box.textContent = '';
-    var due = KL.dueRules(loadRules(), state.entries, Date.now(), loadJsonObj(SKIPS_KEY));
+    var due = KL.billsToPay(loadRules(), state.entries, Date.now(), loadJsonObj(SKIPS_KEY), smsBills(), 5);
     var accts = loadBank(), sugg = [];
     if (accts.length > 1) sugg = KL.transferCandidates(state.entries, accts, loadOwn(), Date.now(), loadJsonObj('kharcha_xfer_dismissed'), transferPred(accts)).slice(0, 3);
     var dups = (state.dupMaybe || []).filter(function (m) { return state.entries.indexOf(m.drop) >= 0 && state.entries.indexOf(m.keep) >= 0; }).slice(0, 2);
@@ -3417,30 +3434,39 @@
     asks.forEach(function (p) { var c = paybackSuggestion(p); if (c) box.appendChild(c); });
     dups.forEach(function (m) { box.appendChild(dupSuggestion(m)); });
     sugg.forEach(function (c) { box.appendChild(transferSuggestion(c, accts)); });
-    due.slice(0, 3).forEach(function (d) {
-      var r = d.rule, row = el('div', 'due-card');
+    due.slice(0, 4).forEach(function (d) {
+      var r = d.rule, row = el('div', 'due-card bill-card' + (d.daysTo < 0 ? ' late' : d.daysTo <= 1 ? ' soon' : ''));
+      var when = d.daysTo < 0 ? 'Was due on the ' + ordinal(new Date(d.due).getDate()) : d.daysTo === 0 ? 'Due today' : d.daysTo === 1 ? 'Due tomorrow' : 'Due in ' + d.daysTo + ' days · ' + ordinal(new Date(d.due).getDate());
       var txt = el('div', 'due-txt');
-      txt.appendChild(el('b', null, '📅 ' + r.name));
-      txt.appendChild(el('span', null, 'Due on the ' + ordinal(r.day) + (d.amount ? ' · ' + money(d.amount) : '') + (r.acct ? ' · from ' + r.acct : '')));
+      txt.appendChild(el('b', null, (d.kind === 'sms' ? '💳 ' : '📅 ') + d.label));
+      txt.appendChild(el('span', null, when + (d.amount ? ' · ' + money(d.amount) : '') + (d.acct ? ' · from ' + d.acct : '') + (d.kind === 'sms' ? ' · from your bank SMS' : '')));
       row.appendChild(txt);
-      var log = el('button', 'primary small', 'Log it'); log.type = 'button';
-      function add(amount) {
-        store.add({ amount: amount, desc: shiftScopeDesc(r.name, r.scope), spent_at: new Date().toISOString() })
-          .then(function () { render(); toast(r.name + ' ' + money(amount) + ' logged'); })
-          .catch(function () { toast('Could not log it. Try again.'); });
-      }
-      log.addEventListener('click', function () {
-        if (d.amount) { add(d.amount); return; }
-        showInputModal({ title: r.name, message: 'How much was it this month?', fields: [{ label: 'Amount (₹)', placeholder: 'e.g. 25000', inputmode: 'decimal' }], confirmText: 'Log it',
-          onConfirm: function (v) { var a = parseAmount(v[0]); if (a != null) add(a); } });
-      });
-      var skip = el('button', 'ghost', 'Not this month'); skip.type = 'button';
-      skip.addEventListener('click', function () {
-        var before = loadJsonObj(SKIPS_KEY), next = Object.assign({}, before); next[r.id] = d.monthKey;
+      function skipIt(msg) {
+        var before = loadJsonObj(SKIPS_KEY), next = Object.assign({}, before); next[d.id] = d.kind === 'sms' ? 1 : d.monthKey;
         kv.set(SKIPS_KEY, JSON.stringify(next)); renderDue();
-        toast(r.name + ' skipped for this month', function () { kv.set(SKIPS_KEY, JSON.stringify(before)); renderDue(); });
-      });
-      row.appendChild(log); row.appendChild(skip);
+        toast(msg, function () { kv.set(SKIPS_KEY, JSON.stringify(before)); renderDue(); });
+      }
+      if (d.kind === 'sms') {
+        // ticked by itself when that amount is paid; this is for a bill you paid some other way
+        var paidBtn = el('button', 'ghost', '✓ Paid'); paidBtn.type = 'button'; paidBtn.setAttribute('data-self-confirm', '');
+        paidBtn.addEventListener('click', function () { skipIt(d.label + ' marked paid'); });
+        row.appendChild(paidBtn);
+      } else {
+        var log = el('button', 'primary small', 'Log it'); log.type = 'button';
+        var add = function (amount) {
+          store.add({ amount: amount, desc: shiftScopeDesc(r.name, r.scope), spent_at: new Date().toISOString() })
+            .then(function () { render(); toast(r.name + ' ' + money(amount) + ' logged'); })
+            .catch(function () { toast('Could not log it. Try again.'); });
+        };
+        log.addEventListener('click', function () {
+          if (d.amount) { add(d.amount); return; }
+          showInputModal({ title: r.name, message: 'How much was it this month?', fields: [{ label: 'Amount (₹)', placeholder: 'e.g. 25000', inputmode: 'decimal' }], confirmText: 'Log it',
+            onConfirm: function (v) { var a = parseAmount(v[0]); if (a != null) add(a); } });
+        });
+        var skip = el('button', 'ghost', 'Not this month'); skip.type = 'button';
+        skip.addEventListener('click', function () { skipIt(r.name + ' skipped for this month'); });
+        row.appendChild(log); row.appendChild(skip);
+      }
       box.appendChild(row);
     });
   }
