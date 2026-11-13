@@ -482,6 +482,14 @@ A purchase paid from the Amazon Pay balance or with Amazon Pay Later (Blinkit, Z
 - The spend calendar is on Home again, between the reminders and your days. v144 had tucked it behind "More about this month"; that button now holds only the category breakdown, the card summary and the list of months.
 - In Aurora the calendar days are lit by how much you spent: faint cyan for small days, violet for bigger ones, and a warm glow for the highest day. Today has a bright ring.
 
+## Incomes file themselves (v148)
+
+- Infosys salary into ICICI → **💼 Salary 1 · Infosys**
+- Cash deposited at an ICICI ATM → **💼 Salary 2 · Cash deposit**
+- Money from mother's PNB account (UPI from Rattan Singh, or any name in "Family who reimburse you") → **👵 Withdrawn from Mother** (the month's home money)
+- Dividends / interest (ACH credits: IRFC, TCS, IRCON…) → **💰 Dividend · … (ICICI)**
+- Credits on mother's own PNB account are left alone; a label you typed yourself is never changed.
+
 ## Bills to pay: only what is really fixed or read from SMS (v147, new APK)
 
 Before, three different guessers decided what was "due": payees that repeated in past months, built-in rules for the EMI, niece allowance and milk, and Autopilot's own list. They filled Home and the phone's reminders with bills that weren't bills.

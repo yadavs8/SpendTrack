@@ -415,6 +415,24 @@
     if ((m = /\bInfo:?\s*(?:ACH|NEFT|IMPS|UPI|BIL|INF)\*([^*.]{3,40})/i.exec(r))) return m[1].trim().toLowerCase().replace(/\b[a-z]/g, function (c) { return c.toUpperCase(); });
     return null;
   }
+  // v148: incomes file themselves. Infosys salary = Salary 1, cash deposited = Salary 2, money from mother's
+  // PNB account (or a family payer) = monthly home money, dividends/interest = income on the ICICI account.
+  // Only auto-written descriptions are touched: a label you typed always wins.
+  function incomeKind(e, payers) {
+    if (!e || e.kind !== 'income') return null;
+    var d = String(e.desc || '').trim(), r = String(e.raw || '');
+    if (!/^\u{1F4B0}\s*Received\s*\u00b7/u.test(d) && !/^\u{1F4BC}\s*Salary\s*\u00b7\s*Salary$/u.test(d)) return null;
+    if (/PNB|PUNB|Punjab National/i.test(String(e.bank || '')) || /PNBSMS/i.test(r)) return null; // mother's own account
+    if (/credited with salary|INFY|INFOSYS/i.test(r)) return '\u{1F4BC} Salary 1 \u00b7 Infosys';
+    if (/\bInfo:?\s*CAM\*/i.test(r)) return '\u{1F4BC} Salary 2 \u00b7 Cash deposit';
+    var from = (/\bfrom\s+([A-Z][A-Z .]{2,40}?)\.\s*UPI/i.exec(r) || [])[1] || '';
+    var list = String(payers || '').toLowerCase().split(/[,;\n]/).map(function (x) { return x.trim(); }).filter(Boolean);
+    if (/\bPNB\b|PUNB|Punjab National/i.test(r) || (from && list.some(function (p) { return from.toLowerCase().indexOf(p) >= 0 || p.indexOf(from.toLowerCase()) >= 0; })))
+      return '\u{1F475} Withdrawn from Mother' + (from ? ' \u00b7 ' + from.trim().toLowerCase().replace(/\b[a-z]/g, function (c) { return c.toUpperCase(); }) : '');
+    var ach = /\bInfo:?\s*ACH\*([^*.]{3,40})/i.exec(r);
+    if (ach && !/^\u{1F4B0}\s*Dividend/u.test(d)) return '\u{1F4B0} Dividend \u00b7 ' + ach[1].trim().toLowerCase().replace(/\b[a-z]/g, function (c) { return c.toUpperCase(); }) + ' (ICICI)';
+    return null;
+  }
   // A payee you filed the same way at least twice gets filed by itself next time.
   function payeeCore(desc) {
     return String(desc || '').replace(/\([^)]*\)/g, ' ').replace(/^[^A-Za-z0-9]+/, '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').trim().split(/\s+/).slice(0, 2).join(' ');
@@ -1841,7 +1859,7 @@
     tripItemCategory: tripItemCategory, tripCategoriesSummary: tripCategoriesSummary, TRIP_CATEGORY_DEFS: TRIP_CATEGORY_DEFS,
     cleanName: cleanName, nameKey: nameKey, parseLoans: parseLoans, repaid: repaid, outstanding: outstanding,
     addPayment: addPayment, editLoan: editLoan, editPayment: editPayment, summarize: summarize,
-    walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, parseWalletDesc: parseWalletDesc, autoMoneyMove: autoMoneyMove, billsToPay: billsToPay, smsBalance: smsBalance, balanceGaps: balanceGaps, creditName: creditName, learnedScope: learnedScope, payeeCore: payeeCore,
+    walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, parseWalletDesc: parseWalletDesc, autoMoneyMove: autoMoneyMove, billsToPay: billsToPay, smsBalance: smsBalance, balanceGaps: balanceGaps, creditName: creditName, incomeKind: incomeKind, learnedScope: learnedScope, payeeCore: payeeCore,
     parseWallets: parseWallets, walletState: walletState, walletReconcile: walletReconcile,
     smartSearch: smartSearch, smsAccounts: smsAccounts, searchInsights: searchInsights, payeeName: payeeName, tripDiaryLabel: tripDiaryLabel, placeIn: placeIn, categoryOf: categoryOf, personOf: personOf, findPaybacks: findPaybacks, peopleLedger: peopleLedger, cleanBankAccounts: cleanBankAccounts, smsSourceBank: smsSourceBank, findRefunds: findRefunds, isRefundText: isRefundText, looksLikeCardBill: looksLikeCardBill, KITCHEN_SEED: KITCHEN_SEED, parseOrderText: parseOrderText, vendorOf: vendorOf, vendorKind: vendorKind, learnVendor: learnVendor, vendorGuess: vendorGuess, kitchenItemFor: kitchenItemFor, parseItemsText: parseItemsText, itemsFromPattern: itemsFromPattern, summarizeItems: summarizeItems, refundShop: refundShop, recurringSeries: recurringSeries, safeToSpend: safeToSpend, creepingSpends: creepingSpends, seriesKey: seriesKey, askQuery: askQuery, forecastMonth: forecastMonth, unusualSpends: unusualSpends,
     payCycles: payCycles, lastWorkingDay: lastWorkingDay, nextPayday: nextPayday, parseBank: parseBank, parseAvlBalance: parseAvlBalance, balanceFromSms: balanceFromSms, bankEstimate: bankEstimate, parseTransfers: parseTransfers

@@ -3375,6 +3375,15 @@
     var KL = window.KharchaLedger;
     if (!KL || !state.entries.length) return;
     var rules = loadRules(), since = Date.now() - 120 * 86400000, done = {}, n = 0;
+    // v148: incomes are filed by themselves (no question): Salary 1, Salary 2, mother's money, dividends
+    var payers = (kv.get('kharcha_family_payers') || '') + ',Rattan Singh';
+    for (var j = 0; j < state.entries.length && KL.incomeKind && n < 40; j++) {
+      var ie = state.entries[j];
+      if (!ie || ie.synthetic || ie.ts < since) continue;
+      var ik = KL.incomeKind(ie, payers);
+      if (!ik || ik === ie.desc) continue;
+      try { await store.update(ie.id, { amount: ie.amount, desc: ik, spent_at: new Date(ie.ts).toISOString() }); n++; done[ik.split(' \u00b7 ')[0]] = 1; } catch (err) { break; }
+    }
     for (var i = 0; i < state.entries.length && n < 40; i++) {
       var e = state.entries[i];
       if (!e || e.synthetic || !isExpense(e) || isTripEntry(e)) continue;
