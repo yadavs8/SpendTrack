@@ -482,6 +482,11 @@ A purchase paid from the Amazon Pay balance or with Amazon Pay Later (Blinkit, Z
 - The spend calendar is on Home again, between the reminders and your days. v144 had tucked it behind "More about this month"; that button now holds only the category breakdown, the card summary and the list of months.
 - In Aurora the calendar days are lit by how much you spent: faint cyan for small days, violet for bigger ones, and a warm glow for the highest day. Today has a bright ring.
 
+## Calmer, livelier dashboard (v149)
+
+- The light line running round the dashboard edge, the sweep through the total, and the glare passing over the dashboard and banners are gone.
+- Instead, soft aurora colours slowly drift behind the dashboard and the total gently glows (off if your phone asks for reduced motion).
+
 ## Incomes file themselves (v148)
 
 - Infosys salary into ICICI → **💼 Salary 1 · Infosys**
