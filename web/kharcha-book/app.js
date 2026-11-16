@@ -7603,60 +7603,118 @@
 
   var OFFER_KEY = 'kharcha_lock_declined';
   function offerDeclined() { try { return !!localStorage.getItem(OFFER_KEY); } catch (e) { return false; } }
+  // Inside the phone app the fingerprint lock is the app's own (BiometricPrompt): asked when it opens
+  // and after a minute away. In a browser it stays the WebAuthn lock below.
+  function nativeLock() { var NB = window.KharchaNative; return !!(NB && typeof NB.enableBiometric === 'function'); }
+  function nativeLockOn() { try { return nativeLock() && !!window.KharchaNative.biometricEnabled(); } catch (e) { return false; } }
+  function nativeLockPossible() { try { return nativeLock() && !!window.KharchaNative.biometricAvailable(); } catch (e) { return false; } }
   function renderLockOffer() {
     var offerSec = $('lock-offer');
-    if (offerSec) offerSec.hidden = !(lockSupported && !lockCred() && !offerDeclined() && !$('main').hidden);
+    if (!offerSec) return;
+    var possible = nativeLock() ? nativeLockPossible() : lockSupported;
+    var on = nativeLock() ? nativeLockOn() : !!lockCred();
+    offerSec.hidden = !(possible && !on && !offerDeclined() && !$('main').hidden);
   }
+  window.kharchaBiometricDone = function (ok) {
+    if (ok) toast('Fingerprint is on. Kharcha Book will ask for it each time it opens.');
+    renderLockOffer();
+  };
   $('offer-no').addEventListener('click', function () { try { localStorage.setItem(OFFER_KEY, '1'); } catch (e) {} renderLockOffer(); });
-  $('offer-yes').addEventListener('click', async function () { await enableLock(); renderLockOffer(); });
+  $('offer-yes').addEventListener('click', async function () {
+    if (nativeLock()) { window.KharchaNative.enableBiometric(); return; } // answers via kharchaBiometricDone
+    await enableLock(); renderLockOffer();
+  });
 
-  /* ---------- sign in ---------- */
+  /* ---------- sign in ----------
+   * 1. email → we email a 6-digit code (existing accounts only: shouldCreateUser false)
+   * 2. code  → signed in; then "Set a password" (or keep the current one)
+   * 3. later sign-ins: password, or a new code if it is forgotten.
+   * Inside the phone app the next screen offers the fingerprint lock (see the lock offer). */
   function showAuthErr(msg) { var e = $('auth-err'); e.textContent = msg; e.hidden = !msg; }
   var authMode = 'otp', otpSent = false;
+  var holdForPassword = false; // set while a code is being checked: the sign-in event fires before verifyOtp returns
   function showAuthInfo(msg) { var i = $('auth-info'); i.textContent = msg; i.hidden = !msg; }
   function renderAuth() {
-    var otp = authMode === 'otp';
-    $('auth-title').textContent = otp ? 'Sign in with an email link or code' : 'Sign in with a password';
+    var otp = authMode === 'otp', setpass = authMode === 'setpass';
+    $('auth-title').textContent = setpass ? 'Set your password' : otp ? (otpSent ? 'Enter the code from your email' : 'Sign in with an email code') : 'Sign in with your password';
     $('auth-intro').hidden = !otp || otpSent;
+    $('email-field').hidden = setpass;
     $('code-field').hidden = !(otp && otpSent);
-    $('pass-field').hidden = otp;
+    $('pass-field').hidden = authMode !== 'pass';
+    $('newpass-field').hidden = !setpass;
+    $('newpass2-field').hidden = !setpass;
     $('auth-email').readOnly = otp && otpSent;
-    $('auth-btn').textContent = otp ? (otpSent ? 'Verify code' : 'Send link / code') : 'Sign in';
-    $('auth-toggle').textContent = otp ? 'Use a password instead' : 'Use an email link instead';
+    $('auth-btn').textContent = setpass ? 'Save password' : otp ? (otpSent ? 'Verify code' : 'Send code') : 'Sign in';
+    $('auth-toggle').textContent = setpass ? 'Skip — keep my current password' : otp ? (otpSent ? 'Send a new code' : 'I have a password') : 'Forgot it? Email me a code';
+    var demo = $('demo-mode-btn'); if (demo) demo.hidden = setpass;
     showAuthErr(''); showAuthInfo('');
   }
-  $('auth-toggle').addEventListener('click', function () {
+  $('auth-toggle').addEventListener('click', async function () {
+    if (authMode === 'setpass') { holdForPassword = false; authMode = 'otp'; otpSent = false; renderAuth(); await enterApp(); return; } // skip
+    if (authMode === 'otp' && otpSent) { otpSent = false; $('auth-code').value = ''; renderAuth(); return; }      // ask again
     authMode = authMode === 'otp' ? 'pass' : 'otp'; otpSent = false; $('auth-code').value = ''; renderAuth();
   });
+  function friendlyAuthError(err) {
+    var m = String((err && err.message) || err || '');
+    if (/rate limit|security purposes|only request this after/i.test(m)) return 'Too many codes asked for. Wait a minute and try again.';
+    if (/expired|invalid.*(otp|token)|token has expired/i.test(m)) return 'That code is wrong or has expired. Ask for a new one.';
+    if (/invalid login credentials/i.test(m)) return 'Wrong email or password.';
+    if (/signups not allowed|user not found/i.test(m)) return 'There is no Kharcha Book account for this email.';
+    if (/should be different/i.test(m)) return 'That is already your password — choose a different one, or skip.';
+    if (/password should be|weak/i.test(m)) return 'Choose a longer password (at least 8 characters).';
+    return m || 'Something went wrong. Please try again.';
+  }
   $('auth').addEventListener('submit', async function (ev) {
     ev.preventDefault();
     var email = $('auth-email').value.trim();
-    if (!email) { showAuthErr('Enter your email address.'); return; }
+    if (authMode !== 'setpass' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showAuthErr('Enter your email address.'); return; }
     $('auth-btn').disabled = true; showAuthErr('');
     var res;
     try {
-      if (authMode === 'pass') {
+      if (authMode === 'setpass') {
+        var p1 = $('auth-newpass').value, p2 = $('auth-newpass2').value;
+        if (p1.length < 8) { showAuthErr('Choose a password of at least 8 characters.'); $('auth-btn').disabled = false; return; }
+        if (p1 !== p2) { showAuthErr('The two passwords are not the same.'); $('auth-btn').disabled = false; return; }
+        res = await sb.auth.updateUser({ password: p1 });
+        if (!res.error) {
+          $('auth-newpass').value = ''; $('auth-newpass2').value = '';
+          holdForPassword = false; authMode = 'otp'; renderAuth();
+          toast('Password saved. Next time you can sign in with it.');
+          $('auth-btn').disabled = false;
+          await enterApp();
+          return;
+        }
+      } else if (authMode === 'pass') {
         var pass = $('auth-pass').value;
-        if (pass.length < 6) { showAuthErr('Enter your password.'); $('auth-btn').disabled = false; return; }
+        if (!pass) { showAuthErr('Enter your password.'); $('auth-btn').disabled = false; return; }
         res = await sb.auth.signInWithPassword({ email: email, password: pass });
       } else if (!otpSent) {
         res = await sb.auth.signInWithOtp({ email: email, options: { shouldCreateUser: false } });
         if (!res.error) {
           otpSent = true; renderAuth();
-          showAuthInfo('We sent a sign-in link to ' + email + '. Click the link in your email to log in automatically.');
+          showAuthInfo('We emailed a 6-digit code to ' + email + '. It can take a minute; check spam too.');
           $('auth-code').focus();
           $('auth-btn').disabled = false; return;
         }
       } else {
         var code = $('auth-code').value.replace(/\s/g, '');
-        if (code.length < 6) { showAuthErr('Enter the code from your email.'); $('auth-btn').disabled = false; return; }
+        if (!/^\d{6,10}$/.test(code)) { showAuthErr('Enter the code from your email.'); $('auth-btn').disabled = false; return; }
+        holdForPassword = true;
         res = await sb.auth.verifyOtp({ email: email, token: code, type: 'email' });
+        if (res.error) holdForPassword = false;
+        if (!res.error) {
+          // Signed in. Offer to set a password now (or keep the current one).
+          otpSent = false; $('auth-code').value = ''; authMode = 'setpass'; renderAuth();
+          $('auth-btn').disabled = false; $('auth-newpass').focus();
+          return;
+        }
       }
     } catch (err) {
-      res = { error: { message: 'Could not reach Supabase. Check your connection.' } };
+      if (authMode !== 'setpass') holdForPassword = false;
+      res = { error: { message: 'Could not reach the server. Check your connection.' } };
     }
     $('auth-btn').disabled = false;
-    if (res.error) { showAuthErr(res.error.message); return; }
+    if (res.error) { showAuthErr(friendlyAuthError(res.error)); return; }
     otpSent = false; renderAuth();
     await enterApp();
   });
@@ -7758,6 +7816,10 @@
     sb.auth.onAuthStateChange(function (event, session) {
       console.log('Kharcha: auth state changed: ' + event + ', session=' + !!session);
       if (event === 'INITIAL_SESSION') return;
+      // Just signed in with an email code: stay on "Set your password" until it is saved or skipped
+      // (the sign-in form then opens the app itself). Also a magic-link sign-in or a token refresh
+      // must not jump past it.
+      if (authMode === 'setpass' || holdForPassword) return;
       if (session && ($('main').hidden || state.mode === 'signedout')) {
         setTimeout(function () {
           if (lockCred() && lockSupported) { showScreen('lock'); unlock(); }
