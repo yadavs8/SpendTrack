@@ -46,6 +46,24 @@ class MainActivity : FragmentActivity() {
 
     private var activeWebView: WebView? = null
 
+    // Fingerprint lock: asked when the app opens and again after a minute away. Kept here (not in
+    // Compose) so onStart can lock again; the page underneath stays loaded while the lock is shown.
+    private var isUnlocked by mutableStateOf(false)
+    private var everUnlocked by mutableStateOf(false)
+    private var backgroundedAt = 0L
+
+    override fun onStop() {
+        super.onStop()
+        backgroundedAt = android.os.SystemClock.elapsedRealtime()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (backgroundedAt > 0 && android.os.SystemClock.elapsedRealtime() - backgroundedAt > RELOCK_AFTER_MS) {
+            isUnlocked = false
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         // If app comes to foreground, tell the web view to reload recent data instantly
@@ -96,34 +114,39 @@ class MainActivity : FragmentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
+                    // null until the setting has been read, so a locked app never flashes its data first.
                     val isBiometricEnabled by ServiceLocator.settingsManager.isBiometricEnabled
-                        .collectAsState(initial = false)
-                    var isUnlocked by remember { mutableStateOf(false) }
+                        .collectAsState(initial = null)
+                    val locked = isBiometricEnabled == true && !isUnlocked
 
                     LaunchedEffect(isBiometricEnabled) {
-                        if (!isBiometricEnabled) {
+                        if (isBiometricEnabled == false) {
                             isUnlocked = true
                         }
                     }
+                    LaunchedEffect(isUnlocked) { if (isUnlocked) everUnlocked = true }
 
-                    if (isBiometricEnabled && !isUnlocked) {
-                        LaunchedEffect(Unit) {
-                            BiometricAuthManager.authenticate(
-                                activity = this@MainActivity,
-                                onSuccess = { isUnlocked = true }
-                            )
-                        }
-
-                        LockScreen(
-                            onUnlockClick = {
-                                BiometricAuthManager.authenticate(
-                                    activity = this@MainActivity,
-                                    onSuccess = { isUnlocked = true }
-                                )
-                            }
+                    val askFingerprint = {
+                        BiometricAuthManager.authenticate(
+                            activity = this@MainActivity,
+                            title = "Unlock Kharcha Book",
+                            subtitle = "Use your fingerprint or phone screen lock",
+                            onSuccess = { isUnlocked = true }
                         )
-                    } else {
-                        MainApp(onWebViewAttached = { activeWebView = it })
+                    }
+
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        // The page is created only after the first unlock, then kept underneath the lock
+                        // screen, so locking again after a minute away does not reload it.
+                        if (everUnlocked) {
+                            MainApp(onWebViewAttached = { activeWebView = it })
+                        }
+                        if (locked) {
+                            LaunchedEffect(Unit) { askFingerprint() }
+                            Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                                LockScreen(onUnlockClick = { askFingerprint() })
+                            }
+                        }
                     }
                 }
             }
@@ -299,3 +322,5 @@ fun MainApp(onWebViewAttached: (WebView?) -> Unit = {}) {
         }
     }
 }
+
+private const val RELOCK_AFTER_MS = 60_000L

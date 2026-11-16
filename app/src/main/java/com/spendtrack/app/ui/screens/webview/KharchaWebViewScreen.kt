@@ -29,6 +29,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import com.spendtrack.app.core.logger.SafeLogger
+import com.spendtrack.app.core.security.BiometricAuthManager
+import com.spendtrack.app.data.di.ServiceLocator
+import androidx.fragment.app.FragmentActivity
+import android.content.ContextWrapper
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 /**
  * Opens a link the WebView shouldn't handle itself: wa.me / whatsapp:// in WhatsApp, upi:// in a
@@ -106,7 +115,28 @@ private const val DOWNLOAD_BRIDGE_JS = """
 
 /** The Kharcha Book Supabase-backed web app the whole UI now lives inside. */
 const val KHARCHA_BOOK_URL = "https://yadavs8.github.io/SpendTrack/web/kharcha-book/"
-private const val KHARCHA_BOOK_ORIGIN = "https://yadavs8.github.io"
+private const val KHARCHA_BOOK_HOST = "yadavs8.github.io"
+private const val KHARCHA_BOOK_PATH = "/SpendTrack/web/kharcha-book/"
+
+/**
+ * True only for Kharcha Book itself: https, exactly this host, under the app's own path. A plain
+ * "starts with https://yadavs8.github.io" also matched https://yadavs8.github.io.evil.com and every
+ * other Pages site of the account — and the bridge hands out the sign-in token. (Audit M3.)
+ */
+internal fun isKharchaBookUrl(url: String?): Boolean {
+    if (url.isNullOrBlank()) return false
+    return runCatching {
+        val u = java.net.URI(url) // plain JVM, so the unit tests can check it
+        u.scheme.equals("https", ignoreCase = true) && u.host.equals(KHARCHA_BOOK_HOST, ignoreCase = true) &&
+            u.port == -1 && u.userInfo == null && (u.rawPath ?: "").startsWith(KHARCHA_BOOK_PATH)
+    }.getOrDefault(false)
+}
+
+private tailrec fun Context.findFragmentActivity(): FragmentActivity? = when (this) {
+    is FragmentActivity -> this
+    is ContextWrapper -> baseContext.findFragmentActivity()
+    else -> null
+}
 
 /**
  * Hosts Kharcha Book as the app's entire UI. The detection/categorize/sync engine keeps running
@@ -249,10 +279,44 @@ fun KharchaWebViewScreen(
                 val main = Handler(Looper.getMainLooper())
                 val view = this
                 addJavascriptInterface(object {
-                    private fun fromKharcha(): Boolean = view.url?.startsWith(KHARCHA_BOOK_ORIGIN) == true
+                    private fun fromKharcha(): Boolean = isKharchaBookUrl(view.url)
                     // Bridge calls arrive on a background thread, where view.url can't be read;
                     // the page address is mirrored here by the WebViewClient instead.
-                    private fun fromKharchaNow(): Boolean = loadedUrl.get()?.startsWith(KHARCHA_BOOK_ORIGIN) == true
+                    private fun fromKharchaNow(): Boolean = isKharchaBookUrl(loadedUrl.get())
+
+                    // ---- Fingerprint: offered by the page right after sign-in (and from its lock offer). ----
+                    // The lock itself is the app's (MainActivity asks on open and after a minute away).
+
+                    /** This phone has a fingerprint / face / screen lock that can be used. */
+                    @JavascriptInterface
+                    fun biometricAvailable(): Boolean = fromKharchaNow() && BiometricAuthManager.canAuthenticate(view.context)
+
+                    /** The app already asks for the fingerprint when it opens. */
+                    @JavascriptInterface
+                    fun biometricEnabled(): Boolean = fromKharchaNow() &&
+                        runCatching { runBlocking { ServiceLocator.settingsManager.isBiometricEnabled.first() } }.getOrDefault(false)
+
+                    /** Asks for the fingerprint once; on success the app asks for it every time it opens.
+                     *  Answers the page through window.kharchaBiometricDone(true|false). */
+                    @JavascriptInterface
+                    fun enableBiometric() {
+                        main.post {
+                            if (!fromKharcha()) return@post
+                            val activity = view.context.findFragmentActivity() ?: return@post
+                            fun answer(ok: Boolean) = view.evaluateJavascript("window.kharchaBiometricDone && window.kharchaBiometricDone($ok)", null)
+                            BiometricAuthManager.authenticate(
+                                activity = activity,
+                                title = "Turn on fingerprint",
+                                subtitle = "Kharcha Book will ask for it each time it opens",
+                                onSuccess = {
+                                    CoroutineScope(Dispatchers.IO).launch { ServiceLocator.settingsManager.setBiometricLock(true) }
+                                    answer(true)
+                                },
+                                onError = { answer(false) },
+                                onFailed = { }
+                            )
+                        }
+                    }
 
                     @JavascriptInterface
                     fun openSettings() {
@@ -402,8 +466,8 @@ fun KharchaWebViewScreen(
                     // the WebView tried to load wa.me itself and died on its whatsapp:// redirect.
                     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                         val url = request.url.toString()
-                        if (url.startsWith(KHARCHA_BOOK_URL)) return false
-                        if (url.startsWith(KHARCHA_BOOK_ORIGIN) && !request.isForMainFrame) return false
+                        if (isKharchaBookUrl(url)) return false
+                        if (!request.isForMainFrame) return true // no other site inside a frame of the page (the bridge is in every frame)
                         openExternally(view.context, url)
                         return true
                     }
@@ -414,8 +478,8 @@ fun KharchaWebViewScreen(
                     }
 
                     override fun onPageFinished(view: WebView, url: String?) {
-                        if (url?.startsWith(KHARCHA_BOOK_ORIGIN) == true) view.evaluateJavascript(DOWNLOAD_BRIDGE_JS, null)
-                        pageReady(url?.startsWith(KHARCHA_BOOK_ORIGIN) == true)
+                        if (isKharchaBookUrl(url)) view.evaluateJavascript(DOWNLOAD_BRIDGE_JS, null)
+                        pageReady(isKharchaBookUrl(url))
                     }
                 }
                 loadUrl(KHARCHA_BOOK_URL)

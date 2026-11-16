@@ -31,14 +31,21 @@ Run the tests with `node test-kharcha.js`. Add any SMS that gets misread to that
 ## Install on a phone
 Open the page in Chrome (Android) and tap the menu > **Add to Home screen** / **Install app**. On iPhone use Safari > Share > **Add to Home Screen**.
 
-## Fingerprint / PIN lock
-After signing in, tap **Turn on fingerprint / PIN lock**. The app then asks for the phone's fingerprint, face, PIN or pattern when it opens and after it has been in the background for a minute.
-This is a lock on the device. The sign-in session stays in the browser, so it keeps casual users out but is not server-side verification. Needs HTTPS (GitHub Pages is) and a phone screen lock.
+## Signing in
+1. Enter your email → Kharcha Book emails a 6-digit code (existing accounts only; it never creates one).
+2. Enter the code → you are signed in, and asked to **set a password** (or skip to keep the current one).
+3. Later: sign in with the password, or tap "Forgot it? Email me a code".
+For the code to arrive, the Supabase email template must include it: Authentication > Email Templates > **Magic Link**,
+add `{{ .Token }}` (for example: `Your Kharcha Book code is {{ .Token }}`). Supabase's built-in email sends only a
+few emails per hour, which is plenty for one person.
+The same login opens the Studio5 PO tracker (same Supabase project), so a new password applies there too.
 
-## Email code sign-in
-The page signs in with a one-time email code (existing users only; it never creates accounts). A password option remains as a fallback.
-For the code to arrive, the Supabase email template must include the code: Authentication > Email Templates > **Magic Link**, add `{{ .Token }}` to the message (for example: `Your Kharcha Book code is {{ .Token }}`).
-After the first sign-in the app offers to turn on the fingerprint / PIN lock, so later opens skip signing in.
+## Fingerprint
+- **In the phone app:** right after signing in it offers "Use your fingerprint to open Kharcha Book?". When on, the
+  app asks for your fingerprint (or phone screen lock) each time it opens and after a minute in the background.
+  Turn it off in the app's Settings.
+- **In a browser:** "Turn on fingerprint" uses the browser's own fingerprint / PIN (WebAuthn). This is a lock on the
+  device only — the sign-in stays in the browser.
 
 ## Trip settle-up and Udhaar
 - Trips tab: under the split balances, **Who pays whom** shows the fewest payments that settle the trip, and a **For what** view that lists, per pair, which expenses each amount comes from (offsetting what the other person owes back).
@@ -509,3 +516,11 @@ How it behaves:
 - It is ticked off by itself when a payment with its name arrives this month, or when the very same amount is paid close to the due date, whatever the payee is called.
 - Home no longer shows the guessed "Coming up" reminders or the salary plan card. Both are still on the Autopilot page.
 - The month forecast, safe-to-spend and the phone's bill reminders use this same list.
+
+## Email code → set password → fingerprint (v150, new APK)
+- Sign in with a 6-digit code from your email, then set a password (or keep the current one). Wrong or expired codes,
+  mismatched or short passwords and rate limits get plain messages.
+- In the phone app, right after signing in: "Use your fingerprint to open Kharcha Book?" uses the phone's own
+  fingerprint prompt. The app then locks when it opens and after a minute away, without reloading the page.
+- The phone app's bridge to this page now trusts only `https://yadavs8.github.io/SpendTrack/web/kharcha-book/`
+  exactly (it used to accept any address starting with `https://yadavs8.github.io`), and no other site can be framed in it.
