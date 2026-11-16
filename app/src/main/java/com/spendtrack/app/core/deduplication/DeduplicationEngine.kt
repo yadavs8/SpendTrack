@@ -199,7 +199,13 @@ class DeduplicationEngine(
                 val isCompSource = (recent.source != parsed.source) || (recent.sourcePackage != parsed.sourcePackage)
 
                 if (isExactM || isFuzzyM || (isCompSource && (recentMerchant.isNullOrBlank() || knownMerchant.isBlank()))) {
-                    return mergeInto(recent, parsed, normalizedMerchant)
+                    // The same payment seen twice comes from two places (SMS + app notification) or carries the
+                    // same reference. From the same app with nothing to tell them apart, it is more likely two real
+                    // payments (two ₹40 chais an hour apart): keep it and ask instead of folding it in. (Audit M7.)
+                    val sameRef = !parsedRef.isNullOrBlank() && parsedRef == recentRef
+                    if (isCompSource || sameRef) return mergeInto(recent, parsed, normalizedMerchant)
+                    if (parsed.transactionType == TransactionType.EXPENSE) possibleDuplicateOf = recent.id
+                    break
                 }
             }
         }

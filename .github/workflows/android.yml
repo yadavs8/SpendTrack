@@ -2,8 +2,14 @@ name: Android APK
 
 # Builds the Kharcha Book phone app (the part that reads bank SMS) and publishes it, so installing it is one tap:
 #   https://github.com/yadavs8/SpendTrack/releases/download/apk-latest/Kharcha-Book.apk
-# Builds are signed with a key generated once and kept in the repo's private Actions cache (never committed: the repo
-# is public), so a new APK installs over the old one and keeps its data.
+#
+# Safety (audit M1/M2, .rea/audit.md):
+# - The published APK is a RELEASE build (not debuggable: no `adb run-as` into the app's data, no WebView remote
+#   debugging). Same app id and signing key, so it installs over the old one and keeps its data.
+# - The signing key (kept in the repo's private Actions cache — never committed: the repo is public) is only
+#   touched by runs on `main`. Branch builds compile and run the tests but are not signed with it.
+# - Only the publish job, on `main`, may write to the repo (the release); everything else is read-only.
+# - The release is updated in place (assets replaced), so the download link never 404s mid-update.
 on:
   workflow_dispatch:
   schedule:
@@ -13,7 +19,7 @@ on:
     paths: ['app/**', 'gradle/**', 'build.gradle.kts', 'settings.gradle.kts', 'gradle.properties', '.github/workflows/android.yml']
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   apk:
@@ -28,17 +34,19 @@ jobs:
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" >/dev/null
-      - name: Signing key (created once, kept in the Actions cache)
+      - name: Signing key (main only; created once, kept in the Actions cache)
+        if: github.ref == 'refs/heads/main'
         uses: actions/cache@v4
         with:
           path: ~/kharcha-signing
           key: kharcha-signing-v1
-      - name: Prepare signing
+      - name: Prepare signing (main only)
+        if: github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p ~/kharcha-signing
-          if [ ! -f ~/kharcha-signing/release.keystore ] && [ "${{ github.ref }}" = "refs/heads/main" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ] \
+          if [ ! -f ~/kharcha-signing/release.keystore ] && [ "${{ github.event_name }}" != "workflow_dispatch" ] \
              && gh release view apk-latest >/dev/null 2>&1; then
             # A new key would make the next APK refuse to install over the one people already have.
             # Stop instead, so it is noticed; a deliberate new key needs a manual run (Actions > Android APK > Run workflow).
@@ -51,22 +59,41 @@ jobs:
           fi
           printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=kharcha\nkeyPassword=%s\n' "$HOME/kharcha-signing/release.keystore" "$(cat ~/kharcha-signing/pass.txt)" "$(cat ~/kharcha-signing/pass.txt)" > keystore.properties
       - name: Unit tests
-        run: bash ./gradlew :app:testSideloadDebugUnitTest --no-daemon --stacktrace
-      - name: Build APK
-        run: bash ./gradlew :app:assembleSideloadDebug -PkharchaVersionCode=${{ github.run_number }} --no-daemon --stacktrace
+        run: bash ./gradlew :app:testSideloadDebugUnitTest --no-daemon --stacktrace  # unit tests exist for the debug build type only
+      - name: Build APK (release, not debuggable)
+        run: bash ./gradlew :app:assembleSideloadRelease -PkharchaVersionCode=${{ github.run_number }} --no-daemon --stacktrace
       - name: Collect APK
         run: |
           mkdir -p out
           cp "$(find app/build/outputs/apk -name '*.apk' | head -n 1)" out/Kharcha-Book.apk
           (cd out && zip -q Kharcha-Book.zip Kharcha-Book.apk)
+          rm -f keystore.properties
       - uses: actions/upload-artifact@v4
         with:
           name: Kharcha-Book-apk
-          path: out/Kharcha-Book.apk
-      - name: Publish release (main only)
-        if: github.ref == 'refs/heads/main'
+          path: out/
+
+  publish:
+    # Only a push to main or a manual run on main publishes (not the daily cache-keeping run, not branches).
+    if: github.ref == 'refs/heads/main' && github.event_name != 'schedule'
+    needs: apk
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Kharcha-Book-apk
+          path: out
+      - name: Publish release (replace the files in place)
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
-          gh release delete apk-latest --yes --cleanup-tag || true
-          gh release create apk-latest out/Kharcha-Book.apk out/Kharcha-Book.zip --title "Kharcha Book (Android)" --notes "Latest Android build from main (commit ${GITHUB_SHA::7}). Open this page on your phone, tap Kharcha-Book.apk, install." --latest=false
+          notes="Latest Android build from main (commit ${GITHUB_SHA::7}). Open this page on your phone, tap Kharcha-Book.apk, install."
+          if gh release view apk-latest >/dev/null 2>&1; then
+            gh release upload apk-latest out/Kharcha-Book.apk out/Kharcha-Book.zip --clobber
+            gh release edit apk-latest --notes "$notes"
+          else
+            gh release create apk-latest out/Kharcha-Book.apk out/Kharcha-Book.zip --title "Kharcha Book (Android)" --notes "$notes" --latest=false --target "$GITHUB_SHA"
+          fi

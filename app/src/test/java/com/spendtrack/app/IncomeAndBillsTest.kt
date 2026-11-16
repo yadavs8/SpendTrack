@@ -71,6 +71,35 @@ class IncomeAndBillsTest {
         assertEquals(500.0, r.amount, 0.01)
     }
 
+    // Audit H1: through the real path (parseAny), money received is income — it used to come out as an expense.
+    // Audit M6: the phone counts expenses the way the web app does.
+    @Test fun tripsAndWalletTopups_areNotMonthSpending() {
+        assertFalse(KharchaRules.isExpense("✈️ Goa · Hotel"))
+        assertFalse(KharchaRules.isExpense("Trip: Goa · Dinner"))
+        assertFalse(KharchaRules.isExpense("👛➕ Amazon Pay · top-up"))
+        assertTrue(KharchaRules.isExpense("👛 Amazon Pay · Groceries"))   // spending from the wallet still counts
+        assertTrue(KharchaRules.isExpense("🍔 Swiggy"))
+    }
+
+    @Test fun moneyReceivedNotifications_areIncomeNotExpense() {
+        val cases = listOf(
+            Triple("Google Pay", "Rahul Sharma paid you ₹500", "com.google.android.apps.nbu.paisa.user"),
+            Triple("WhatsApp", "Rahul sent you ₹500", "com.whatsapp"),
+            Triple("PhonePe", "You received ₹1,250 from Amit Kumar", "com.phonepe.app"),
+        )
+        for ((title, text, pkg) in cases) {
+            assertNull("not an expense: $text", TransactionParser.parse(title, text, pkg))
+            val any = TransactionParser.parseAny(title, text, pkg)
+            if (any != null) assertTrue("income, not expense: $text", any.transactionType != TransactionType.EXPENSE)
+        }
+        assertEquals(TransactionType.INCOME, TransactionParser.parseAny("Google Pay", "Rahul Sharma paid you ₹500", "com.google.android.apps.nbu.paisa.user")!!.transactionType)
+    }
+
+    @Test fun youPaidSomeone_isStillAnExpense() {
+        val r = TransactionParser.parseAny("Google Pay", "You paid ₹500 to Rahul Sharma", "com.google.android.apps.nbu.paisa.user")
+        assertNotNull(r); assertEquals(TransactionType.EXPENSE, r!!.transactionType)
+    }
+
     @Test fun ourDebitWithPayeeCredited_isNotIncome() {
         assertNull(IncomeParser.parse("ICICIT", "ICICI Bank Acct XX602 debited for Rs 90.00 on 05-Oct-26; Piyush Yadav credited. UPI:664408525138."))
         // ...and the full parser still sees it as the expense it is.

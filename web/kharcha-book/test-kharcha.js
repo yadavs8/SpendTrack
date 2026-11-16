@@ -118,6 +118,12 @@ assert(months[0].total === 450, 'monthTotals correctly sums amounts in paise wit
 
 // 8. Bank SMS Parser tests
 const hdfcSMS = "AD-HDFCBK: Rs.450.00 debited from A/C **1234 on 04-OCT-26 to SWIGGY via UPI Ref 42781923.";
+// Audit H1: money received in an app notification is not an expense
+for (const t of ['Rahul Sharma paid you ₹500', 'Rahul sent you ₹500', 'You received ₹1,250 from Amit Kumar']) {
+  const r = parseBankSMS(t);
+  assert(r.valid === false && r.kind === 'credit', 'money received is not an expense: ' + t);
+}
+assert(parseBankSMS('You paid ₹500 to Rahul Sharma').kind !== 'credit', '"You paid X" is still treated as outgoing');
 const parsedHdfc = parseBankSMS(hdfcSMS);
 assert(parsedHdfc.valid === true && parsedHdfc.amount === 450 && parsedHdfc.bank === 'HDFC Bank', 'parseBankSMS parses valid HDFC debit SMS');
 

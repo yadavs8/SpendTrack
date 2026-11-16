@@ -5,7 +5,7 @@ What it is: Android app (Kotlin/Compose/Room) that reads bank SMS and UPI notifi
 plus the Kharcha Book web app (`web/kharcha-book`, GitHub Pages), both syncing to the shared `studio5-portal`
 Supabase project (tables `daily_expenses`, `kharcha_settings`, `expense_items`, trips, private `kharcha-receipts`).
 Sources: REA security-scanner + bug-scanner, code reading, live Supabase (read-only). Web tests: 271 + ledger suite pass.
-Status: findings only — nothing changed yet.
+Status (16 Nov 2026): H1–H3 and M1–M7 FIXED (M6 partly, M2 partly — see notes); M3 fixed in v150.
 
 ## High
 | ID | Issue | Fix |
@@ -35,3 +35,18 @@ Status: findings only — nothing changed yet.
 
 ## Checked and fine
 RLS on all Kharcha tables (own rows only) and the private receipts bucket; invite/guest tokens 144-bit random; no XSS sink in the web app (text rendered with textContent); exported components and PendingIntents; backup exclusions; cleartext blocked; paise maths and trip settle-up; Room migrations 1→6.
+
+## Fix status
+| ID | Status |
+|---|---|
+| H1 | FIXED — phone parser and web "Parse bank SMS"; tests through `parseAny` and `parseBankSMS` |
+| H2 | FIXED — owner's UPI from `trips.owner_upi` (set by the owner's app), never from the link; per-trip storage on the guest page; server refuses "me"/the owner's name/duplicate names for new joins; strict UPI format (`supabase/kharcha_trip_v2_hardening.sql` + `supabase/tests/kharcha_trip_v2_test.sql`) |
+| H3 | FIXED (README) — states exactly what is uploaded. Masking the uploaded SMS text is NOT done: Kharcha Book reads balances, refunds and "not mine" accounts from it — owner's choice |
+| M1 | FIXED — published APK is a release build (not debuggable), same app id and key |
+| M2 | PARTLY — key used only on `main`, read-only by default, publish job alone writes, release updated in place. Still open: move the key from the Actions cache to an encrypted secret; pin actions to SHAs |
+| M3 | FIXED (v150) |
+| M4 | FIXED — live already refused NaN/huge amounts and honoured allow_guest_adds; added split-list and date checks, member cap, explicit grants |
+| M5 | FIXED — totals net of partial refunds |
+| M6 | PARTLY — trips and wallet top-ups now excluded on the phone; "not mine" accounts and paid-back items still counted there (they need the web's settings) |
+| M7 | FIXED — same app + same shop + no reference within 2 h: kept and asked, not merged |
+| Low | trip.html asset versions fixed; grants explicit. Open: SRI for supabase-js, sync reads past 1000 rows |

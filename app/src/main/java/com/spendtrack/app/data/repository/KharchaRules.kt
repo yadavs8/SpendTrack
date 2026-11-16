@@ -33,9 +33,21 @@ object KharchaRules {
     fun isCashWithdrawal(desc: String?, kind: String? = null): Boolean =
         kind == "cash_withdrawal" || (desc?.trim()?.startsWith("💵 Cash withdrawn") == true)
 
+    /** A trip expense ("✈️ …", "trip: …"): kept in the trip's own ledger, not in the month's spending (app.js isTripEntry). */
+    fun isTripEntry(desc: String?): Boolean {
+        val d = desc?.lowercase() ?: return false
+        return d.contains("✈️") || d.contains("trip:")
+    }
+
+    /** Money moved into a prepaid wallet ("👛➕ Amazon Pay"): a transfer — the purchases from the wallet are the spending. */
+    fun isWalletTopup(desc: String?): Boolean = desc?.trim()?.startsWith("👛➕") == true
+
+    // Same exclusions as the web's isExpense (audit M6): trips and wallet top-ups used to count here, so the
+    // phone's budget alerts and weekly summary were higher than the app, and top-ups were counted twice.
+    // (The web also leaves out "not mine" bank accounts and paid-back items, which need its settings.)
     fun isExpense(desc: String?, kind: String? = null): Boolean =
         !isIncome(desc, kind) && !isInvestment(desc) && !isCashWithdrawal(desc, kind) && kind != "transfer" &&
-            desc?.trim()?.startsWith("🔁") != true
+            desc?.trim()?.startsWith("🔁") != true && !isTripEntry(desc) && !isWalletTopup(desc)
 
     fun isSalary(desc: String?, kind: String? = null): Boolean {
         // isIncome(desc, kind) can be true for a null desc when kind == "income" (it checks kind

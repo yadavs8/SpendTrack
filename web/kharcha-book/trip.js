@@ -17,13 +17,12 @@
   // know who you are. The install guide puts your guest code in the address (?g=) just before you add
   // it; the Home Screen app starts from that address and recognises you without joining again.
   var urlGuest = (params.get('g') || '').trim();
-  if (urlUpi) {
-    try {
-      localStorage.setItem('kharcha_vpa_sanjeev yadav', urlUpi);
-      localStorage.setItem('kharcha_vpa_sanjeev', urlUpi);
-      localStorage.setItem('kharcha_my_upi', urlUpi);
-    } catch (e) {}
-  }
+  // The organiser's UPI ID comes from the trip itself (trip_member_upis, set by the organiser's app). A UPI
+  // ID in an old link (?u=) is used only for this trip, only if it looks like one, and only until the
+  // trip's own copy arrives — it is never written where the main app keeps UPI IDs. (Audit H2.)
+  var linkOwnerUpi = /^[a-z0-9._-]{2,64}@[a-z][a-z0-9.-]{1,30}$/i.test(urlUpi) ? urlUpi : '';
+  // UPI IDs remembered on this device are kept per trip, so one trip's link can't change another's.
+  function vpaKey(name) { return 'kharcha_trip_vpa_' + token + '_' + canonicalTripName(name).toLowerCase(); }
   var app = document.getElementById('app');
 
   // "Sanjeev", "Sanjeev Yadav", and "Me" are the same person (trip owner/organizer).
@@ -394,20 +393,25 @@
       .then(function (res) {
         if (res.error) throw res.error;
         m.upi = upi || ''; saveMembership(m);
-        try { if (upi) localStorage.setItem('kharcha_vpa_' + canonicalTripName(m.display_name).toLowerCase(), upi); } catch (e) {}
+        try { if (upi) localStorage.setItem(vpaKey(m.display_name), upi); } catch (e) {}
       });
   }
   // Everyone's saved UPI ids, so "Pay via UPI" is prefilled for each person.
   var memberUpis = {};
+  var OWNER_KEY = canonicalTripName('me').toLowerCase();
   function syncMemberUpis() {
     return sb.rpc('trip_member_upis', { p_invite_token: token }).then(function (res) {
       if (res.error || !res.data) return;
       try {
         res.data.forEach(function (r) {
           if (!r.upi) return;
+          // The organiser's ID only from the organiser's row; a guest who calls himself the organiser's
+          // name can't replace it (the server also refuses such names now).
+          if (r.is_owner) { memberUpis[OWNER_KEY] = r.upi; return; }
           var key = canonicalTripName(r.member_name).toLowerCase();
+          if (key === OWNER_KEY) return;
           memberUpis[key] = r.upi;
-          localStorage.setItem('kharcha_vpa_' + key, r.upi);
+          localStorage.setItem(vpaKey(r.member_name), r.upi);
         });
         // Remember this guest's own UPI on this device too, so they never re-enter it.
         var m = savedMembership();
@@ -473,13 +477,8 @@
   function getSavedVpa(personName) {
     try {
       var norm = canonicalTripName(personName).toLowerCase();
-      var direct = localStorage.getItem('kharcha_vpa_' + norm) || localStorage.getItem('kharcha_vpa_' + (personName || '').toLowerCase());
-      if (direct) return direct;
-      var myUpi = localStorage.getItem('kharcha_my_upi');
-      if (myUpi && (norm.includes('sanjeev') || norm === 'me')) {
-        return myUpi;
-      }
-      return '';
+      if (norm === OWNER_KEY) return memberUpis[OWNER_KEY] || localStorage.getItem(vpaKey(personName)) || linkOwnerUpi || '';
+      return memberUpis[norm] || localStorage.getItem(vpaKey(personName)) || '';
     } catch (e) { return ''; }
   }
 
@@ -673,11 +672,7 @@
         return;
       }
       var cleanVpa = vpa.trim();
-      var normName = canonicalTripName(personName).toLowerCase();
-      try {
-        localStorage.setItem('kharcha_vpa_' + normName, cleanVpa);
-        localStorage.setItem('kharcha_vpa_' + (personName || '').toLowerCase(), cleanVpa);
-      } catch (e) {}
+      try { localStorage.setItem(vpaKey(personName), cleanVpa); } catch (e) {} // this trip only
 
       var membership = savedMembership();
       var myName = (membership && membership.display_name ? membership.display_name.trim() : 'Guest');
