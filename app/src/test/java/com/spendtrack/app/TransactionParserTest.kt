@@ -247,4 +247,25 @@ class TransactionParserTest {
         assertTrue(TransactionParser.isInsurancePromo("Term insurance cover of 1 Cr at Rs 490"))
         assertTrue(TransactionParser.isInsurancePromo("Zero cost health insurance"))
     }
+
+    @Test
+    fun parse_insurancePremiumAutoPayDebit_isExpense() {
+        // 16 Nov: the Policybazaar premium was dropped as an "insurance promo" because the SMS names Policybazaar.
+        val sms = "Rs 1618.58 successfully debited from ICICI Bank XX602 on 16-Nov-26 towards Policybazaar In via UPI AutoPay mandate . RRN: 186168164767"
+        assertFalse(TransactionParser.isInsurancePromo(sms))
+        val result = TransactionParser.parse("AX-ICICIT-S", sms, "com.android.mms")
+        assertNotNull(result)
+        assertEquals(TransactionType.EXPENSE, result!!.transactionType)
+        assertEquals(1618.58, result.amount, 0.01)
+
+        val confirmation = "Sanjeev Yadav payment of Rs.1618.58 for your Axis Max Life policy no. 143655207 has been successfully debited on Oct 16, 2026. Team Policybazaar"
+        assertFalse(TransactionParser.isInsurancePromo(confirmation))
+    }
+
+    @Test
+    fun parse_insuranceAdvanceNotice_isStillIgnored() {
+        // "will be debited" is not money gone yet, even though it says "debited from".
+        val notice = "Rs 1618.58 will be debited from your ICICI Bank XX602 on 16-Nov-26 towards Policybazaar for your life insurance policy."
+        assertNull(TransactionParser.parse("AX-ICICIT-S", notice, "com.android.mms"))
+    }
 }

@@ -53,11 +53,43 @@
     if (m) m.setAttribute('content', effectiveTheme() === 'glow' ? '#05060f' : effectiveTheme() === 'thanos' ? '#1a0b2e' : dark ? '#0B1120' : '#0369A1');
     document.querySelectorAll('.theme-pill').forEach(function (x) { x.classList.toggle('active', x.dataset.theme === effectiveTheme()); });
   }
-  function setTheme(t) {
-    document.documentElement.setAttribute('data-theme', t);
+  function setTheme(t, fade) {
+    var root = document.documentElement;
+    if (fade && !reduceMotion) {                       // colours melt into the next theme instead of jumping
+      root.classList.add('theme-fade');
+      clearTimeout(setTheme.fadeT); setTheme.fadeT = setTimeout(function () { root.classList.remove('theme-fade'); }, 1400);
+    }
+    root.setAttribute('data-theme', t);
     try { localStorage.setItem('kharcha_theme', t); } catch (e) {}
     paintThemeButton();
+    if (t !== 'light') scheduleNextTheme();            // a theme you just picked stays for a full 15-20 minutes
   }
+
+  /* ---------- the theme changes on its own every 15-20 minutes (Aurora, Midnight, Thanos; Light stays put) ---------- */
+  var AUTO_THEMES = ['glow', 'dark', 'thanos'];
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  function autoThemeOn() { return lsGet('kharcha_theme_auto') !== '0'; }
+  function scheduleNextTheme() { lsSet('kharcha_theme_next', String(Date.now() + (15 + Math.random() * 5) * 60000)); }
+  function rotateThemeIfDue() {
+    if (!autoThemeOn() || document.hidden) return;
+    var cur = effectiveTheme();
+    if (cur === 'light') return;                       // Light is never switched away from
+    var next = +lsGet('kharcha_theme_next') || 0;
+    if (!next) { scheduleNextTheme(); return; }
+    if (Date.now() < next) return;
+    var i = AUTO_THEMES.indexOf(cur);
+    setTheme(AUTO_THEMES[(i + 1) % AUTO_THEMES.length], true);
+  }
+  function setAutoTheme(on) {
+    lsSet('kharcha_theme_auto', on ? '1' : '0');
+    if (on) scheduleNextTheme();
+    document.querySelectorAll('.auto-theme-pill').forEach(paintAutoPill);
+  }
+  function paintAutoPill(b) { var on = autoThemeOn(); b.textContent = '🔄 Change theme by itself: ' + (on ? 'On' : 'Off'); b.classList.toggle('active', on); }
+  setInterval(rotateThemeIfDue, 30000);
+  document.addEventListener('visibilitychange', rotateThemeIfDue);
+  setTimeout(rotateThemeIfDue, 3000);
   (function initTheme() {
     var top = document.querySelector('.top-r');
     if (!top) return;
@@ -105,6 +137,15 @@
     if (stream !== 'spends' && !streamBack) { streamBack = function (fb) { streamBack = null; if (fb === true) goStream('spends', true); }; backOpen(streamBack); }
     else if (stream === 'spends' && streamBack && fromBack !== true) { var f = streamBack; streamBack = null; backDone(f); }
   }
+
+  window.__kharchaNav = {
+    curStream: curStream,
+    closeMore: function () { closeWithSlide(); },
+    home: function () {
+      if (curStream() === 'trips' && window.__tripsHome && window.__tripsHome.inTrip()) { window.__tripsHome.back(); window.scrollTo({ top: 0 }); return; }
+      goStream('spends');
+    }
+  };
 
   var moreBack = null;
   function releaseMoreBack() { if (moreBack) { var f = moreBack; moreBack = null; backDone(f); } }
@@ -294,10 +335,8 @@
       }
     }
 
-    card.addEventListener('touchstart', onTouchStart, { passive: true });
-    card.addEventListener('touchmove', onTouchMove, { passive: false });
-    card.addEventListener('touchend', onTouchEnd, { passive: true });
-    card.addEventListener('touchcancel', onTouchEnd, { passive: true });
+    // Finger drags are handled by pull.js (one handler for the More sheet, every pop-up and every page).
+    void onTouchStart; void onTouchMove; void onTouchEnd;
 
     handle.addEventListener('mousedown', function (e) {
       if (e.button !== 0 || isClosing) return;
@@ -382,6 +421,10 @@
       pb.addEventListener('click', function () { setTheme(t[0]); }); tp.appendChild(pb);
     });
     card.appendChild(tp);
+    var atr = el('div', 'theme-row'), ap = el('button', 'scope-pill auto-theme-pill'); ap.type = 'button';
+    ap.title = 'Aurora, Midnight and Thanos take turns every 15-20 minutes. Light is never changed.';
+    ap.addEventListener('click', function () { setAutoTheme(!autoThemeOn()); });
+    paintAutoPill(ap); atr.appendChild(ap); card.appendChild(atr);
     var fxr = el('div', 'theme-row');
     [['s', 'Sound'], ['h', 'Vibration']].forEach(function (f) {
       var fb = el('button', 'scope-pill fx-pill'); fb.type = 'button'; fb.dataset.fx = f[0];
@@ -915,115 +958,57 @@
     extra.parentNode.insertBefore(btn, extra);
   }
 
-  /* ---------- the winged rupee: flaps, lifts off through the top, comes back ---------- */
-  function accentColor() {
-    var v = ''; try { v = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(); } catch (e) {}
-    return v || '#0284C7';
-  }
-  // Draws the rupee tile with a pair of feathered wings. All numbers are in "logo units" (the tile is 36 wide).
-  // st: dy (up is negative), scale, alpha, phase (flap clock, radians), amp (flap degrees), open (1 spread, 0 folded)
-  function drawWinged(ctx, img, W, H, unit, st, feathers) {
-    var T = 36, col = accentColor();
-    ctx.clearRect(0, 0, W * unit, H * unit);
-    ctx.save();
-    ctx.scale(unit, unit);
-    // falling feathers (not tied to the body)
-    (feathers || []).forEach(function (f) {
-      ctx.save(); ctx.globalAlpha = Math.max(0, f.a); ctx.translate(f.x, f.y); ctx.rotate(f.r);
-      ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(0, -4); ctx.quadraticCurveTo(2.2, 0, 0, 5); ctx.quadraticCurveTo(-2.2, 0, 0, -4); ctx.fill(); ctx.restore();
-    });
-    ctx.globalAlpha = Math.max(0, Math.min(1, st.alpha));
-    ctx.translate(W / 2, H / 2 + st.dy);
-    ctx.scale(st.scale, st.scale);
-    var flap = Math.sin(st.phase) * st.amp, ANG = [-58, -38, -18, 2], LEN = [15, 19, 21, 17];
-    [1, -1].forEach(function (side) {
-      ctx.save(); ctx.translate(side * (T / 2 - 3), -1); ctx.scale(side, 1);
-      for (var i = ANG.length - 1; i >= 0; i--) {
-        var open = Math.max(0, st.open), ang = (ANG[i] * (0.25 + 0.75 * open) + 20 * (1 - open) + flap * (0.6 + i * 0.15)) * Math.PI / 180, len = LEN[i] * (0.55 + 0.45 * open);
-        ctx.save(); ctx.rotate(ang);
-        ctx.beginPath(); ctx.moveTo(0, 0); ctx.quadraticCurveTo(len * 0.45, -3.4, len, -0.4); ctx.quadraticCurveTo(len * 0.5, 3.2, 0, 0); ctx.closePath();
-        ctx.fillStyle = col; ctx.globalAlpha = Math.max(0, Math.min(1, st.alpha)) * (0.62 + 0.1 * i); ctx.fill();
-        ctx.lineWidth = 0.7; ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.stroke();
-        ctx.restore();
-      }
-      ctx.restore();
-    });
-    ctx.globalAlpha = Math.max(0, Math.min(1, st.alpha));
-    ctx.beginPath();
-    if (ctx.roundRect) ctx.roundRect(-T / 2, -T / 2, T, T, 11); else ctx.rect(-T / 2, -T / 2, T, T);
-    ctx.save(); ctx.clip(); ctx.drawImage(img, -T / 2, -T / 2, T, T); ctx.restore();
-    ctx.restore();
-  }
-  function ease(t) { return t < 0 ? 0 : t > 1 ? 1 : t * t * (3 - 2 * t); }
-  function easeOut(t) { t = t < 0 ? 0 : t > 1 ? 1 : t; return 1 - Math.pow(1 - t, 3); }
-  // One run of the flight as a function of time: perch, take off through the top, gone, drop back in, settle.
-  var FLIGHT = { perch: 1800, up: 1100, gone: 700, down: 1000 };
-  function flightState(t, rise) {
-    var P = FLIGHT.perch, U = P + FLIGHT.up, G = U + FLIGHT.gone, D = G + FLIGHT.down, st = { dy: 0, scale: 1, alpha: 1, phase: t / 95, amp: 11, open: 1 };
-    if (t < P) { st.phase = t / 110; st.amp = 9; }
-    else if (t < U) { var k = (t - P) / FLIGHT.up; st.phase = P / 110 + (t - P) / 55; st.amp = 20; st.dy = -rise * ease(k) * ease(k); st.scale = 1 - 0.5 * ease(k); st.alpha = 1 - ease((k - 0.45) / 0.55); }
-    else if (t < G) { st.alpha = 0; }
-    else if (t < D) { var m = (t - G) / FLIGHT.down; st.phase = (t - G) / 60; st.amp = 22 * (1 - m) + 6 * m; st.dy = -rise * (1 - easeOut(m)); st.scale = 0.6 + 0.4 * easeOut(m); st.alpha = ease(m / 0.45); st.open = 0.55 + 0.45 * ease(m); }
-    return st;
-  }
-  function makeFeathers(t) {                       // feathers shed during take-off
-    var P = FLIGHT.perch, out = [];
-    for (var i = 0; i < 7; i++) {
-      var born = P + 80 + i * 110, age = (t - born) / 1000;
-      if (age < 0 || age > 1.5) continue;
-      out.push({ x: 10 + (i % 2 ? 24 : 0) + Math.sin(i * 2.1) * 6 + Math.sin(age * 4 + i) * 5, y: 12 + age * (18 + i * 2) - age * 4, r: age * (1.5 + i * 0.4) + i, a: 0.85 * (1 - age / 1.5) });
-    }
-    return out;
-  }
-
-  /* ---------- header logo ---------- */
+  /* ---------- header logo: the ₹ sits, unfolds real wings, flies away and comes back (wings.js) ---------- */
+  var REST_BETWEEN_FLIGHTS = 14000;
   function snapLogo() {
-    var img = document.querySelector('.top .logo');
-    if (!img || reduceMotion || !img.parentNode) return;
+    var img = document.querySelector('.top .logo'), KW = window.KharchaWings;
+    if (!img || !img.parentNode || !KW) return;
     var W = 64, H = 100, DPR = Math.min(3, window.devicePixelRatio || 2), cv = el('canvas', 'logo snap-logo');
     cv.width = W * DPR; cv.height = H * DPR; cv.setAttribute('aria-hidden', 'true'); cv.title = 'Tap';
-    var ctx, running = false, t0 = 0, skip = 0, raf0 = 0;
+    var ctx = cv.getContext('2d'); if (!ctx) return;
+    var running = false, t0 = 0, timer = 0, flight = { rise: 58, drift: 10 };
+    function still() { KW.draw(ctx, DPR, W, H, KW.at(0, flight)); }
     function frame(now) {
       if (!t0) t0 = now;
-      var t = now - t0 + skip, total = FLIGHT.perch + FLIGHT.up + FLIGHT.gone + FLIGHT.down;
-      if (document.hidden) { t0 = 0; running = false; setTimeout(go, 1500); return; }
-      if (t >= total) { drawWinged(ctx, img, W, H, DPR, { dy: 0, scale: 1, alpha: 1, phase: 0, amp: 0, open: 1 }, []); running = false; skip = 0; setTimeout(go, 600); return; }
-      drawWinged(ctx, img, W, H, DPR, flightState(t, 56), makeFeathers(t));
-      raf0 = raf(frame);
+      var t = now - t0;
+      if (document.hidden) { running = false; still(); return; }
+      if (t >= KW.RUN.total) { running = false; still(); timer = setTimeout(go, REST_BETWEEN_FLIGHTS); return; }
+      KW.draw(ctx, DPR, W, H, KW.at(t, flight));
+      raf(frame);
     }
-    function go() { if (running) return; running = true; t0 = 0; raf0 = raf(frame); }
-    function init() {
-      ctx = cv.getContext('2d'); if (!ctx) return;
-      drawWinged(ctx, img, W, H, DPR, { dy: 0, scale: 1, alpha: 1, phase: 0, amp: 0, open: 1 }, []);
-      img.style.display = 'none';
-      img.parentNode.insertBefore(cv, img);
-      cv.addEventListener('click', function () { if (!running) { skip = FLIGHT.perch - 500; go(); } });
-      setTimeout(go, 900);
+    function go() {
+      clearTimeout(timer);
+      if (running || reduceMotion) return;
+      running = true; t0 = 0; flight.drift = Math.random() < 0.5 ? -10 : 10; raf(frame);
     }
-    if (img.complete && img.naturalWidth) init(); else img.addEventListener('load', init);
+    still();
+    img.style.display = 'none';
+    img.parentNode.insertBefore(cv, img);
+    cv.addEventListener('click', go);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden && !running) { clearTimeout(timer); timer = setTimeout(go, 2500); } });
+    var themeWatch = new MutationObserver(function () { if (!running) still(); });   // gold-on-dark vs gold-on-light outline
+    themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    timer = setTimeout(go, 1200);
   }
 
-  /* ---------- opening splash: the winged rupee drops in from the top and lands ---------- */
+  /* ---------- opening splash: the ₹ sits, opens its wings and flies off, and the app is there ---------- */
   function runSplash() {
     var sp = $('splash');
     if (!sp) return;
-    function leave() { sp.classList.add('out'); setTimeout(function () { if (sp.parentNode) sp.remove(); }, 500); try { sessionStorage.setItem('kharcha_splash', '1'); } catch (e) {} }
-    var cv = $('splash-cv');
+    var done = false;
+    function leave() { if (done) return; done = true; sp.classList.add('out'); setTimeout(function () { if (sp.parentNode) sp.remove(); }, 500); try { sessionStorage.setItem('kharcha_splash', '1'); } catch (e) {} }
+    var cv = $('splash-cv'), KW = window.KharchaWings;
     sp.addEventListener('click', leave);                              // tap to skip
-    if (reduceMotion || !cv) { leave(); return; }
-    var img = new Image();
-    img.onload = function () {
-      var W = 64, H = 100, unit = cv.width / W, ctx = cv.getContext('2d'), t0 = 0, G = FLIGHT.perch + FLIGHT.up + FLIGHT.gone;
-      function frame(now) {
-        if (!t0) t0 = now;
-        var t = now - t0, tt = G + Math.min(t, FLIGHT.down + 600);
-        drawWinged(ctx, img, W, H, unit, tt >= G + FLIGHT.down ? { dy: 0, scale: 1, alpha: 1, phase: (t) / 140, amp: 5 * Math.max(0, 1 - (t - FLIGHT.down) / 600), open: 1 } : flightState(tt, 60), []);
-        if (t < FLIGHT.down + 700) raf(frame); else setTimeout(leave, 350);
-      }
-      raf(frame);
-    };
-    img.onerror = leave;
-    img.src = 'logo-mark.png?v=80';
+    if (reduceMotion || !cv || !KW) { leave(); return; }
+    var W = 64, H = 100, unit = cv.width / W, ctx = cv.getContext('2d'), t0 = 0;
+    var start = KW.RUN.sit - 700, end = KW.RUN.sit + KW.RUN.unfold + KW.RUN.beat + KW.RUN.away;   // a short sit, then up and away
+    function frame(now) {
+      if (!t0) t0 = now;
+      var t = start + (now - t0);
+      KW.draw(ctx, unit, W, H, KW.at(Math.min(t, end), { rise: 70, drift: 0 }));
+      if (t < end) raf(frame); else leave();
+    }
+    raf(frame);
     setTimeout(leave, 4200);                                        // never keeps you waiting
   }
 

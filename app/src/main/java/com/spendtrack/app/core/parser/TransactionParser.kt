@@ -98,8 +98,16 @@ object TransactionParser {
         """(?i)\b(?:zero\s*(?:cost|premium|charges?|effective\s*price|processing\s*fee|balance|interest|down\s*payment)|0%\s*interest|no\s*cost\s*emi)\b"""
     )
 
-    /** True for insurance promotions, marketing quotes, and zero-amount pitches. */
+    // A debit that has happened ("Rs 1618.58 successfully debited from ICICI Bank XX602 ... towards Policybazaar",
+    // "payment ... for your Axis Max Life policy has been successfully debited"). An insurer's or Policybazaar's
+    // name in it does not make it an advert.
+    private val CONFIRMED_DEBIT_REGEX = Regex(
+        """(?i)\b(?:successfully\s+debited|has\s+been\s+debited|is\s+debited|debited\s+(?:from|for|with|by|to))\b"""
+    )
+
+    /** True for insurance promotions, marketing quotes, and zero-amount pitches -- never for a completed debit. */
     fun isInsurancePromo(text: String): Boolean {
+        if (CONFIRMED_DEBIT_REGEX.containsMatchIn(text) && !isNotYetCompleted(text)) return false
         return INSURANCE_PROMO_REGEX.containsMatchIn(text) || ZERO_AMOUNT_PROMO_REGEX.containsMatchIn(text)
     }
 
