@@ -59,7 +59,7 @@ jobs:
           fi
           printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=kharcha\nkeyPassword=%s\n' "$HOME/kharcha-signing/release.keystore" "$(cat ~/kharcha-signing/pass.txt)" "$(cat ~/kharcha-signing/pass.txt)" > keystore.properties
       - name: Unit tests
-        run: bash ./gradlew :app:testSideloadReleaseUnitTest --no-daemon --stacktrace
+        run: bash ./gradlew :app:testSideloadDebugUnitTest --no-daemon --stacktrace  # unit tests exist for the debug build type only
       - name: Build APK (release, not debuggable)
         run: bash ./gradlew :app:assembleSideloadRelease -PkharchaVersionCode=${{ github.run_number }} --no-daemon --stacktrace
       - name: Collect APK
