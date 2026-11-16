@@ -106,6 +106,10 @@ object TransactionParser {
     // Money actually leaving the account. Note "credited" can still appear in a debit SMS for the payee
     // ("...debited for Rs 90.00; Piyush Yadav credited"), so a strong outgoing verb wins over it.
     private val STRONG_DEBIT_REGEX = Regex("""(?i)\b(?:debited|spent|withdrawn|paid|sent)\b""")
+    /** Money coming TO you in an app notification ("Rahul paid you ₹500", "sent you", "You received"):
+     *  never an expense — IncomeParser files it. "paid"/"sent" alone are debit words, so this is checked first. */
+    private val INCOMING_TO_YOU_REGEX = Regex("""(?i)\b(?:paid|sent|transferred)\s+you\b|\byou(?:'ve|\s+have)?\s+received\b""")
+    private val DEBITED_WORD_REGEX = Regex("""(?i)\bdebited\b""")
     private val DEBIT_INTENT_REGEX = Regex(
         """(?i)\b(?:debited|spent|paid|sent|withdrawn|purchase|charged|transferred|payment\s+(?:of|to|successful|done)|txn\s+of|transaction\s+of)\b"""
     )
@@ -221,6 +225,12 @@ object TransactionParser {
                 isRefund = true
                 break
             }
+        }
+
+        // 3a. "X paid you" / "sent you" / "You received": incoming money, not spending (audit H1). It used to
+        //     pass as an expense because "paid"/"sent" count as debit words below.
+        if (!isRefund && INCOMING_TO_YOU_REGEX.containsMatchIn(fullContent) && !DEBITED_WORD_REGEX.containsMatchIn(fullContent)) {
+            return null
         }
 
         // 3. Check for Credits / Income -> MUST BE IGNORED unless it's a refund

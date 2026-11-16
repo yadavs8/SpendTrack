@@ -1348,6 +1348,10 @@
       if (REJECT_RULES[r].re.test(txt)) return { valid: false, kind: REJECT_RULES[r].kind, error: REJECT_RULES[r].msg };
     }
     var strongOut = STRONG_OUT.test(txt), weakOut = WEAK_OUT.test(txt);
+    // "Rahul paid you ₹500" / "sent you": money in, even though "paid"/"sent" are outgoing words (audit H1).
+    if (/\b(?:paid|sent|transferred)\s+you\b/i.test(txt) && !/\bdebited\b/i.test(txt)) {
+      return { valid: false, kind: 'credit', error: 'This is money you received, not an expense.' };
+    }
     if (INCOMING.test(txt) && !strongOut) {
       return { valid: false, kind: 'credit', error: 'This is a credit/income message (money received), not an expense.' };
     }
@@ -5176,15 +5180,25 @@
       var guestFriends = friends.map(function (f) { return isOwnerTripName(f) ? myDisplayName() : f; });
       base += '&f=' + encodeURIComponent(guestFriends.join(','));
     }
+    // Your UPI ID and name go on the trip itself (trips.owner_upi / owner_name), not in the link: the
+    // trip page reads them from there, so nobody can hand friends a link with another UPI ID. (Audit H2.)
+    publishTripOwnerInfo(tripName);
+    return base;
+  }
+
+  function publishTripOwnerInfo(tripName) {
+    var trip = tripName && tripInviteCache[tripName];
+    if (!sb || !trip || !trip.id) return;
     var myUpi = (kv.get('kharcha_my_upi') || '').trim();
     if (!myUpi) {
       var ident = (kv.get('kharcha_owner_identity') || '').split(',');
       if (ident[1]) myUpi = ident[1].trim();
     }
-    if (myUpi) {
-      base += '&u=' + encodeURIComponent(myUpi);
-    }
-    return base;
+    var row = { owner_name: myDisplayName() };
+    if (/^[a-z0-9._-]{2,64}@[a-z][a-z0-9.-]{1,30}$/i.test(myUpi)) row.owner_upi = myUpi.toLowerCase();
+    sb.from('trips').update(row).eq('id', trip.id).then(function (r) {
+      if (r && r.error) console.warn('Kharcha: could not save your UPI ID on the trip', r.error.message);
+    }, function () {});
   }
 
   /** Looks up (and caches) this trip's row from Supabase, creating it if it never had one. */
@@ -5340,6 +5354,7 @@
       sb.rpc('trip_member_upis', { p_invite_token: trip.invite_token }).then(function (r) {
         if (r.error || !r.data) return;
         r.data.forEach(function (row) {
+          if (row.is_owner) return; // that's you
           var k = 'kharcha_vpa_' + String(row.member_name || '').trim().toLowerCase();
           if (row.upi && !kv.get(k)) kv.set(k, row.upi);
         });
