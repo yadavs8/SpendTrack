@@ -1062,3 +1062,16 @@ html.kt-open, html.kt-open body { overflow: hidden; }
 .sm-row-t { display: grid; gap: 1px; } .sm-row-t small { color: var(--muted); font-size: .74rem; }
 .sm-row input { width: 22px; height: 22px; accent-color: var(--accent, #2563eb); }
 .mtile[hidden], .side-link[hidden], .msheet-grid[hidden], .msheet-h[hidden] { display: none !important; }
+
+/* v151: pull down to close (pull.js) -- panels keep a pull to themselves instead of scrolling the page behind */
+.msheet-card, .hx-pop, .kt-sheet, .sm-sheet, .modal-card, .modal-box { overscroll-behavior: contain; }
+html { overscroll-behavior-y: none; }
+.msheet-card::before, .hx-pop::before, .kt-sheet::before, .sm-sheet::before { content: ""; display: block; width: 40px; height: 4px; border-radius: 3px; margin: 0 auto 8px; background: var(--line, #cbd5e1); opacity: 0.8; }
+.msheet-card::before { display: none; }   /* the More sheet already has its grip */
+.pull-hint { position: fixed; left: 50%; top: calc(14px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); z-index: 70; padding: 7px 14px; border-radius: 999px; font: 600 0.85rem system-ui, sans-serif; background: var(--surface, #fff); color: var(--ink, #0f172a); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25); pointer-events: none; transition: background-color .15s, color .15s; }
+.pull-hint.ready { background: var(--accent, #0284C7); color: #fff; }
+.pull-hint[hidden] { display: none; }
+/* v151: the theme melts into the next one when it changes by itself */
+html.theme-fade, html.theme-fade body, html.theme-fade *, html.theme-fade *::before, html.theme-fade *::after { transition: background-color 1.2s ease, color 1.2s ease, border-color 1.2s ease, box-shadow 1.2s ease, fill 1.2s ease !important; }
+/* v151: the logo is a gold ₹ with no tile behind it */
+.top .logo { background: transparent; }
