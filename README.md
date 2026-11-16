@@ -1,6 +1,6 @@
 # SpendTrack - Commercial-Grade Real-Time UPI Expense Tracker for Android
 
-SpendTrack is a production-quality, **100% local-first** Android application built with Jetpack Compose, Material 3, and Room that automatically detects and tracks outgoing expenses from UPI payments (Google Pay, PhonePe, Paytm, BHIM, CRED), bank debit notifications, and bank SMS messages.
+SpendTrack (the Kharcha Book phone app) is an Android application built with Jetpack Compose, Material 3, and Room that automatically detects and tracks outgoing expenses from UPI payments (Google Pay, PhonePe, Paytm, BHIM, CRED), bank debit notifications, and bank SMS messages.
 
 Designed for commercial distribution, Google Play Store compliance, and resilient execution across aggressive battery-killer Android devices (Xiaomi, Vivo, Oppo, Realme, Samsung, OnePlus).
 
@@ -86,8 +86,17 @@ When peers install the sideloaded APK directly (via WhatsApp, Google Drive, or T
 
 ---
 
-## 🔒 Security & Absolute Privacy
+## 🔒 Security & privacy — what leaves the phone
 
+- **Cloud sync (when you sign in):** every detected payment / income is saved to Kharcha Book's Supabase database
+  (table `daily_expenses`), so the web app and the phone show the same ledger. Each row holds the amount, description,
+  date, payment method, bank, the card/account's **last 4 digits**, the bank reference number and **the first 500
+  characters of the original SMS or notification** (Kharcha Book reads bank balances, refunds and "not my account"
+  from it). Settings (budgets, rules, your UPI ID) are saved too (`kharcha_settings`).
+- **Who can read it:** only your own sign-in — row-level security limits every row to its owner. The Supabase project
+  is shared with the Studio5 business apps, so the project's administrators (and its service key) can see it.
+- **Not sent anywhere else:** no analytics, advertising or tracking SDKs. The web app loads its Supabase library from
+  jsDelivr and fonts from Google Fonts.
+- **Without signing in** nothing is uploaded; everything stays in the phone's database.
 - **`allowBackup="false"`**: Configured in `AndroidManifest.xml` and `data_extraction_rules.xml` to prevent local Room databases from syncing to Google Drive.
-- **Zero Network Egress**: SpendTrack does not contain third-party analytics SDKs, advertising trackers, or external AI uploaders.
 - **Safe Logging**: The internal `SafeLogger` redacts bank account numbers (`A/c **XXXX`), UPI IDs, and phone numbers before writing to logs.

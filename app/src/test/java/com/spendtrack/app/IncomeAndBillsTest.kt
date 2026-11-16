@@ -72,6 +72,15 @@ class IncomeAndBillsTest {
     }
 
     // Audit H1: through the real path (parseAny), money received is income — it used to come out as an expense.
+    // Audit M6: the phone counts expenses the way the web app does.
+    @Test fun tripsAndWalletTopups_areNotMonthSpending() {
+        assertFalse(KharchaRules.isExpense("✈️ Goa · Hotel"))
+        assertFalse(KharchaRules.isExpense("Trip: Goa · Dinner"))
+        assertFalse(KharchaRules.isExpense("👛➕ Amazon Pay · top-up"))
+        assertTrue(KharchaRules.isExpense("👛 Amazon Pay · Groceries"))   // spending from the wallet still counts
+        assertTrue(KharchaRules.isExpense("🍔 Swiggy"))
+    }
+
     @Test fun moneyReceivedNotifications_areIncomeNotExpense() {
         val cases = listOf(
             Triple("Google Pay", "Rahul Sharma paid you ₹500", "com.google.android.apps.nbu.paisa.user"),

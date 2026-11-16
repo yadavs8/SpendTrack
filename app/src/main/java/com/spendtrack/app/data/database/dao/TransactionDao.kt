@@ -36,7 +36,8 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE isExcluded = 0 AND transactionType = 'EXPENSE' AND dateTime BETWEEN :startTime AND :endTime ORDER BY dateTime DESC")
     fun getExpensesForRange(startTime: Long, endTime: Long): Flow<List<TransactionEntity>>
 
-    @Query("SELECT SUM(amount) FROM transactions WHERE isExcluded = 0 AND transactionType = 'EXPENSE' AND dateTime BETWEEN :startTime AND :endTime")
+    // Totals net of partial refunds (a full refund already sets isExcluded), as sync and alerts count them. Audit M5.
+    @Query("SELECT SUM(amount - COALESCE(refundedAmount, 0)) FROM transactions WHERE isExcluded = 0 AND transactionType = 'EXPENSE' AND dateTime BETWEEN :startTime AND :endTime")
     fun getTotalSpentForRange(startTime: Long, endTime: Long): Flow<Double?>
 
     @Query("SELECT COUNT(*) FROM transactions WHERE isExcluded = 0 AND transactionType = 'EXPENSE' AND dateTime BETWEEN :startTime AND :endTime")
@@ -52,7 +53,7 @@ interface TransactionDao {
     suspend fun getNeedsReviewTransactionsSync(): List<TransactionEntity>
 
     @Query("""
-        SELECT categoryId, SUM(amount) AS total, COUNT(*) AS count 
+        SELECT categoryId, SUM(amount - COALESCE(refundedAmount, 0)) AS total, COUNT(*) AS count 
         FROM transactions 
         WHERE isExcluded = 0 AND transactionType = 'EXPENSE' AND dateTime BETWEEN :startTime AND :endTime 
         GROUP BY categoryId 
@@ -61,7 +62,7 @@ interface TransactionDao {
     fun getCategorySpends(startTime: Long, endTime: Long): Flow<List<CategorySpend>>
 
     @Query("""
-        SELECT paymentMethod, SUM(amount) AS total, COUNT(*) AS count 
+        SELECT paymentMethod, SUM(amount - COALESCE(refundedAmount, 0)) AS total, COUNT(*) AS count 
         FROM transactions 
         WHERE isExcluded = 0 AND transactionType = 'EXPENSE' AND dateTime BETWEEN :startTime AND :endTime 
         GROUP BY paymentMethod 
@@ -229,7 +230,7 @@ interface TransactionDao {
     @Query("SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE transactionType = 'CASH_WITHDRAWAL' AND isExcluded = 0 AND isDemo = 0 AND dateTime BETWEEN :start AND :end")
     suspend fun sumCashWithdrawn(start: Long, end: Long): Double
 
-    @Query("SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE transactionType = 'EXPENSE' AND paymentMethod = 'CASH' AND isExcluded = 0 AND isDemo = 0 AND dateTime BETWEEN :start AND :end")
+    @Query("SELECT COALESCE(SUM(amount - COALESCE(refundedAmount, 0)), 0) FROM transactions WHERE transactionType = 'EXPENSE' AND paymentMethod = 'CASH' AND isExcluded = 0 AND isDemo = 0 AND dateTime BETWEEN :start AND :end")
     suspend fun sumCashSpent(start: Long, end: Long): Double
 
     @Query("SELECT COUNT(*) FROM transactions WHERE transactionType = 'EXPENSE' AND paymentMethod = 'CASH' AND isDemo = 0 AND dateTime BETWEEN :start AND :end")

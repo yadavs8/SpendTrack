@@ -142,6 +142,20 @@ class DeduplicationEngineTest {
         assertEquals(2, dao.rows.size)
     }
 
+    // Audit M7: two same-amount payments to one shop from the same app within 2 hours, no UPI reference,
+    // used to be merged silently (one disappeared). Now both are kept and the second asks "same payment?".
+    @Test
+    fun sameShopTwiceWithinTwoHours_sameApp_isKeptAndAsked() = runBlocking {
+        val dao = FakeDao()
+        val engine = DeduplicationEngine(dao)
+        val pe = "com.phonepe.app"
+        engine.process(parsed(40.0, t0, "Chai Point", "Paid ₹40 to Chai Point", pkg = pe), "Chai Point", "cat_food")
+        val b = engine.process(parsed(40.0, t0 + 50 * 60_000L, "Chai Point", "Paid ₹40 to Chai Point successfully", pkg = pe), "Chai Point", "cat_food")
+        assertTrue("second payment kept, not merged: $b", b is DeduplicationResult.NewTransaction)
+        assertEquals(2, dao.rows.size)
+        assertTrue((b as DeduplicationResult.NewTransaction).transaction.needsReview)
+    }
+
     @Test
     fun unknownMerchant_isNotTreatedAsADifferentName() = runBlocking {
         val dao = FakeDao()
