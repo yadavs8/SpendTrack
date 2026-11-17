@@ -268,4 +268,31 @@ class TransactionParserTest {
         val notice = "Rs 1618.58 will be debited from your ICICI Bank XX602 on 16-Nov-26 towards Policybazaar for your life insurance policy."
         assertNull(TransactionParser.parse("AX-ICICIT-S", notice, "com.android.mms"))
     }
+
+    @Test
+    fun failedStandingInstruction_isNotSpending_butIsAFailedMandate() {
+        // 21 Oct 2026: logged as ₹2,399 spent although the bank said it failed.
+        val failed = "Payment of INR 2399.00 towards Merchant Anthropic for Standing Instruction YeyXApKcsH on ICICI Bank Credit Card 1014 could not be processed. To manage your Standing Instructions, visit www.icici.bank.in"
+        assertNull(TransactionParser.parse("AD-ICICIT-S", failed, "com.android.mms"))
+        val f = com.spendtrack.app.core.automation.MandateAlerts.failedMandate(failed)
+        assertNotNull(f)
+        assertEquals("Anthropic", f!!.payee)
+        assertEquals(2399.0, f.amount!!, 0.01)
+    }
+
+    @Test
+    fun successfulStandingInstruction_isStillSpending_andNotAFailure() {
+        val ok = "We have successfully processed payment of INR 975.62 to Merchant Airtel Payments Bank Limited, as per Standing Instruction IChUmDjr5E on 5/11/2026 for ICICI Bank Credit Card 1014."
+        assertNull(com.spendtrack.app.core.automation.MandateAlerts.failedMandate(ok))
+        val r = TransactionParser.parse("BP-ICICIT-T", ok, "com.android.mms")
+        assertNotNull(r)
+        assertEquals(975.62, r!!.amount, 0.01)
+    }
+
+    @Test
+    fun failedNachDebit_isAFailedMandate() {
+        val nach = "Your NACH debit of Rs 5,718.00 towards HDFC BANK LTD has bounced due to insufficient balance in a/c XX8749."
+        assertNull(TransactionParser.parse("JX-HDFCBK-S", nach, "com.android.mms"))
+        assertNotNull(com.spendtrack.app.core.automation.MandateAlerts.failedMandate(nach))
+    }
 }

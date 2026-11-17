@@ -60,7 +60,9 @@ object TransactionParser {
 
     // Keywords signaling failed/pending payments
     private val FAILED_KEYWORDS = listOf(
-        "failed", "declined", "cancelled", "canceled", "rejected"
+        "failed", "declined", "cancelled", "canceled", "rejected",
+        // the 21 Oct 2026 Anthropic standing instruction "could not be processed" was logged as ₹2,399 spent
+        "could not be processed", "could not be completed", "not processed", "unsuccessful", "insufficient", "bounced", "dishonoured", "dishonored"
     )
     private val PENDING_KEYWORDS = listOf(
         "pending", "in progress", "processing"

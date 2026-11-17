@@ -121,6 +121,8 @@ class SpendTrackNotificationListener : NotificationListenerService() {
                     timestamp = sbn.postTime
                 )
                 if (parsed == null) {
+                    // A failed automatic payment: no money moved, but say so (it would otherwise go unnoticed).
+                    if (com.spendtrack.app.core.automation.MandateAlerts.notifyIfFailed(applicationContext, fullText)) return@launch
                     // A bank message the parser could not read must not vanish: keep it and ask.
                     if (packageName in TransactionParser.MESSAGING_PACKAGES || packageName.contains("bank", ignoreCase = true)) {
                         com.spendtrack.app.core.notification.MissedMessages.noteIfMoney(applicationContext, title, cardText, sbn.postTime)
