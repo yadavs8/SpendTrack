@@ -1,7 +1,8 @@
 name: Android APK
 
 # Builds the Kharcha Book phone app (the part that reads bank SMS) and publishes it, so installing it is one tap:
-#   https://github.com/yadavs8/SpendTrack/releases/download/apk-latest/Kharcha-Book.apk
+#   https://github.com/yadavs8/SpendTrack/releases/download/apk-latest/SpendTrack.apk
+#   (also published as Kharcha-Book.apk, the app's old name, so links already shared keep working)
 #
 # Safety (audit M1/M2, .rea/audit.md):
 # - The published APK is a RELEASE build (not debuggable: no `adb run-as` into the app's data, no WebView remote
@@ -65,8 +66,9 @@ jobs:
       - name: Collect APK
         run: |
           mkdir -p out
-          cp "$(find app/build/outputs/apk -name '*.apk' | head -n 1)" out/Kharcha-Book.apk
-          (cd out && zip -q Kharcha-Book.zip Kharcha-Book.apk)
+          cp "$(find app/build/outputs/apk -name '*.apk' | head -n 1)" out/SpendTrack.apk
+          cp out/SpendTrack.apk out/Kharcha-Book.apk   # old name: links already shared keep working
+          (cd out && zip -q SpendTrack.zip SpendTrack.apk && cp SpendTrack.zip Kharcha-Book.zip)
           rm -f keystore.properties
       - uses: actions/upload-artifact@v4
         with:
@@ -90,10 +92,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          notes="Latest Android build from main (commit ${GITHUB_SHA::7}). Open this page on your phone, tap Kharcha-Book.apk, install."
+          notes="Latest Android build from main (commit ${GITHUB_SHA::7}). Open this page on your phone, tap SpendTrack.apk, install."
           if gh release view apk-latest >/dev/null 2>&1; then
-            gh release upload apk-latest out/Kharcha-Book.apk out/Kharcha-Book.zip --clobber
-            gh release edit apk-latest --notes "$notes"
+            gh release upload apk-latest out/SpendTrack.apk out/SpendTrack.zip out/Kharcha-Book.apk out/Kharcha-Book.zip --clobber
+            gh release edit apk-latest --title "SpendTrack (Android)" --notes "$notes"
           else
-            gh release create apk-latest out/Kharcha-Book.apk out/Kharcha-Book.zip --title "Kharcha Book (Android)" --notes "$notes" --latest=false --target "$GITHUB_SHA"
+            gh release create apk-latest out/SpendTrack.apk out/SpendTrack.zip out/Kharcha-Book.apk out/Kharcha-Book.zip --title "SpendTrack (Android)" --notes "$notes" --latest=false --target "$GITHUB_SHA"
           fi

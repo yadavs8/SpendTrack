@@ -183,7 +183,7 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        // Kharcha Book's row id, for payments pushed before they were answered (v139).
+        // SpendTrack's row id, for payments pushed before they were answered (v139).
         val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE transactions ADD COLUMN cloudRowId TEXT DEFAULT NULL")

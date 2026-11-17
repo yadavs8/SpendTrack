@@ -152,9 +152,9 @@ interface TransactionDao {
     suspend fun getAllTransactionsSync(): List<TransactionEntity>
 
     /**
-     * Ready to push to Kharcha Book: real (not excluded/demo) transactions that have been resolved
+     * Ready to push to SpendTrack: real (not excluded/demo) transactions that have been resolved
      * (`needsReview = 0`). Waiting until the user answers Personal / Family / Trips prevents
-     * premature un-scoped rows and duplicate SMS + UPI notification entries in Kharcha Book.
+     * premature un-scoped rows and duplicate SMS + UPI notification entries in SpendTrack.
      */
     @Query("""
         SELECT * FROM transactions
@@ -183,7 +183,7 @@ interface TransactionDao {
     @Query("UPDATE transactions SET syncedToCloud = 1 WHERE id = :id")
     suspend fun markSynced(id: String)
 
-    /** Unanswered spends not yet in Kharcha Book (v139 pushes them as "⏳ to sort"; UnsortedSync.shouldPush decides). */
+    /** Unanswered spends not yet in SpendTrack (v139 pushes them as "⏳ to sort"; UnsortedSync.shouldPush decides). */
     @Query("""
         SELECT * FROM transactions
         WHERE needsReview = 1 AND syncedToCloud = 0 AND cloudRowId IS NULL
@@ -205,7 +205,7 @@ interface TransactionDao {
     @Query("UPDATE transactions SET cloudRowId = :rowId WHERE id = :id")
     suspend fun setCloudRowId(id: String, rowId: String?)
 
-    /** Rows that were pushed to Kharcha Book but must now be removed there (transfer / fully refunded). */
+    /** Rows that were pushed to SpendTrack but must now be removed there (transfer / fully refunded). */
     @Query("SELECT * FROM transactions WHERE needsCloudDelete = 1 AND isDemo = 0")
     suspend fun getPendingCloudDeletes(): List<TransactionEntity>
 

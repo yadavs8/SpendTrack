@@ -274,7 +274,7 @@ class DeduplicationEngine(
             !parsedMerchant.isNullOrBlank() -> parsedMerchant
             else -> candidate.merchantName ?: normalizedMerchant
         }
-        // A row already in Kharcha Book without a ref must not gain one now: the next upsert would be
+        // A row already in SpendTrack without a ref must not gain one now: the next upsert would be
         // keyed on the new ref and add a second row there instead of updating this one.
         val keepRefsAsIs = candidate.syncedToCloud &&
             candidate.upiReference.isNullOrBlank() && candidate.bankReference.isNullOrBlank()

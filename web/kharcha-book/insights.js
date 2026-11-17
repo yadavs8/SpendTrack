@@ -1,4 +1,4 @@
-/* Kharcha Book v70: Insights screen (More > Insights). Net worth, weekly story, streak and savings goal, spending heatmap.
+/* SpendTrack v70: Insights screen (More > Insights). Net worth, weekly story, streak and savings goal, spending heatmap.
    Runs after app.js and only uses what app.js exposes (window.__kharcha). */
 (function () {
   'use strict';
@@ -279,7 +279,7 @@
     var g = c.createLinearGradient(0, 0, W, H); g.addColorStop(0, '#0f172a'); g.addColorStop(0.55, '#312e81'); g.addColorStop(1, '#0f766e'); c.fillStyle = g; c.fillRect(0, 0, W, H);
     c.fillStyle = 'rgba(255,255,255,0.06)'; c.beginPath(); c.arc(W - 120, 160, 360, 0, 6.283); c.fill();
     var F = 'system-ui, -apple-system, "Segoe UI", sans-serif';
-    c.fillStyle = '#fff'; c.font = '700 44px ' + F; c.fillText('Kharcha Book', 70, 120);
+    c.fillStyle = '#fff'; c.font = '700 44px ' + F; c.fillText('SpendTrack', 70, 120);
     c.fillStyle = 'rgba(255,255,255,0.7)'; c.font = '500 36px ' + F; c.fillText(label + ' report', 70, 176);
     c.fillStyle = 'rgba(255,255,255,0.65)'; c.font = '600 28px ' + F; c.fillText('SPENT', 70, 290);
     c.fillStyle = '#fff'; c.font = '800 120px ' + F; c.fillText(money(total), 70, 410);
@@ -307,7 +307,7 @@
     var big = spendList.slice().sort(function (a, b) { return b.amount - a.amount; })[0];
     c.fillStyle = 'rgba(255,255,255,0.75)'; c.font = '500 28px ' + F;
     if (big) { var line = 'Biggest: ' + money(big.amount) + ' · ' + String(big.desc).replace(/^[^\wऀ-ॿ]+/, '').slice(0, 30); wrapText(c, line, W - 140).slice(0, 1).forEach(function (l) { c.fillText(l, 70, H - 90); }); }
-    c.fillStyle = 'rgba(255,255,255,0.45)'; c.font = '500 24px ' + F; c.fillText('Made with Kharcha Book', 70, H - 40);
+    c.fillStyle = 'rgba(255,255,255,0.45)'; c.font = '500 24px ' + F; c.fillText('Made with SpendTrack', 70, H - 40);
     return cv;
   }
   function reportCard() {
@@ -332,7 +332,7 @@
       var url = URL.createObjectURL(blob); img.src = url;
       go.addEventListener('click', function () {
         var file = null; try { file = new File([blob], 'kharcha-' + key + '.png', { type: 'image/png' }); } catch (e) {}
-        if (file && navigator.canShare && navigator.canShare({ files: [file] })) { navigator.share({ files: [file], title: 'Kharcha Book ' + key }).catch(function () {}); return; }
+        if (file && navigator.canShare && navigator.canShare({ files: [file] })) { navigator.share({ files: [file], title: 'SpendTrack ' + key }).catch(function () {}); return; }
         var a = document.createElement('a'); a.href = url; a.download = 'kharcha-' + key + '.png'; document.body.appendChild(a); a.click(); a.remove();
       });
     }, 'image/png');
@@ -360,7 +360,7 @@
       rd.onload = function () {
         var obj; try { obj = JSON.parse(String(rd.result)); } catch (e) { K.toast('That file is not a backup.'); return; }
         var info = K.inspectBackup(obj);
-        if (!info) { K.toast('That file is not a Kharcha Book backup.'); return; }
+        if (!info) { K.toast('That file is not a SpendTrack backup.'); return; }
         K.confirmBox({
           title: 'Restore this backup?',
           message: info.total + ' entries in the file, ' + info.missing.length + ' of them not in your book yet. ' + info.settingKeys.length + ' settings (bank accounts, rules, goal…) will be put back too.',

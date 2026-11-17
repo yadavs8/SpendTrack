@@ -5,7 +5,7 @@ import java.util.Calendar
 import kotlin.math.roundToInt
 
 /**
- * Pure calculations behind the automations, on Kharcha Book rows (the same rows the web app
+ * Pure calculations behind the automations, on SpendTrack rows (the same rows the web app
  * shows), so phone alerts agree with the app. No Android code here -- see InsightsTest.
  */
 object Insights {
@@ -16,7 +16,7 @@ object Insights {
     private fun isCashSpend(r: Row) = isExpense(r) && r.method == "cash"
 
     /**
-     * Spending the way Kharcha Book totals it: every expense, plus cash taken out at an ATM that
+     * Spending the way SpendTrack totals it: every expense, plus cash taken out at an ATM that
      * hasn't been itemised yet ("unaccounted cash") -- so withdrawing ₹5,000 still counts once,
      * and logging "Milk ₹60 (cash)" later moves ₹60 out of "unaccounted", never double counts.
      */

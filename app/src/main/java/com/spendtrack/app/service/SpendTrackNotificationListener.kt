@@ -148,7 +148,7 @@ class SpendTrackNotificationListener : NotificationListenerService() {
                             // ATM cash: goes to the cash wallet; the evening nudge asks what it was spent on.
                             txn.transactionType == com.spendtrack.app.core.model.TransactionType.CASH_WITHDRAWAL -> Unit
                             else -> {
-                                // Already entered in Kharcha Book by hand? Then there is nothing to ask.
+                                // Already entered in SpendTrack by hand? Then there is nothing to ask.
                                 val answered = txn.needsReview &&
                                     PromptReconciler.resolveIfEnteredByHand(applicationContext, txn.id)
                                 if (!answered && (txn.needsReview || ServiceLocator.settingsManager.showConfirmationNotifs.first())) {

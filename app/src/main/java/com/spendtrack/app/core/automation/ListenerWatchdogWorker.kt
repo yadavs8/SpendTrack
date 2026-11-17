@@ -35,7 +35,7 @@ class ListenerWatchdogWorker(context: Context, params: WorkerParameters) : Corou
             SmsBackfillManager.catchUpMonthIfDue(applicationContext)
         }.onFailure { SafeLogger.e("Watchdog: SMS backfill failed", it) }
 
-        // A payment the user already entered in Kharcha Book should not keep asking "where should this go?".
+        // A payment the user already entered in SpendTrack should not keep asking "where should this go?".
         runCatching {
             com.spendtrack.app.data.di.ServiceLocator.init(applicationContext)
             com.spendtrack.app.core.notification.PromptReconciler.reconcileAll(applicationContext)

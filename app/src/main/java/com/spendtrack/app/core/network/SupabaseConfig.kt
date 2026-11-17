@@ -1,7 +1,7 @@
 package com.spendtrack.app.core.network
 
 /**
- * Same Supabase project the Kharcha Book web app points at (web/kharcha-book/config.js).
+ * Same Supabase project the SpendTrack web app points at (web/kharcha-book/config.js).
  * The anon key is safe to ship in the APK; Row Level Security on `daily_expenses` restricts
  * every request to the signed-in user's own rows.
  */

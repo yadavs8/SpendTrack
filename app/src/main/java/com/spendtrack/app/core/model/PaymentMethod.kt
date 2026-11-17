@@ -2,7 +2,7 @@ package com.spendtrack.app.core.model
 
 /**
  * How the money left (or arrived): kept separate so card spends, UPI and cash never blur together.
- * [code] is what's synced to Kharcha Book's `method` column -- stable, never rename it.
+ * [code] is what's synced to SpendTrack's `method` column -- stable, never rename it.
  * Enum names are stored in Room, so existing values must keep their names too.
  */
 enum class PaymentMethod(val displayName: String, val code: String) {

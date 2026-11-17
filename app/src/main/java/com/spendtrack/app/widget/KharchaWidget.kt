@@ -18,7 +18,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
- * Home-screen widget: this month's Kharcha Book total and forecast (as last reported by the page,
+ * Home-screen widget: this month's SpendTrack total and forecast (as last reported by the page,
  * so web-only entries count too), how many payments still need a choice, and "+ Cash".
  */
 object KharchaWidget {

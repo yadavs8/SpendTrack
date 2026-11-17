@@ -1,4 +1,4 @@
-/* Kharcha Book v129: ask before saving or deleting anything.
+/* SpendTrack v129: ask before saving or deleting anything.
    One place for the whole app (every page, every pop-up, and anything added later):
    - Saving a form ("Add", "Save", "Log", "Record", "Create", ...) first shows "Save this?" with what you typed.
    - A button that deletes or removes something first shows "Delete this?" with what it is.

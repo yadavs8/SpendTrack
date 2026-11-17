@@ -8,7 +8,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * "Where should this go?" is only asked for payments nobody has answered. If the user already
- * entered the payment in Kharcha Book -- under Family, Personal, a trip... -- the prompt is wrong:
+ * entered the payment in SpendTrack -- under Family, Personal, a trip... -- the prompt is wrong:
  * this finds that entry, adopts its description, and clears the notification and its reminders.
  */
 object PromptReconciler {
@@ -27,7 +27,7 @@ object PromptReconciler {
         repo.adoptCloudEntry(transactionId, row.description, row.id ?: own)
         NudgeScheduler.cancel(context, transactionId)
         ExpensePromptNotifier.dismiss(context, transactionId)
-        SafeLogger.i("Prompt $transactionId resolved from an entry already in Kharcha Book")
+        SafeLogger.i("Prompt $transactionId resolved from an entry already in SpendTrack")
         return true
     }
 

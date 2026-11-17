@@ -10,7 +10,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** v139: a payment goes to Kharcha Book as "⏳ to sort" before its question is answered. */
+/** v139: a payment goes to SpendTrack as "⏳ to sort" before its question is answered. */
 class UnsortedSyncTest {
 
     private val now = 1_794_000_000_000L
@@ -49,7 +49,7 @@ class UnsortedSyncTest {
         assertFalse(UnsortedSync.shouldPush(waiting().copy(isExcluded = true), now, reread))
         assertFalse(UnsortedSync.shouldPush(waiting().copy(transactionType = TransactionType.INTERNAL_TRANSFER), now, reread))
         assertFalse(UnsortedSync.shouldPush(waiting().copy(refundedAmount = 2640.0), now, reread))
-        // an old message read again after a reinstall: Kharcha Book may already have it
+        // an old message read again after a reinstall: SpendTrack may already have it
         val old = waiting(at = now - 3 * 24 * 3600_000L).copy(createdAt = now)
         assertFalse(UnsortedSync.shouldPush(old, now, reread))
     }

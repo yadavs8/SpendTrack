@@ -28,7 +28,7 @@ class SettingsManager(private val context: Context) {
         val KEY_CONFIRMATION_NOTIFS = booleanPreferencesKey("confirmation_notifications")
         val KEY_ONBOARDED = booleanPreferencesKey("onboarded")
 
-        // Cloud Sync: one-time link to the Kharcha Book Supabase account
+        // Cloud Sync: one-time link to the SpendTrack Supabase account
         val KEY_CLOUD_SYNC_ENABLED = booleanPreferencesKey("cloud_sync_enabled")
         val KEY_CLOUD_SYNC_EMAIL = stringPreferencesKey("cloud_sync_email")
         val KEY_CLOUD_SYNC_ACCESS_TOKEN = stringPreferencesKey("cloud_sync_access_token")
@@ -122,7 +122,7 @@ class SettingsManager(private val context: Context) {
     }
 
     /**
-     * Paused unless a project was explicitly started/resumed ("false"). Older Kharcha Book versions
+     * Paused unless a project was explicitly started/resumed ("false"). Older SpendTrack versions
      * saved a project name just by renaming it -- that must never start auto-filing every payment.
      */
     val isProjectPausedFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
@@ -133,7 +133,7 @@ class SettingsManager(private val context: Context) {
     /** The user's own full name(s) and UPI ID(s), used to recognise self-transfers. */
     val ownerIdentityFlow: Flow<String> = context.dataStore.data.map { prefs ->
         val shared = parseJson(prefs[KEY_SHARED_SETTINGS_JSON])
-        // Typed here, else taken from "My accounts and cards" in Kharcha Book (names and UPI ids), so nothing is typed twice.
+        // Typed here, else taken from "My accounts and cards" in SpendTrack (names and UPI ids), so nothing is typed twice.
         shared.optStringOrNull(SHARED_OWNER_IDENTITY) ?: identityFromOwn(shared.optStringOrNull("kharcha_own"))
     }
 

@@ -1,4 +1,4 @@
-/* Kharcha Book v47: modern layer. Loaded after styles.css, so it only overrides and adds.
+/* SpendTrack v47: modern layer. Loaded after styles.css, so it only overrides and adds.
    Bottom navigation, night-mode button, roomier top card, bigger rows with icons, smart suggestions. */
 :root { --nav-h: 76px; --r-card: 22px; }
 body { padding-block-end: calc(var(--nav-h) + 24px + env(safe-area-inset-bottom, 0px)); }

@@ -147,7 +147,7 @@ class QuickActionReceiver : BroadcastReceiver() {
                     }
                     ACTION_NOT_INCOME -> {
                         // "That wasn't income" (e.g. money back from a friend for a shared bill):
-                        // drop it here and, if it already reached Kharcha Book, remove it there by ref.
+                        // drop it here and, if it already reached SpendTrack, remove it there by ref.
                         repo.undoAutoIncome(transactionId)
                         com.spendtrack.app.core.automation.AutomationNotifier.cancel(appContext, 0x7B50 + (transactionId.hashCode() and 0xFF))
                         ServiceLocator.cloudSyncRepository.syncPending()

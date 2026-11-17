@@ -5,7 +5,7 @@
     <!-- Notification Access: Real-time UPI & bank app expense detection -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- Cloud Sync: pushes resolved expenses to your Kharcha Book account (after you sign in) -->
+    <!-- Cloud Sync: pushes resolved expenses to your SpendTrack account (after you sign in) -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
@@ -76,7 +76,7 @@
         <!-- Real-time UPI & Bank Notification Detection Service -->
         <service
             android:name=".service.SpendTrackNotificationListener"
-            android:label="Kharcha Book Expense Detection"
+            android:label="SpendTrack Expense Detection"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
             android:exported="true">
             <intent-filter>

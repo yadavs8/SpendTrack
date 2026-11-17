@@ -1,4 +1,4 @@
-/* Kharcha Book v47: modern layer. Night-mode button, bottom navigation, top-card extras, row icons,
+/* SpendTrack v47: modern layer. Night-mode button, bottom navigation, top-card extras, row icons,
    count-up total and smart suggestions. Runs after app.js and only uses what app.js exposes (window.__kharcha). */
 (function () {
   'use strict';
@@ -1406,7 +1406,7 @@
     top.insertBefore(btn, top.firstChild);
     var bd = el('div', 'side-bd'); bd.hidden = true;
     var pane = el('nav', 'side'); pane.setAttribute('aria-label', 'All pages');
-    var brand = el('div', 'side-brand'); brand.appendChild(el('b', null, 'Kharcha Book')); brand.appendChild(el('span', null, 'Go anywhere'));
+    var brand = el('div', 'side-brand'); brand.appendChild(el('b', null, 'SpendTrack')); brand.appendChild(el('span', null, 'Go anywhere'));
     pane.appendChild(brand);
     var groups = [['Everyday', [['spends', '🏠', 'Home', 'Spends, calendar'], ['incomings', '💰', 'Income', 'Salary, received'], ['trips', '✈️', 'Trips', 'Shared trips']]]].concat(MORE_GROUPS);
     var links = [];
@@ -1456,18 +1456,18 @@
   })();
 
   /* ---------- v122: install the Android app straight from the web page (Android browser only) ---------- */
-  var APK_URL = 'https://github.com/yadavs8/SpendTrack/releases/download/apk-latest/Kharcha-Book.apk';
+  var APK_URL = 'https://github.com/yadavs8/SpendTrack/releases/download/apk-latest/SpendTrack.apk';
   function showsInstall() { return /android/i.test(navigator.userAgent || '') && !window.KharchaNative; }
   function openInstallSheet() {
     closeSheets();
     var bd = el('div', 'hx-pop-bd'), pop = el('div', 'hx-pop');
-    var head = el('div', 'hx-pop-head'); head.appendChild(el('b', null, '\uD83D\uDCF2 Install the Kharcha Book app'));
+    var head = el('div', 'hx-pop-head'); head.appendChild(el('b', null, '\uD83D\uDCF2 Install the SpendTrack app'));
     var x = el('button', 'hx-pop-x', '\u00d7'); x.type = 'button'; x.setAttribute('aria-label', 'Close'); head.appendChild(x); pop.appendChild(head);
     pop.appendChild(el('p', 'hx-pop-note', 'The phone app reads your bank SMS and logs spends by itself. Same account, same data.'));
-    var dl = el('a', 'ia-dl', '\u2B07\uFE0F Download the app'); dl.href = APK_URL; dl.setAttribute('download', 'Kharcha-Book.apk'); dl.rel = 'noopener';
+    var dl = el('a', 'ia-dl', '\u2B07\uFE0F Download the app'); dl.href = APK_URL; dl.setAttribute('download', 'SpendTrack.apk'); dl.rel = 'noopener';
     pop.appendChild(dl);
     pop.appendChild(el('div', 'hx-pop-k', 'THEN'));
-    [['1', 'Open the downloaded Kharcha-Book.apk and tap Install. If asked, allow Chrome to install apps.'],
+    [['1', 'Open the downloaded SpendTrack.apk and tap Install. If asked, allow Chrome to install apps.'],
      ['2', 'If Google Play Protect blocks it: Play Store \u2192 your photo \u2192 Play Protect \u2192 \u2699\uFE0F \u2192 turn off \u201cScan apps\u201d, install, then turn it back on.'],
      ['3', 'Open the app, sign in with the same email, allow SMS and notifications.']].forEach(function (s) {
       var r = el('div', 'ia-step'); r.appendChild(el('span', 'ia-n', s[0])); r.appendChild(el('span', null, s[1])); pop.appendChild(r);

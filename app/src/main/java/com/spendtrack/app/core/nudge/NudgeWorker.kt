@@ -35,7 +35,7 @@ class NudgeWorker(
             return Result.success()
         }
 
-        // Entered in Kharcha Book in the meantime (Family / Personal / a trip)? Then stop asking.
+        // Entered in SpendTrack in the meantime (Family / Personal / a trip)? Then stop asking.
         if (com.spendtrack.app.core.notification.PromptReconciler.resolveIfEnteredByHand(applicationContext, transactionId)) {
             return Result.success()
         }

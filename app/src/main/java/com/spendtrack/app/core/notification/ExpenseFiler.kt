@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.first
 /**
  * Files an auto-detected expense where the user chose -- from a notification button or the
  * "Log to…" picker -- and tidies up: reminders stop, prompts for duplicate copies of the same
- * payment disappear, the prompt turns into "✅ Logged…", and it syncs to Kharcha Book with its
+ * payment disappear, the prompt turns into "✅ Logged…", and it syncs to SpendTrack with its
  * original date and time.
  */
 object ExpenseFiler {
@@ -61,12 +61,12 @@ object ExpenseFiler {
         runCatching { com.spendtrack.app.widget.KharchaWidget.refresh(context) }
         ServiceLocator.cloudSyncRepository.syncPending()
 
-        // "✅ Logged" alone is misleading if it never reached Kharcha Book -- say so.
+        // "✅ Logged" alone is misleading if it never reached SpendTrack -- say so.
         val settings = ServiceLocator.settingsManager
         val stillLocal = repo.getTransactionById(transactionId)?.let { !it.syncedToCloud && it.transactionType.isExpense } ?: false
         if (stillLocal) {
             val reason = settings.cloudSyncLastError.first()
-                ?: if (!ServiceLocator.cloudSyncRepository.canSync()) "Kharcha Book isn't signed in on this phone. Open it and sign in once." else null
+                ?: if (!ServiceLocator.cloudSyncRepository.canSync()) "SpendTrack isn't signed in on this phone. Open it and sign in once." else null
             if (reason != null) ExpensePromptNotifier.showSyncProblem(context, reason)
         }
     }

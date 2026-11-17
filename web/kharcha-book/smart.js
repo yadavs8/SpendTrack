@@ -1,4 +1,4 @@
-/* Kharcha Book v142: smarter by itself, and less to look at.
+/* SpendTrack v142: smarter by itself, and less to look at.
    1. Balance watchdog: bank SMS carry the balance, so money that moved without being logged shows up as a gap.
       Home says so ("₹177 left ICICI between 5 and 10 Nov that isn't logged") with one tap to log it.
    2. Your pages: pages with nothing in them are tucked away from More and the side menu, and you choose

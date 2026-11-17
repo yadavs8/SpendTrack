@@ -327,7 +327,7 @@ object ExpensePromptNotifier {
     }
 
     /**
-     * Shown when an expense was filed but could not reach Kharcha Book (e.g. the sync session was
+     * Shown when an expense was filed but could not reach SpendTrack (e.g. the sync session was
      * signed out), so "✅ Logged" is never the last word on an expense that only exists on the phone.
      */
     fun showSyncProblem(context: Context, reason: String) {
@@ -343,7 +343,7 @@ object ExpensePromptNotifier {
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(com.spendtrack.app.R.drawable.ic_notification)
             .setColor(0xFF0B5D75.toInt())
-            .setContentTitle("Saved on phone, not in Kharcha Book yet")
+            .setContentTitle("Saved on phone, not in SpendTrack yet")
             .setContentText(reason)
             .setStyle(NotificationCompat.BigTextStyle().bigText("$reason It will be sent automatically once this is fixed. Open SpendTrack → Settings → Cloud Sync."))
             .setContentIntent(open)

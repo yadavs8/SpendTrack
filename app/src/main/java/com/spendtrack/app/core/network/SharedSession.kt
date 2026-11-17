@@ -5,10 +5,10 @@ import android.content.SharedPreferences
 import org.json.JSONObject
 
 /**
- * The one Supabase sign-in shared by Kharcha Book (the page inside the app) and the phone's
- * background sync. Kharcha Book's supabase-js keeps its session here (via KharchaNative.auth*Item)
+ * The one Supabase sign-in shared by SpendTrack (the page inside the app) and the phone's
+ * background sync. SpendTrack's supabase-js keeps its session here (via KharchaNative.auth*Item)
  * instead of the WebView's localStorage, and the sync reads -- and, when it renews it, writes --
- * the same entry. So signing in once in Kharcha Book is all the phone ever needs: no separate
+ * the same entry. So signing in once in SpendTrack is all the phone ever needs: no separate
  * Cloud Sync login, and no two copies of a refresh token renewing behind each other's back
  * (which Supabase treats as token reuse and answers by signing both out).
  *
@@ -34,7 +34,7 @@ object SharedSession {
 
     data class Session(val accessToken: String, val refreshToken: String, val expiresAt: Long, val email: String?)
 
-    /** Kharcha Book's current session, or null when it isn't signed in (on this phone). */
+    /** SpendTrack's current session, or null when it isn't signed in (on this phone). */
     fun current(): Session? {
         val raw = getItem(authKey) ?: return null
         return runCatching {

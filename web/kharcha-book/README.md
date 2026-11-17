@@ -1,4 +1,4 @@
-# Kharcha Book
+# SpendTrack
 
 Daily expense tracker (static web app, no build step) backed by Supabase.
 
@@ -14,7 +14,7 @@ Daily expense tracker (static web app, no build step) backed by Supabase.
 
 ## Payment methods, income and cash (with the SpendTrack phone app)
 - **How it was paid**: every detected payment is classified as credit card, debit card, UPI, net banking (NEFT/IMPS/NACH), wallet or ATM, with the card's last digits and bank. "By payment method" lists each card separately. You can also pick "Paid via" when adding or editing an entry.
-- **Income**: bank credits (salary, UPI received, interest, cashback) are logged under Incomings automatically. Money from your own accounts is ignored, and money from the people under "Family who reimburse you" counts as "👵 Withdrawn from Mother". If you add income by hand that the phone already logged, Kharcha Book asks before adding it twice.
+- **Income**: bank credits (salary, UPI received, interest, cashback) are logged under Incomings automatically. Money from your own accounts is ignored, and money from the people under "Family who reimburse you" counts as "👵 Withdrawn from Mother". If you add income by hand that the phone already logged, SpendTrack asks before adding it twice.
 - **Refunds** reduce the original expense, or remove it if the refund was full. A refund that can't be matched is logged as income.
 - **Cash**: an ATM withdrawal goes into the cash wallet instead of spending. Until you log what it was spent on, it shows as "💵 Unaccounted cash", so month totals stay correct and cash is never counted twice.
 
@@ -32,16 +32,16 @@ Run the tests with `node test-kharcha.js`. Add any SMS that gets misread to that
 Open the page in Chrome (Android) and tap the menu > **Add to Home screen** / **Install app**. On iPhone use Safari > Share > **Add to Home Screen**.
 
 ## Signing in
-1. Enter your email → Kharcha Book emails a 6-digit code (existing accounts only; it never creates one).
+1. Enter your email → SpendTrack emails a 6-digit code (existing accounts only; it never creates one).
 2. Enter the code → you are signed in, and asked to **set a password** (or skip to keep the current one).
 3. Later: sign in with the password, or tap "Forgot it? Email me a code".
 For the code to arrive, the Supabase email template must include it: Authentication > Email Templates > **Magic Link**,
-add `{{ .Token }}` (for example: `Your Kharcha Book code is {{ .Token }}`). Supabase's built-in email sends only a
+add `{{ .Token }}` (for example: `Your SpendTrack code is {{ .Token }}`). Supabase's built-in email sends only a
 few emails per hour, which is plenty for one person.
 The same login opens the Studio5 PO tracker (same Supabase project), so a new password applies there too.
 
 ## Fingerprint
-- **In the phone app:** right after signing in it offers "Use your fingerprint to open Kharcha Book?". When on, the
+- **In the phone app:** right after signing in it offers "Use your fingerprint to open SpendTrack?". When on, the
   app asks for your fingerprint (or phone screen lock) each time it opens and after a minute in the background.
   Turn it off in the app's Settings.
 - **In a browser:** "Turn on fingerprint" uses the browser's own fingerprint / PIN (WebAuthn). This is a lock on the
@@ -94,7 +94,7 @@ More > Auto rules > My accounts and cards: last 4 digits of each bank account, y
 Payments to yourself are filed as own transfers without a tap. The signals: the payee is one of your own names (More > Auto rules > My accounts and cards), or it names your own account number or UPI id. The source bank comes from the SMS ("Acct XX602 debited" is ICICI); banks that print only the last 3 digits still match. An Undo toast follows each one. A credit from your own name that mirrors a transfer you already have is filed as the other half, not income.
 
 ### Own transfer from the phone notification, and no double counting
-The phone's payment notification now has **↔ Own transfer** next to Personal and Family (tap the notification itself for every other destination). It files the payment with a 🔁 mark; Kharcha Book then creates the balance move by itself (source bank from the SMS, destination the other tracked account). Corrections: a transfer is counted once (same entry, or the same amount between the same two accounts within 10 minutes, and twin SMS/notification copies of one payment hide together); a payment that already has a transfer record but lost its 🔁 mark when the phone re-synced it plain is marked again; a 🔁 entry with no record gets one.
+The phone's payment notification now has **↔ Own transfer** next to Personal and Family (tap the notification itself for every other destination). It files the payment with a 🔁 mark; SpendTrack then creates the balance move by itself (source bank from the SMS, destination the other tracked account). Corrections: a transfer is counted once (same entry, or the same amount between the same two accounts within 10 minutes, and twin SMS/notification copies of one payment hide together); a payment that already has a transfer record but lost its 🔁 mark when the phone re-synced it plain is marked again; a 🔁 entry with no record gets one.
 
 ### Balance from bank SMS
 When a bank SMS prints the balance ("Avl Bal Rs 12,345.67"), the app sets that account's balance from it automatically (newest SMS wins, never older than a balance you typed later). Card SMS ("Avl Limit") are ignored. The Bank card says "Balance taken from your bank SMS". Banks whose SMS carry no balance (for example ICICI UPI debits) still need an occasional **Update balance**.
@@ -142,12 +142,12 @@ Flames taken off the winged ₹ (back to the v73 look).
 
 ## v76 – No more repeated questions, no duplicates, credit card tab
 **Phone (SpendTrack app, needs a fresh install from `main`):**
-- A payment you already entered in Kharcha Book (Family, Personal, a trip…) no longer asks "where should this go?". Matching is by amount and time (±36 h); it is checked when the SMS arrives, before every reminder, every ~30 min in the background and when the app opens, and the notification and its reminders disappear.
+- A payment you already entered in SpendTrack (Family, Personal, a trip…) no longer asks "where should this go?". Matching is by amount and time (±36 h); it is checked when the SMS arrives, before every reminder, every ~30 min in the background and when the app opens, and the notification and its reminders disappear.
 - Known payees are filed by themselves and the notification says where: "🤖 Auto-logged under 🏠 Family". They come from the Auto rules screen (shared with the web app): niece allowance, milk vendor (Family), LIC premium on the 22nd (Investment), small insurance premium on the 16th (Personal), flat EMI.
 - A debit from one of your bank accounts and a credit into another a few minutes apart (even Rs 2, even with no shared reference) is one own transfer: one 🔁 entry, no questions.
 - Once a day the phone reads every bank SMS since the 1st of the month and files anything it missed, through the same rules and duplicate check. Old messages never pop a prompt.
 
-**Kharcha Book (web):**
+**SpendTrack (web):**
 - Duplicate check runs every time entries load or refresh: the same payment twice (same SMS text, or a copy without the bank reference) is removed by itself with Undo; likely duplicates are only suggested ("Remove one" / "Keep both"). A row that carries a bank reference is never deleted.
 - Own transfers between your two banks are found from the two bank SMS even when no name is mentioned; the credit side no longer becomes a second, reversed transfer.
 - Auto rules: new built-in rules LIC premium (22nd, ₹5,000) and Insurance premium (16th, up to ₹2,000), added once to your list (delete one and it stays deleted). Rules can have an amount cap and "only near its day".
@@ -162,10 +162,10 @@ Flames taken off the winged ₹ (back to the v73 look).
 The phone-app ⚙️ button was being squeezed off the right edge of the header; the header is now tighter so title, logo, theme, version and ⚙️ all fit. Inside the phone app, More > Phone settings opens the same screen (SMS and notification access, Cloud Sync, lock).
 
 ## v79 – Phone connection
-More > 📡 Phone connection: shows whether bank messages are really reaching Kharcha Book (latest message, count for 24 h and the week), which email you are signed in with (the phone app must use the same one to sync), a button to open the phone app settings when you are inside the Android app, and a checklist (SMS permission, notification access, battery Unrestricted, Cloud Sync sign-in). Also in More: ⚙️ Phone settings (app only).
+More > 📡 Phone connection: shows whether bank messages are really reaching SpendTrack (latest message, count for 24 h and the week), which email you are signed in with (the phone app must use the same one to sync), a button to open the phone app settings when you are inside the Android app, and a checklist (SMS permission, notification access, battery Unrestricted, Cloud Sync sign-in). Also in More: ⚙️ Phone settings (app only).
 
 ## v80 – Signed-out phone is no longer silent
-Checked on the live database: the phone sent payments until the evening of 11 Oct and then stopped. The usual cause is the phone app being signed out of Kharcha Book (its session is separate from the website's). The phone now posts a notification when that happens ("You are signed out… sign in again"), at most twice a day; payments wait on the phone and are sent after signing in. The money-types columns (kind, method, last 4, bank) were also missing from the live database and have been added.
+Checked on the live database: the phone sent payments until the evening of 11 Oct and then stopped. The usual cause is the phone app being signed out of SpendTrack (its session is separate from the website's). The phone now posts a notification when that happens ("You are signed out… sign in again"), at most twice a day; payments wait on the phone and are sent after signing in. The money-types columns (kind, method, last 4, bank) were also missing from the live database and have been added.
 
 ## Trip friends' UPI IDs (v101)
 Friends joining a trip link can enter their UPI ID (optional) or add it later with "Add my UPI". It is saved with them on the trip and prefills "Pay via UPI" for everyone. Additive only: existing data and settings are untouched.
@@ -189,7 +189,7 @@ The dashboard shows only the month total, the 7-day bars, today / 7 days / avera
 Tap any bar of the 7-day chart, or the Today / 7 days / Avg per day boxes, to see how much was spent and what it went on (categories and the biggest payments). The day you spent the most blazes with a flame; the other days are cool ice-blue, and today has an outline.
 
 ## Money back from the same person (v112)
-When someone sends back money you paid them (you pay Rishabh ₹10,700, he returns ₹10,700), Kharcha Book matches the two by the person's name from the bank SMS and counts neither as spending nor income (with Undo). It also matches when the return adds up to two or three recent payments to that person. A partial return asks first ("Rishabh sent ₹4,000 back?") and then lowers the original spend, noting "(↩ ₹4,000 back)". More > Udhaar shows "Sent and got back" for every person: sent, got back, and who is down; tap a person for the payments, and "It was income" undoes a match.
+When someone sends back money you paid them (you pay Rishabh ₹10,700, he returns ₹10,700), SpendTrack matches the two by the person's name from the bank SMS and counts neither as spending nor income (with Undo). It also matches when the return adds up to two or three recent payments to that person. A partial return asks first ("Rishabh sent ₹4,000 back?") and then lowers the original spend, noting "(↩ ₹4,000 back)". More > Udhaar shows "Sent and got back" for every person: sent, got back, and who is down; tap a person for the payments, and "It was income" undoes a match.
 
 ## Tap Today to jump to it (v113)
 Tapping Today, or any bar of the week chart, scrolls down to that day in "Day by day", opens it and highlights it. When the day is not in the list (another month open, or a filter hides it) the summary popup opens instead. The popup now draws above everything inside the phone app too.
@@ -214,7 +214,7 @@ Calendar amounts sit in a solid pill (dark text on light, light on dark) so they
 ## Trips home: banners, day-by-day flow, friends from contacts, one link per trip (v118)
 - Trips opens on "Your trips": one colourful banner per trip (🏔️ Manali, 🏖️ Goa, 🏜️ Jaipur...) with dates, total and who is on it.
 - Tap a banner: the trip's total and per-person share, then **People** (each with what they paid and what they owe or get back, and a "Send link" button), **To settle up**, and a **Day by day** timeline (Day 1, Day 2...) of every spend with a picture, who paid and the category.
-- **Add from contacts**: pick a friend from your phone's contacts (inside the Kharcha Book phone app after installing the new APK, or in Chrome on Android); or type a name. Spends split equally between everyone on the trip.
+- **Add from contacts**: pick a friend from your phone's contacts (inside the SpendTrack phone app after installing the new APK, or in Chrome on Android); or type a name. Spends split equally between everyone on the trip.
 - **Share link / Copy link**: every trip has its own link. "Send link" next to a friend opens WhatsApp straight to that friend when their number came from contacts.
 - The full trip tools (budget, categories, add spend, settle-up) are under "More trip tools".
 - Home: the "Show all days" button is a solid button and never hides behind the bottom bar.
@@ -223,7 +223,7 @@ Calendar amounts sit in a solid pill (dark text on light, light on dark) so they
 Inside an older phone app, "Add from contacts" did nothing (the app's browser has a contacts feature that cannot open anything, and the error was silent). Now: in the latest phone app it opens your contacts; in an older app it explains and offers the update (installs over, keeps your data); in Chrome it opens Chrome's contact picker; if anything fails you see a message and can type the name. The phone app also always reports back to the page, even if the picker cannot open.
 
 ## Safer phone updates (v120)
-- Per-person UPI IDs and trip links now back up to your Kharcha Book account like your other settings, so a reinstall does not lose them.
+- Per-person UPI IDs and trip links now back up to your SpendTrack account like your other settings, so a reinstall does not lose them.
 - The app's signing key is refreshed daily in the build system (it used to be weekly, right at the 7-day point where GitHub drops it), and a build on main now stops instead of quietly making a new key, so an update always installs over the app you have.
 
 ## Fix mistakes on a trip (v121)
@@ -232,7 +232,7 @@ Inside an older phone app, "Add from contacts" did nothing (the app's browser ha
 - **Rename** the trip from the trip page.
 
 ## Install the app from the web page (v122)
-On an Android phone in Chrome, Kharcha Book shows a slim "📲 Get the Android app · Install" strip under the header (× hides it) and an "Install the app" entry in the ☰ sidebar. Both open a card with a one-tap Download button and the three install steps, including what to do if Google Play Protect blocks it. Hidden inside the app itself and on iPhone.
+On an Android phone in Chrome, SpendTrack shows a slim "📲 Get the Android app · Install" strip under the header (× hides it) and an "Install the app" entry in the ☰ sidebar. Both open a card with a one-tap Download button and the three install steps, including what to do if Google Play Protect blocks it. Hidden inside the app itself and on iPhone.
 
 ## Everything closes the way it opened, estimates per category, trip calendar (v123)
 - **Tap again to close**: a trip closes by tapping its banner again, the Trips tab, or "All trips"; the + button closes the add form; More and the ☰ menu close on a second tap (☰ also has ×). Every card and sheet closes on ✕ or a tap outside.
@@ -420,18 +420,18 @@ Tested on a real dark-mode Blinkit "Repeat Order" list: 11 items, product photo 
 
 ## No more missing payments: sent before you answer (v139, new APK)
 
-Why payments went missing: the phone sent a payment to Kharcha Book only after you answered its "Personal / Family / Trip?" notification. An ignored or swiped notification meant a missing payment (₹9,283 insurance and ₹2,640 to Anju on 7 Nov).
+Why payments went missing: the phone sent a payment to SpendTrack only after you answered its "Personal / Family / Trip?" notification. An ignored or swiped notification meant a missing payment (₹9,283 insurance and ₹2,640 to Anju on 7 Nov).
 
 - **Phone app (new APK):**
   - Every payment is now sent the moment it is read, as **"⏳ <payee>"** (not sorted yet).
-  - Answering the notification updates that same row in place, using its Kharcha Book id, so it never becomes two rows. Card payments have no UPI ref and are handled the same way.
+  - Answering the notification updates that same row in place, using its SpendTrack id, so it never becomes two rows. Card payments have no UPI ref and are handled the same way.
   - Not sent early:
     - possible duplicate copies, until the duplicate question is answered;
     - old messages read again after a reinstall;
     - transfers and anything that isn't a spend.
   - If a payment sent early turns out not to count ("Not a payment", a transfer, a duplicate copy), its row is removed.
   - If you typed the payment in by hand already, the early row is removed and your entry is kept.
-- **Kharcha Book:**
+- **SpendTrack:**
   - An unsorted payment shows a **⏳ Not sorted yet** bar with one-tap **👤 Personal / 🏠 Family** buttons, plus the active trip if one is on.
   - Sorting it here is seen by the phone, which stops asking.
 
@@ -443,7 +443,7 @@ These two only move money:
 
 Before this, both were counted twice: once as the top-up or bill, once as the purchase.
 
-Kharcha Book recognises both by itself, including ones the phone sends as "⏳ to sort". The next Pay Later bill on 5 Dec will be filed the same way.
+SpendTrack recognises both by itself, including ones the phone sends as "⏳ to sort". The next Pay Later bill on 5 Dec will be filed the same way.
 
 ## Amazon Pay purchases logged in real time (v141, new APK)
 
@@ -453,7 +453,7 @@ A purchase paid from the Amazon Pay balance or with Amazon Pay Later (Blinkit, Z
   - The purchase is logged and asked about like any other payment.
   - Only these Amazon Pay emails are read from Gmail. Every other email is ignored unread.
   - A purchase is never merged with the card top-up of the same amount.
-- **Kharcha Book:** once sorted, a balance purchase is filed as a 👛 Amazon Pay spend, so the wallet balance stays right.
+- **SpendTrack:** once sorted, a balance purchase is filed as a 👛 Amazon Pay spend, so the wallet balance stays right.
 - **Needs:** Gmail notifications switched on for these emails. They land in the "Updates" tab.
 
 ## Smarter by itself, less to look at (v142)
@@ -508,7 +508,7 @@ Before, three different guessers decided what was "due": payees that repeated in
 
 Now there is one strict list, `billsToPay`:
 - **Fixed premiums:** LIC on the 22nd and the insurance premium on the 16th. Nothing else has a date by default (the EMI, niece and milk rules still sort their payments, but are no longer "due on the Nth").
-- **Bills read from bank SMS:** a card statement with its amount and due date. The phone app shares these with Kharcha Book (new APK needed).
+- **Bills read from bank SMS:** a card statement with its amount and due date. The phone app shares these with SpendTrack (new APK needed).
 - **Nothing is guessed** from past spending.
 
 How it behaves:
@@ -520,7 +520,7 @@ How it behaves:
 ## Email code → set password → fingerprint (v150, new APK)
 - Sign in with a 6-digit code from your email, then set a password (or keep the current one). Wrong or expired codes,
   mismatched or short passwords and rate limits get plain messages.
-- In the phone app, right after signing in: "Use your fingerprint to open Kharcha Book?" uses the phone's own
+- In the phone app, right after signing in: "Use your fingerprint to open SpendTrack?" uses the phone's own
   fingerprint prompt. The app then locks when it opens and after a minute away, without reloading the page.
 - The phone app's bridge to this page now trusts only `https://yadavs8.github.io/SpendTrack/web/kharcha-book/`
   exactly (it used to accept any address starting with `https://yadavs8.github.io`), and no other site can be framed in it.

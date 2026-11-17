@@ -56,7 +56,7 @@ class SpendTrackApp : Application() {
                 val writer = java.io.StringWriter()
                 throwable.printStackTrace(java.io.PrintWriter(writer))
                 CrashActivity.crashFile(this).writeText(
-                    "Kharcha Book crashed\n" +
+                    "SpendTrack crashed\n" +
                         "Time: ${java.util.Date()}\n" +
                         "Thread: ${thread.name}\n\n" +
                         writer.toString()

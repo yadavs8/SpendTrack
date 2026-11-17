@@ -1,4 +1,4 @@
-/* Kharcha Book logo: a gold ₹ that sits still, unfolds a pair of real feathered wings and flies away.
+/* SpendTrack logo: a gold ₹ that sits still, unfolds a pair of real feathered wings and flies away.
  *
  * KharchaWings.draw(ctx, unit, W, H, st) paints one frame. Sizes are in "logo units"; `unit` = canvas pixels
  * per unit, W x H = the canvas in units. st = {
