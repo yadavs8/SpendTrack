@@ -79,7 +79,7 @@ class SmsReceiver : BroadcastReceiver() {
                     if (txn.transactionType == com.spendtrack.app.core.model.TransactionType.INCOME && !txn.isExcluded) {
                         com.spendtrack.app.core.automation.AutomationRunner.onIncomeLogged(context.applicationContext, txn)
                     } else {
-                        // Already entered in Kharcha Book by hand? Then there is nothing to ask.
+                        // Already entered in SpendTrack by hand? Then there is nothing to ask.
                         val answered = txn.needsReview && !txn.isExcluded &&
                             PromptReconciler.resolveIfEnteredByHand(context.applicationContext, txn.id)
                         if (!answered) {

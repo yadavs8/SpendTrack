@@ -1,4 +1,4 @@
-/* Kharcha Book v76: Credit card screen (More > Credit card). What the card owes, what is still available, and every card spend.
+/* SpendTrack v76: Credit card screen (More > Credit card). What the card owes, what is still available, and every card spend.
    Runs after app.js and only uses what app.js exposes (window.__kharcha). */
 (function () {
   'use strict';

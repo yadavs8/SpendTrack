@@ -1,4 +1,4 @@
-/* Kharcha Book v127: Autopilot (More > Autopilot) and the "Safe to spend today" chip on Home.
+/* SpendTrack v127: Autopilot (More > Autopilot) and the "Safe to spend today" chip on Home.
    - Safe to spend: income in + salary still expected - spent - bills still due - what you keep aside, over the days left.
    - Bills that repeat each month, found by themselves: countdown, late, paid, price changes, yearly cost of subscriptions.
    - Money coming in (salaries, pension) and the costs creeping up or cooling down against your usual.

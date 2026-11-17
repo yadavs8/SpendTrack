@@ -1,4 +1,4 @@
-// Kharcha Book -- shared trip guest page. Deliberately standalone: no personal-finance code,
+// SpendTrack -- shared trip guest page. Deliberately standalone: no personal-finance code,
 // no bank parsing, no auth, nothing from app.js. A friend here never gets a Supabase account --
 // every call below goes through a token-checked Postgres function (see
 // supabase/kharcha_trip_sharing_v1.sql), never a direct table read/write.
@@ -156,7 +156,7 @@
     var inner = el('div', 'hero-inner');
     inner.appendChild(el('span', 'hero-tag', theme.tag));
     inner.appendChild(el('h1', 'hero-title', tripName ? 'Welcome to ' + tripName : 'Welcome'));
-    inner.appendChild(el('p', 'hero-sub', 'Kharcha Book shared trip'));
+    inner.appendChild(el('p', 'hero-sub', 'SpendTrack shared trip'));
     hero.appendChild(art); hero.appendChild(shade); hero.appendChild(inner);
     return hero;
   }
@@ -176,13 +176,13 @@
      their home screen as its own app. The icon reopens straight back to this exact trip (the manifest's
      start_url is this page's own URL, token and all, and the last trip is also remembered on the device),
      and they're still recognized via the guest_token saved in their browser. It is the web page itself,
-     so every change made to Kharcha Book shows up the next time they open it -- nothing to update or
+     so every change made to SpendTrack shows up the next time they open it -- nothing to update or
      download again. */
   var base = location.origin + location.pathname.replace(/[^/]*$/, '');
   (function setupInstallable() {
     var manifest = {
       id: base + 'trip.html#' + token,
-      name: 'Kharcha Book — Trip',
+      name: 'SpendTrack — Trip',
       short_name: 'Trip',
       description: 'Shared trip spending: see the split, add expenses, settle up.',
       start_url: location.href,
@@ -258,7 +258,7 @@
     if (IS_IOS) return { intro: 'On iPhone / iPad (free, no App Store needed):', steps: ['Opened from WhatsApp? First tap the compass icon (or ⋯ → Open in Safari) so the page is in Safari.', 'Tap Share (□↑) at the bottom of Safari (top-right in Chrome).', 'Scroll and tap "Add to Home Screen", then Add.', 'Open the new Trip icon: it goes straight to this trip and remembers you.'], ios: true };
     if (IS_SAMSUNG) return { intro: 'In Samsung Internet:', steps: ['Tap ☰ (bottom right).', 'Tap "Add page to" → "Home screen".'] };
     if (IS_ANDROID) return { intro: 'In Chrome:', steps: ['Tap ⋮ (top right).', 'Tap "Install app" or "Add to Home screen".', 'Tap Install. The Trip icon opens straight to this trip.'] };
-    return { intro: 'On a computer:', steps: ['Click the install icon at the right end of the address bar (or ⋮ → "Install Kharcha Book — Trip").'] };
+    return { intro: 'On a computer:', steps: ['Click the install icon at the right end of the address bar (or ⋮ → "Install SpendTrack — Trip").'] };
   }
 
   // The page's address without the one-time guest code, for copying and sharing.
@@ -360,7 +360,7 @@
     setTimeout(refreshInstallButtons, 0);
     return card;
   }
-  if (!CFG || !window.supabase) { showError('Could not load Kharcha Book. Check your connection and reload.'); return; }
+  if (!CFG || !window.supabase) { showError('Could not load SpendTrack. Check your connection and reload.'); return; }
 
   var sb = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
   var storeKey = 'kharcha_guest_' + token;
@@ -692,7 +692,7 @@
         KL.upiPayLink(cleanVpa, personName, payAmount, note) :
         'upi://pay?pa=' + encodeURIComponent(cleanVpa) + '&pn=' + encodeURIComponent(personName) + '&am=' + Number(payAmount).toFixed(2) + '&cu=INR&tn=' + encodeURIComponent(note);
 
-      // 1. If inside native Kharcha Book Android App with native bridge
+      // 1. If inside native SpendTrack Android App with native bridge
       if (window.KharchaNative && typeof window.KharchaNative.payUpi === 'function') {
         window.KharchaNative.payUpi(cleanVpa, personName, String(payAmount), note);
         showConfirmationStep(payAmount);
@@ -924,7 +924,7 @@
 
 
     var brand = el('p', 'brand');
-    brand.innerHTML = 'Powered by Kharcha Book';
+    brand.innerHTML = 'Powered by SpendTrack';
     app.appendChild(brand);
 
     var knownParticipants = [];

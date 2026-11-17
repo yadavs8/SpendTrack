@@ -16,7 +16,7 @@ enum class TransactionType {
     val isExpense: Boolean
         get() = this == EXPENSE
 
-    /** Synced to Kharcha Book's `kind` column. */
+    /** Synced to SpendTrack's `kind` column. */
     val kindCode: String
         get() = when (this) {
             EXPENSE -> "expense"

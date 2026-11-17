@@ -1,7 +1,7 @@
 package com.spendtrack.app.data.repository
 
 /**
- * Kharcha Book's own rules for reading a row (web/kharcha-book/app.js), mirrored so the phone's
+ * SpendTrack's own rules for reading a row (web/kharcha-book/app.js), mirrored so the phone's
  * alerts and summaries show the same numbers as the app: isIncome, isInvestment, isFamilyEntry,
  * isCashWithdrawal and categoryBreakdown's category names.
  *
@@ -71,7 +71,7 @@ object KharchaRules {
         return d.contains("🏠") || d.contains("family") || d.contains("niece") || d.contains("electricity") || d.contains("gas") || d.contains("bill") || d.contains("lavish kirana")
     }
 
-    /** The category name Kharcha Book shows (and keys category budgets by). */
+    /** The category name SpendTrack shows (and keys category budgets by). */
     fun category(desc: String?): String {
         val clean = (desc ?: "").replace(Regex("^[🏠👤]\\s*"), "").trim()
         val l = clean.lowercase()

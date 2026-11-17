@@ -5,7 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** The bridge that hands out the sign-in token answers only Kharcha Book itself (audit M3). */
+/** The bridge that hands out the sign-in token answers only SpendTrack itself (audit M3). */
 class KharchaBookUrlTest {
 
     @Test

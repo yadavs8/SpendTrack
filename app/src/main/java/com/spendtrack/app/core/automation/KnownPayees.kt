@@ -7,7 +7,7 @@ import java.util.Calendar
  * Payments that happen every month and are always filed the same way: the niece allowance and the
  * milk vendor go to Family, the LIC premium to Investment, the insurance premium to Personal...
  *
- * The rules are the ones on Kharcha Book's Rules screen (shared setting `kharcha_rules`), so one
+ * The rules are the ones on SpendTrack's Rules screen (shared setting `kharcha_rules`), so one
  * list serves both apps. Nothing there yet? [defaults] (the same list the web app starts with).
  */
 object KnownPayees {

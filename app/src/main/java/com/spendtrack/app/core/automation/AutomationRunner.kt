@@ -22,7 +22,7 @@ import java.util.Locale
 
 /**
  * The automations. Each one is switchable in Settings, fires at most once per occasion (see
- * SettingsManager.claimAlert), and reads Kharcha Book's own rows -- so web-typed entries count too.
+ * SettingsManager.claimAlert), and reads SpendTrack's own rows -- so web-typed entries count too.
  * When Cloud Sync is off it falls back to what the phone detected itself.
  */
 object AutomationRunner {
@@ -39,7 +39,7 @@ object AutomationRunner {
 
     // ---------------- data ----------------
 
-    /** Kharcha Book rows for [from, to); falls back to the phone's own records if the cloud isn't reachable. */
+    /** SpendTrack rows for [from, to); falls back to the phone's own records if the cloud isn't reachable. */
     private suspend fun rows(from: Long, to: Long): List<Insights.Row> {
         val cloud = runCatching { ServiceLocator.cloudSyncRepository.fetchCloudRows(from, to) }.getOrNull()
         if (cloud != null) return cloud.map { Insights.Row(it.amount, it.description, it.spentAt, it.kind, it.method) }
@@ -159,7 +159,7 @@ object AutomationRunner {
     }
 
     /**
-     * v147: card bills read from bank SMS are shared with Kharcha Book (key "kharcha_sms_bills"), so the same
+     * v147: card bills read from bank SMS are shared with SpendTrack (key "kharcha_sms_bills"), so the same
      * bill shows there with its amount and due date and is ticked off when that amount is paid. Only bills that
      * came from an SMS are shared; the web app's own list is never echoed back.
      */

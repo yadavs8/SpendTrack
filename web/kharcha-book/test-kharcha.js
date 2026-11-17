@@ -1,4 +1,4 @@
-// Node.js test script for Kharcha Book pure functions
+// Node.js test script for SpendTrack pure functions
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
@@ -75,7 +75,7 @@ function assert(condition, name) {
   }
 }
 
-console.log('--- Running Kharcha Book Unit Tests ---');
+console.log('--- Running SpendTrack Unit Tests ---');
 
 // 1. Amount parsing
 assert(parseAmount('250') === 250, 'parseAmount("250") => 250');

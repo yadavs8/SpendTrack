@@ -1,7 +1,7 @@
 package com.spendtrack.app.core.model
 
 /**
- * Descriptions for money that isn't a spend. Kharcha Book reads the type from these prefixes
+ * Descriptions for money that isn't a spend. SpendTrack reads the type from these prefixes
  * (web app.js isIncome / isSalary / isMotherSettlement / isCashWithdrawal), so they must stay in step:
  *   "💼 ..."                     salary          (isSalary)
  *   "👵 Withdrawn from Mother"   family reimbursement (isMotherSettlement)

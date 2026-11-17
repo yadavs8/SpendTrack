@@ -346,7 +346,7 @@
   /* ---------- Settle-up links ---------- */
   // A UPI "pay me" link the other person taps on their phone; amount and note come pre-filled.
   function upiPayLink(vpa, name, amount, note) {
-    return 'upi://pay?pa=' + encodeURIComponent(vpa) + '&pn=' + encodeURIComponent(name || 'Kharcha Book') +
+    return 'upi://pay?pa=' + encodeURIComponent(vpa) + '&pn=' + encodeURIComponent(name || 'SpendTrack') +
       '&am=' + Number(amount).toFixed(2) + '&cu=' + 'INR&tn=' + encodeURIComponent(note || 'Settle up');
   }
   // WhatsApp does not linkify upi:// everywhere, so the UPI ID and amount are spelled out too.
@@ -895,7 +895,7 @@
   }
   async function restoreData(obj, withSettings) {
     var info = inspectBackup(obj);
-    if (!info) throw new Error('This file is not a Kharcha Book backup.');
+    if (!info) throw new Error('This file is not a SpendTrack backup.');
     var added = 0, skipped = 0;
     for (var i = 0; i < info.missing.length && i < 3000; i++) {
       var e = info.missing[i];
@@ -1703,7 +1703,7 @@
         res = await sb.from(TABLE).insert([payload]).select(selectCols()).single();
       }
       if (res.error && res.error.code === '23505') {
-        throw new Error('Already added: this transaction (Ref ' + e.ref_no + ') is already in your Kharcha Book.');
+        throw new Error('Already added: this transaction (Ref ' + e.ref_no + ') is already in your SpendTrack.');
       }
       if (res.error) {
         console.error('Supabase add error:', res.error);
@@ -2048,7 +2048,7 @@
   }
 
   /* In-app text input pop-up -- replaces window.prompt(), which in the Android app (WebView) shows
-     the system's bare dialog instead of something that looks like Kharcha Book.
+     the system's bare dialog instead of something that looks like SpendTrack.
      options: { title, message, fields: [{ label, value, placeholder, inputmode }], confirmText,
                 onConfirm(values) } -- values is an array of trimmed strings, one per field. */
   function showInputModal(options) {
@@ -2737,7 +2737,7 @@
     return isNaN(d.getTime()) ? Date.now() : d.getTime();
   }
 
-  // Sent to and got back from each person (bank SMS), with the pairs Kharcha Book matched.
+  // Sent to and got back from each person (bank SMS), with the pairs SpendTrack matched.
   function paybackPeopleCard() {
     var KL = window.KharchaLedger; if (!KL || !KL.peopleLedger) return null;
     var pb = loadPaybacks();
@@ -3098,7 +3098,7 @@
     head.appendChild(el('span', 'wal-name', '👛 ' + w.name));
     var rm = el('button', 'udh-x', '×'); rm.type = 'button'; rm.setAttribute('aria-label', 'Stop tracking ' + w.name); rm.setAttribute('data-self-confirm', '');
     rm.addEventListener('click', function () {
-      showConfirmModal({ title: 'Stop tracking ' + w.name + '?', message: 'Your top-up and purchase entries stay in Kharcha Book; only the balance card is removed.', onConfirm: function () {
+      showConfirmModal({ title: 'Stop tracking ' + w.name + '?', message: 'Your top-up and purchase entries stay in SpendTrack; only the balance card is removed.', onConfirm: function () {
         saveWallets(loadWallets().filter(function (x) { return x.id !== w.id; })); renderWallet();
       } });
     });
@@ -6209,7 +6209,7 @@
     var cached = tripInviteCache[tripName];
     var p = cached && cached.invite_token && cached.invite_enabled ? Promise.resolve({ data: cached }) :
       ensureTripRow(tripName).then(function (trip) {
-        if (!trip) throw new Error('Could not reach Kharcha Book.');
+        if (!trip) throw new Error('Could not reach SpendTrack.');
         return sb.rpc('trip_set_invite', { p_trip_id: trip.id, p_enabled: true, p_regenerate: !trip.invite_token });
       });
     return p.then(function (res) {
@@ -6353,14 +6353,14 @@
       if (!sb) { toast('Sign in to Cloud Sync first to invite friends.'); return; }
       tripInviteBtn.disabled = true;
       ensureTripRow(tripName).then(function (trip) {
-        if (!trip) throw new Error('Could not reach Kharcha Book.');
+        if (!trip) throw new Error('Could not reach SpendTrack.');
         return sb.rpc('trip_set_invite', { p_trip_id: trip.id, p_enabled: true, p_regenerate: !trip.invite_token });
       }).then(function (res) {
         if (res.error || !res.data) throw res.error || new Error('Could not create the link.');
         tripInviteCache[tripName] = res.data;
         backfillTripExpensesToShared(tripName); // catch the shared ledger up with everything already logged
         var link = tripShareLink(res.data.invite_token, tripName);
-        var msg = 'Join our "' + tripName + '" trip on Kharcha Book -- see what\'s been spent and add your own: ' + link;
+        var msg = 'Join our "' + tripName + '" trip on SpendTrack -- see what\'s been spent and add your own: ' + link;
         window.open(whatsappLink(msg), '_blank');
         renderTripInviteRow(tripName);
       }).catch(function (err) {
@@ -6409,7 +6409,7 @@
               if (res.error || !res.data) throw res.error;
               tripInviteCache[tripName] = res.data;
               var link = tripShareLink(res.data.invite_token, tripName);
-              window.open(whatsappLink('New link for our "' + tripName + '" trip on Kharcha Book: ' + link), '_blank');
+              window.open(whatsappLink('New link for our "' + tripName + '" trip on SpendTrack: ' + link), '_blank');
               renderTripInviteRow(tripName);
             }).catch(function () { toast('Could not make a new link.'); });
         }
@@ -7536,8 +7536,8 @@
       var who = (await sb.auth.getUser()).data.user;
       var cred = await navigator.credentials.create({ publicKey: {
         challenge: rand(32),
-        rp: { name: 'Kharcha Book' },
-        user: { id: rand(16), name: (who && who.email) || 'kharcha', displayName: 'Kharcha Book' },
+        rp: { name: 'SpendTrack' },
+        user: { id: rand(16), name: (who && who.email) || 'kharcha', displayName: 'SpendTrack' },
         pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
         authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'discouraged' },
         timeout: 60000
@@ -7631,7 +7631,7 @@
     offerSec.hidden = !(possible && !on && !offerDeclined() && !$('main').hidden);
   }
   window.kharchaBiometricDone = function (ok) {
-    if (ok) toast('Fingerprint is on. Kharcha Book will ask for it each time it opens.');
+    if (ok) toast('Fingerprint is on. SpendTrack will ask for it each time it opens.');
     renderLockOffer();
   };
   $('offer-no').addEventListener('click', function () { try { localStorage.setItem(OFFER_KEY, '1'); } catch (e) {} renderLockOffer(); });
@@ -7674,7 +7674,7 @@
     if (/rate limit|security purposes|only request this after/i.test(m)) return 'Too many codes asked for. Wait a minute and try again.';
     if (/expired|invalid.*(otp|token)|token has expired/i.test(m)) return 'That code is wrong or has expired. Ask for a new one.';
     if (/invalid login credentials/i.test(m)) return 'Wrong email or password.';
-    if (/signups not allowed|user not found/i.test(m)) return 'There is no Kharcha Book account for this email.';
+    if (/signups not allowed|user not found/i.test(m)) return 'There is no SpendTrack account for this email.';
     if (/should be different/i.test(m)) return 'That is already your password — choose a different one, or skip.';
     if (/password should be|weak/i.test(m)) return 'Choose a longer password (at least 8 characters).';
     return m || 'Something went wrong. Please try again.';
@@ -7868,8 +7868,8 @@
 
   /* ---------- PWA Installation Handler ---------- */
   var deferredPrompt = null;
-  // On Android the real Kharcha Book app (SpendTrack) is the app: offering Chrome's web-app install
-  // too put a second "Kharcha Book" icon on the phone. Swallow Chrome's prompt there; offer it on
+  // On Android the real SpendTrack app (SpendTrack) is the app: offering Chrome's web-app install
+  // too put a second "SpendTrack" icon on the phone. Swallow Chrome's prompt there; offer it on
   // desktop only.
   var IS_ANDROID_DEVICE = /android/i.test(navigator.userAgent || '');
   window.addEventListener('beforeinstallprompt', function (ev) {
@@ -7892,7 +7892,7 @@
     back.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px';
     var box = document.createElement('div');
     box.style.cssText = 'background:var(--surface,#fff);color:inherit;border-radius:18px;padding:22px;max-width:400px;width:100%;box-shadow:0 12px 32px rgba(0,0,0,.2);font-size:.95rem;line-height:1.45';
-    var h = document.createElement('p'); h.style.cssText = 'font-weight:700;font-size:1.15rem;margin:0 0 8px'; h.textContent = '📲 Add Kharcha Book to your iPhone';
+    var h = document.createElement('p'); h.style.cssText = 'font-weight:700;font-size:1.15rem;margin:0 0 8px'; h.textContent = '📲 Add SpendTrack to your iPhone';
     var intro = document.createElement('p'); intro.style.cssText = 'margin:0 0 10px;opacity:.8'; intro.textContent = 'Free, no App Store needed. It opens like an app and always shows the latest version.';
     var ol = document.createElement('ol'); ol.style.cssText = 'margin:0 0 10px;padding-left:20px;display:flex;flex-direction:column;gap:6px';
     ['Open this page in Safari (from WhatsApp: tap the compass icon first).', 'Tap Share (□↑) at the bottom.', 'Scroll and tap "Add to Home Screen", then Add.', 'Open the Kharcha icon and sign in once.'].forEach(function (t) {
@@ -7916,7 +7916,7 @@
       deferredPrompt.userChoice.then(function (choice) {
         if (choice.outcome === 'accepted') {
           installBtn.hidden = true;
-          toast('Kharcha Book app installed!');
+          toast('SpendTrack app installed!');
         }
         deferredPrompt = null;
       });

@@ -35,7 +35,7 @@ class CrashActivity : Activity() {
         }
 
         root.addView(TextView(this).apply {
-            text = "Kharcha Book ran into a problem"
+            text = "SpendTrack ran into a problem"
             textSize = 20f
             setTextColor(Color.BLACK)
             setPadding(0, 0, 0, 16)
@@ -68,7 +68,7 @@ class CrashActivity : Activity() {
             text = "Copy"
             setOnClickListener {
                 val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                cm.setPrimaryClip(ClipData.newPlainText("Kharcha Book crash report", report))
+                cm.setPrimaryClip(ClipData.newPlainText("SpendTrack crash report", report))
                 Toast.makeText(this@CrashActivity, "Copied", Toast.LENGTH_SHORT).show()
             }
         })

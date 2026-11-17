@@ -15,7 +15,7 @@ import java.util.TimeZone
 
 /**
  * Pushes a resolved expense (real description already known -- not still `needsReview`) to the
- * `daily_expenses` table the Kharcha Book web app reads. Uses PostgREST upsert
+ * `daily_expenses` table the SpendTrack web app reads. Uses PostgREST upsert
  * (`Prefer: resolution=merge-duplicates`) on the (user_id, ref_no) unique index from
  * supabase/daily_expenses_v2_sms.sql, so re-sending the same transaction is a no-op.
  */
@@ -45,7 +45,7 @@ class SupabaseSyncClient(private val client: OkHttpClient = OkHttpClient()) {
     private fun isMissingColumn(message: String): Boolean =
         message.contains("PGRST204") || message.contains("42703") || Regex("(?i)could not find the '.*' column").containsMatchIn(message)
 
-    /** The row as Kharcha Book stores it; null for an amount that is fully refunded (nothing to send). */
+    /** The row as SpendTrack stores it; null for an amount that is fully refunded (nothing to send). */
     private fun rowJson(transaction: TransactionEntity, description: String, withTypes: Boolean): JSONObject? {
         val refNo = (transaction.upiReference ?: transaction.bankReference)?.take(40)
         val rawSms = transaction.rawNotificationText?.take(500)
@@ -100,8 +100,8 @@ class SupabaseSyncClient(private val client: OkHttpClient = OkHttpClient()) {
     }
 
     /**
-     * v139: puts a payment that is still waiting for its "Personal / Family / Trip?" answer into Kharcha Book,
-     * as "⏳ <payee>". Returns the row's id (to update it in place once answered). A row Kharcha Book already
+     * v139: puts a payment that is still waiting for its "Personal / Family / Trip?" answer into SpendTrack,
+     * as "⏳ <payee>". Returns the row's id (to update it in place once answered). A row SpendTrack already
      * has for the same bank/UPI ref is left exactly as it is, and its id is returned.
      */
     fun insertUnsorted(accessToken: String, transaction: TransactionEntity, description: String): Result<String?> {
@@ -135,7 +135,7 @@ class SupabaseSyncClient(private val client: OkHttpClient = OkHttpClient()) {
                 val arr = runCatching { JSONArray(body) }.getOrNull()
                 if (arr != null && arr.length() > 0) arr.getJSONObject(0).optString("id").takeIf { it.isNotBlank() } else null
             }
-            // Nothing new was added: Kharcha Book already has this ref. Use that row.
+            // Nothing new was added: SpendTrack already has this ref. Use that row.
             id ?: refNo?.let { fetchIdByRef(accessToken, it).getOrThrow() }
                 ?: throw IOException("Sync failed: no row id came back")
         }
@@ -160,7 +160,7 @@ class SupabaseSyncClient(private val client: OkHttpClient = OkHttpClient()) {
 
     /**
      * v139: the answered payment rewrites the row it was pushed as (by id). Ok(false) when that row is gone
-     * (the user deleted it in Kharcha Book). A clash with another row's ref fails with "(409)".
+     * (the user deleted it in SpendTrack). A clash with another row's ref fails with "(409)".
      */
     fun updateById(accessToken: String, id: String, transaction: TransactionEntity): Result<Boolean> {
         val first = updateByIdOnce(accessToken, id, transaction, hasMoneyTypeColumns)
@@ -190,7 +190,7 @@ class SupabaseSyncClient(private val client: OkHttpClient = OkHttpClient()) {
         }
     }
 
-    /** The description Kharcha Book already has for this bank/UPI ref, or null when it has no such row. */
+    /** The description SpendTrack already has for this bank/UPI ref, or null when it has no such row. */
     fun fetchDescriptionByRef(accessToken: String, refNo: String): Result<String?> {
         val url = "${SupabaseConfig.SUPABASE_URL}/rest/v1/daily_expenses?select=description&limit=1&ref_no=eq.${java.net.URLEncoder.encode(refNo, "UTF-8")}"
         val request = Request.Builder()
@@ -210,7 +210,7 @@ class SupabaseSyncClient(private val client: OkHttpClient = OkHttpClient()) {
     }
 
     /**
-     * Removes a row that no longer belongs in Kharcha Book (became a transfer, or fully refunded).
+     * Removes a row that no longer belongs in SpendTrack (became a transfer, or fully refunded).
      * Only by ref_no -- never by guessing -- so nothing the user typed in can be deleted.
      */
     fun deleteByRef(accessToken: String, refNo: String): Result<Unit> {
@@ -253,7 +253,7 @@ class SupabaseSyncClient(private val client: OkHttpClient = OkHttpClient()) {
         }
     }
 
-    /** A row of the user's Kharcha Book, as the automations need it. */
+    /** A row of the user's SpendTrack, as the automations need it. */
     data class CloudRow(val amount: Double, val description: String, val spentAt: Long, val refNo: String?, val kind: String?, val method: String?, val id: String? = null)
 
     /**
@@ -297,7 +297,7 @@ class SupabaseSyncClient(private val client: OkHttpClient = OkHttpClient()) {
         }
     }
 
-    /** A Kharcha Book row a refund might belong to (with its id and original SMS, for matching). */
+    /** A SpendTrack row a refund might belong to (with its id and original SMS, for matching). */
     data class RefundCandidate(val id: String, val amount: Double, val description: String, val rawSms: String?, val spentAt: Long, val kind: String?)
 
     /** Spends in [from, to) that a refund could be matched against. */

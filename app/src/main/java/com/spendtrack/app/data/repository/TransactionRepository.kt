@@ -40,7 +40,7 @@ class TransactionRepository(
         const val FRESH_FOR_TRIP_MS = 3L * 60 * 60 * 1000
         /** How far back a refund looks for the purchase it belongs to (bookings get refunded late). */
         const val REFUND_LOOKBACK_MS = 120L * 24 * 60 * 60 * 1000
-        /** Shared setting holding Kharcha Book's rules (payee words, day, amount, scope). */
+        /** Shared setting holding SpendTrack's rules (payee words, day, amount, scope). */
         const val KNOWN_PAYEES_KEY = "kharcha_rules"
     }
 
@@ -102,7 +102,7 @@ class TransactionRepository(
 
     /**
      * "🚫 Not a payment": a message that was read as a spend but wasn't one (a chat, a ₹0 invoice, an
-     * offer). It stops counting everywhere and leaves Kharcha Book if it already got there.
+     * offer). It stops counting everywhere and leaves SpendTrack if it already got there.
      */
     suspend fun discardNotPayment(transactionId: String): Boolean {
         val txn = transactionDao.getTransactionById(transactionId) ?: return false
@@ -137,7 +137,7 @@ class TransactionRepository(
         if (keeper.id == dup.id) return keeper
         val keeperRef = keeper.upiReference?.takeIf { it.isNotBlank() } ?: keeper.bankReference?.takeIf { it.isNotBlank() }
         val dupRef = dup.upiReference?.takeIf { it.isNotBlank() } ?: dup.bankReference?.takeIf { it.isNotBlank() }
-        // Give the kept entry the copy's reference only while it is not in Kharcha Book yet: there the row
+        // Give the kept entry the copy's reference only while it is not in SpendTrack yet: there the row
         // is keyed by its ref, and adding one now would make the next sync add a second row.
         val adoptRef = keeperRef == null && dupRef != null && !keeper.syncedToCloud
         val keptEntry = keeper.copy(
@@ -148,7 +148,7 @@ class TransactionRepository(
             updatedAt = System.currentTimeMillis()
         )
         transactionDao.updateTransaction(keptEntry)
-        // In Kharcha Book a copy that shares the kept row's ref *is* that row; only a separate row is removed.
+        // In SpendTrack a copy that shares the kept row's ref *is* that row; only a separate row is removed.
         val sharesCloudRow = dupRef != null && (dupRef == keeperRef || adoptRef)
         val removeFromCloud = dup.syncedToCloud && !sharesCloudRow
         transactionDao.updateTransaction(
@@ -379,7 +379,7 @@ class TransactionRepository(
 
 
     /**
-     * The user already entered this payment in Kharcha Book (Family / Personal / a trip...): take their
+     * The user already entered this payment in SpendTrack (Family / Personal / a trip...): take their
      * answer instead of asking again, and never push our own copy on top of theirs.
      */
     suspend fun adoptCloudEntry(transactionId: String, description: String, cloudRowId: String? = null) {
@@ -396,13 +396,13 @@ class TransactionRepository(
         )
     }
 
-    /** Unanswered payments from the last two weeks (what the reconciler checks against Kharcha Book). */
+    /** Unanswered payments from the last two weeks (what the reconciler checks against SpendTrack). */
     suspend fun getRecentUnanswered(): List<TransactionEntity> {
         val since = System.currentTimeMillis() - 14L * 24 * 3600 * 1000
         return transactionDao.getNeedsReviewTransactionsSync().filter { it.dateTime >= since && !it.isDemo }
     }
 
-    /** Undo an automatically logged income: excluded locally, and removed from Kharcha Book by ref. */
+    /** Undo an automatically logged income: excluded locally, and removed from SpendTrack by ref. */
     suspend fun undoAutoIncome(transactionId: String) {
         val txn = transactionDao.getTransactionById(transactionId) ?: return
         if (txn.transactionType != TransactionType.INCOME) return
@@ -516,7 +516,7 @@ class TransactionRepository(
         }
         if (local != null) {
             val hasRef = !local.upiReference.isNullOrBlank() || !local.bankReference.isNullOrBlank()
-            // A pushed purchase without a ref is corrected in Kharcha Book directly (step 2) instead.
+            // A pushed purchase without a ref is corrected in SpendTrack directly (step 2) instead.
             if (hasRef || !local.syncedToCloud) {
                 val before = local.amount - local.refundedAmount
                 val refunded = (local.refundedAmount + refund.amount).coerceAtMost(local.amount)
@@ -528,7 +528,7 @@ class TransactionRepository(
                         isRefunded = true,
                         description = if (fully) local.description else RefundMatcher.withRefundNote(label, refund.amount),
                         isEdited = if (fully) local.isEdited else true,
-                        // Fully refunded: remove it from Kharcha Book; partly: re-push the lower amount.
+                        // Fully refunded: remove it from SpendTrack; partly: re-push the lower amount.
                         needsCloudDelete = fully && local.syncedToCloud,
                         isExcluded = fully,
                         syncedToCloud = false,
@@ -542,7 +542,7 @@ class TransactionRepository(
             }
         }
 
-        // 2. Purchases only in Kharcha Book (typed there, or from before this phone's data was reset).
+        // 2. Purchases only in SpendTrack (typed there, or from before this phone's data was reset).
         val cloud = runCatching { ServiceLocator.cloudSyncRepository.refundCandidates(since, refund.dateTime + 60_000) }.getOrNull()
         if (cloud != null) {
             val asCands = cloud.filter { c ->
@@ -588,7 +588,7 @@ class TransactionRepository(
         val money = com.spendtrack.app.core.automation.Insights.rupees(amount)
         val title = "↩️ $money refunded by $from"
         val text = when {
-            original == null -> "Couldn't find the purchase, so it's added to 💰 Incomings. Edit it in Kharcha Book if needed."
+            original == null -> "Couldn't find the purchase, so it's added to 💰 Incomings. Edit it in SpendTrack if needed."
             after <= 0.0 -> "Fully refunded: removed \"${ExpenseScope.stripScope(original).take(30)}\" from ${com.spendtrack.app.core.notification.ExpensePromptNotifier.labelForDescription(original)}."
             else -> "Taken off ${com.spendtrack.app.core.notification.ExpensePromptNotifier.labelForDescription(original)}: " +
                 "\"${ExpenseScope.stripScope(original).substringBefore(" (↩").take(30)}\" ${com.spendtrack.app.core.automation.Insights.rupees(before)} → ${com.spendtrack.app.core.automation.Insights.rupees(after)}"
@@ -862,7 +862,7 @@ class TransactionRepository(
     }
 
     /**
-     * An expense with a bank/UPI ref may already be in Kharcha Book (synced before it was answered);
+     * An expense with a bank/UPI ref may already be in SpendTrack (synced before it was answered);
      * re-pushing it upserts the same row by ref_no, so clear the flag. Without a ref a re-push would
      * insert a duplicate -- those are only ever synced after being answered, so leave them alone.
      */

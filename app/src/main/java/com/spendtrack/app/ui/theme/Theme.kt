@@ -42,7 +42,7 @@ private val LightColorScheme = lightColorScheme(
 fun SpendTrackTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     // Branded, not wallpaper-derived: the native Settings/lock screens should always match
-    // Kharcha Book's own teal palette, the same on every phone.
+    // SpendTrack's own teal palette, the same on every phone.
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {

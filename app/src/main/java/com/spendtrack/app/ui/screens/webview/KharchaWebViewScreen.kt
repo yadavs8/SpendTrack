@@ -113,13 +113,13 @@ private const val DOWNLOAD_BRIDGE_JS = """
 })();
 """
 
-/** The Kharcha Book Supabase-backed web app the whole UI now lives inside. */
+/** The SpendTrack Supabase-backed web app the whole UI now lives inside. */
 const val KHARCHA_BOOK_URL = "https://yadavs8.github.io/SpendTrack/web/kharcha-book/"
 private const val KHARCHA_BOOK_HOST = "yadavs8.github.io"
 private const val KHARCHA_BOOK_PATH = "/SpendTrack/web/kharcha-book/"
 
 /**
- * True only for Kharcha Book itself: https, exactly this host, under the app's own path. A plain
+ * True only for SpendTrack itself: https, exactly this host, under the app's own path. A plain
  * "starts with https://yadavs8.github.io" also matched https://yadavs8.github.io.evil.com and every
  * other Pages site of the account — and the bridge hands out the sign-in token. (Audit M3.)
  */
@@ -139,10 +139,10 @@ private tailrec fun Context.findFragmentActivity(): FragmentActivity? = when (th
 }
 
 /**
- * Hosts Kharcha Book as the app's entire UI. The detection/categorize/sync engine keeps running
+ * Hosts SpendTrack as the app's entire UI. The detection/categorize/sync engine keeps running
  * in the background; this screen is the window onto the same web app you'd open in a browser.
  *
- * The page talks back through `window.KharchaNative` (only when it is Kharcha Book itself):
+ * The page talks back through `window.KharchaNative` (only when it is SpendTrack itself):
  * opening the native Settings from its own header button, and reporting the month summary the
  * home-screen widget shows.
  */
@@ -307,7 +307,7 @@ fun KharchaWebViewScreen(
                             BiometricAuthManager.authenticate(
                                 activity = activity,
                                 title = "Turn on fingerprint",
-                                subtitle = "Kharcha Book will ask for it each time it opens",
+                                subtitle = "SpendTrack will ask for it each time it opens",
                                 onSuccess = {
                                     CoroutineScope(Dispatchers.IO).launch { ServiceLocator.settingsManager.setBiometricLock(true) }
                                     answer(true)
@@ -430,7 +430,7 @@ fun KharchaWebViewScreen(
                         }
                     }
 
-                    // Kharcha Book's sign-in lives in the app (SharedSession), not the WebView's storage,
+                    // SpendTrack's sign-in lives in the app (SharedSession), not the WebView's storage,
                     // so the background sync uses the very same session -- one sign-in, no second login.
                     // Synchronous on purpose (supabase-js storage is called in-line). Only Supabase keys.
                     @JavascriptInterface
@@ -461,7 +461,7 @@ fun KharchaWebViewScreen(
                         loadedUrl.set(url)
                     }
 
-                    // Kharcha Book stays in here; everything else (WhatsApp "Ask" links, upi:// pay
+                    // SpendTrack stays in here; everything else (WhatsApp "Ask" links, upi:// pay
                     // links, tel:, mailto:, other sites) goes to the app that handles it. Without this
                     // the WebView tried to load wa.me itself and died on its whatsapp:// redirect.
                     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {

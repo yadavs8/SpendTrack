@@ -795,7 +795,7 @@ fun SettingsScreen(
                 }
             }
 
-            // 7. Cloud Sync -- one-time link to your Kharcha Book account, then fully invisible
+            // 7. Cloud Sync -- one-time link to your SpendTrack account, then fully invisible
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -806,24 +806,24 @@ fun SettingsScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.CloudSync, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Cloud Sync to Kharcha Book", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Text("Cloud Sync to SpendTrack", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            "Sign in once with your Kharcha Book account. After that, every expense this app detects and resolves is pushed there automatically -- you'll only ever need to open Kharcha Book.",
+                            "Sign in once with your SpendTrack account. After that, every expense this app detects and resolves is pushed there automatically -- you'll only ever need to open SpendTrack.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.outline
                         )
                         Spacer(modifier = Modifier.height(12.dp))
 
                         val cloudSyncEmail = uiState.cloudSyncEmail
-                        // Kharcha Book's own sign-in (shared with the app) makes a separate login unnecessary.
+                        // SpendTrack's own sign-in (shared with the app) makes a separate login unnecessary.
                         val linked = remember(uiState.cloudSyncLastSuccessAt, uiState.cloudSyncLastError) {
                             com.spendtrack.app.core.network.SharedSession.current()
                         }
                         if (linked != null) {
                             Text(
-                                "✓ Using your Kharcha Book sign-in" + (linked.email?.let { " ($it)" } ?: "") + ". Nothing to log in here: it stays signed in and syncs on its own.",
+                                "✓ Using your SpendTrack sign-in" + (linked.email?.let { " ($it)" } ?: "") + ". Nothing to log in here: it stays signed in and syncs on its own.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -924,7 +924,7 @@ fun SettingsScreen(
                         }
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            "Kharcha Book processes notifications entirely on your device and stores them locally by default. Nothing leaves your phone unless you sign in and turn on Cloud Sync above.",
+                            "SpendTrack processes notifications entirely on your device and stores them locally by default. Nothing leaves your phone unless you sign in and turn on Cloud Sync above.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1126,7 +1126,7 @@ fun SettingsScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        "Use the same email and password as your Kharcha Book web account.",
+                        "Use the same email and password as your SpendTrack web account.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.outline
                     )

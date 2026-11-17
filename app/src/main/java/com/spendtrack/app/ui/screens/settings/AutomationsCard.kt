@@ -46,14 +46,14 @@ fun AutomationsCard() {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text("Automations", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text(
-                "Kharcha Book does these on its own. Each reminder fires once per occasion.",
+                "SpendTrack does these on its own. Each reminder fires once per occasion.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.outline
             )
             Toggle(SettingsManager.KEY_AUTO_INCOME, "Log income automatically",
                 "Salary, UPI received, interest and cashback from bank SMS go to Incomings. Refunds reduce the original expense.")
             Toggle(SettingsManager.KEY_BUDGET_ALERTS, "Budget alerts",
-                "At 80% and 100% of your monthly and category budgets (set in Kharcha Book).")
+                "At 80% and 100% of your monthly and category budgets (set in SpendTrack).")
             Toggle(SettingsManager.KEY_BILL_REMINDERS, "Bill & card due reminders",
                 "Credit card due dates from statement SMS (3 days, 1 day and on the day), and recurring bills before they're due.")
             Toggle(SettingsManager.KEY_CASH_NUDGE, "Cash spend nudge",

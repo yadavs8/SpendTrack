@@ -1,4 +1,4 @@
-/* Kharcha Book v118: Trips home. One banner per trip ("Manali Trip"); tap it for a short, day-by-day flow of the trip's
+/* SpendTrack v118: Trips home. One banner per trip ("Manali Trip"); tap it for a short, day-by-day flow of the trip's
    spends, the people on it (add them from your phone's contacts), what each person owes, and the trip's own share link.
    The full trip tools (budget, categories, add spend, settle-up) are one tap away under "More trip tools".
    Runs after app.js and only uses what app.js exposes (window.__kharcha). */
@@ -82,7 +82,7 @@
   function shareLink(trip, toName) {
     var api = K.tripsApi;
     api.link(trip).then(function (link) {
-      var msg = 'Join our "' + trip + '" trip on Kharcha Book. See what has been spent and add your own: ' + link;
+      var msg = 'Join our "' + trip + '" trip on SpendTrack. See what has been spent and add your own: ' + link;
       var tel = toName ? phoneDigits(api.phones()[toName]) : '';
       if (tel) { window.open('https://wa.me/' + tel + '?text=' + encodeURIComponent(msg), '_blank'); return; }
       if (!toName && navigator.share && !(window.KharchaNative)) { navigator.share({ title: trip, text: msg }).catch(function () {}); return; }
@@ -342,7 +342,7 @@
       var pick = el('button', 'th-act', '📇 Add from contacts'); pick.type = 'button';
       pick.addEventListener('click', function () {
         if (mode === 'update') {
-          K.confirmBox({ title: 'Update the phone app', message: 'Picking friends from contacts needs the latest Kharcha Book app. It installs over this one and keeps all your data. You can type a name for now.', confirmText: 'Download update',
+          K.confirmBox({ title: 'Update the phone app', message: 'Picking friends from contacts needs the latest SpendTrack app. It installs over this one and keeps all your data. You can type a name for now.', confirmText: 'Download update',
             onConfirm: function () { window.open(APK_URL, '_blank'); } });
           return;
         }

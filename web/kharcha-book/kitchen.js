@@ -1,4 +1,4 @@
-/* Kharcha Book v133: Kitchen. What each grocery spend was (no bill needed) and how much of each item you use.
+/* SpendTrack v133: Kitchen. What each grocery spend was (no bill needed) and how much of each item you use.
    - Your known baskets fill themselves: ₹36 / ₹72 Amul, ₹40 / ₹80 A2, ₹136 / ₹172 = 10 coffee + Amul.
    - Anything else at a kirana / dairy / sabzi shop asks "What did you buy?": tap items, ± quantity, or type
      "adrak 40, sabzi 60". Saving a basket of priced packs teaches the app that amount for next time.

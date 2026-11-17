@@ -6,13 +6,13 @@ import com.spendtrack.app.core.network.SupabaseSyncClient
 import com.spendtrack.app.data.database.entity.TransactionEntity
 
 /**
- * v139: a payment reaches Kharcha Book the moment it is read, not only once its "Personal / Family / Trip?"
+ * v139: a payment reaches SpendTrack the moment it is read, not only once its "Personal / Family / Trip?"
  * question is answered. Until then its row says "⏳ <payee>" (to sort). Answering updates that same row
  * (by its id, kept in [TransactionEntity.cloudRowId]), so it never turns into two rows. A payment left
- * unanswered is still in Kharcha Book, and can be sorted there.
+ * unanswered is still in SpendTrack, and can be sorted there.
  *
  * Not pushed early: possible duplicate copies (the duplicate question decides first), re-reads of old
- * messages (Kharcha Book may already have them), and anything that is not a spend.
+ * messages (SpendTrack may already have them), and anything that is not a spend.
  */
 object UnsortedSync {
     const val MARK = "⏳ "
@@ -39,13 +39,13 @@ object UnsortedSync {
             now - t.dateTime in 0..WINDOW_MS &&
             t.createdAt - t.dateTime <= rereadAfterMs
 
-    /** A row pushed early that must leave Kharcha Book: it turned out not to be a spend that counts. */
+    /** A row pushed early that must leave SpendTrack: it turned out not to be a spend that counts. */
     fun shouldRemove(t: TransactionEntity): Boolean =
         t.cloudRowId != null && !t.syncedToCloud &&
             (t.isExcluded || t.isDemo || t.transactionType != TransactionType.EXPENSE)
 
     /**
-     * The Kharcha Book row that already answers an unanswered payment, or null.
+     * The SpendTrack row that already answers an unanswered payment, or null.
      *
      * - Its own early row counts once the user changed it there (moved it to Family, renamed it...),
      *   i.e. it no longer starts with ⏳.

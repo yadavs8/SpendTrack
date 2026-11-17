@@ -129,7 +129,7 @@ class MainActivity : FragmentActivity() {
                     val askFingerprint = {
                         BiometricAuthManager.authenticate(
                             activity = this@MainActivity,
-                            title = "Unlock Kharcha Book",
+                            title = "Unlock SpendTrack",
                             subtitle = "Use your fingerprint or phone screen lock",
                             onSuccess = { isUnlocked = true }
                         )
@@ -179,7 +179,7 @@ fun LockScreen(onUnlockClick: () -> Unit) {
         }
         Spacer(modifier = Modifier.height(24.dp))
         Text(
-            text = "Kharcha Book is Locked",
+            text = "SpendTrack is Locked",
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onBackground
@@ -205,7 +205,7 @@ fun LockScreen(onUnlockClick: () -> Unit) {
 }
 
 /**
- * The whole app is now just Kharcha Book (the web app) plus a settings gear that opens
+ * The whole app is now just SpendTrack (the web app) plus a settings gear that opens
  * SpendTrack's native screens -- notification/SMS access, Cloud Sync sign-in, biometric lock --
  * none of which a web page can grant itself. Detection/categorize/sync keep running in the
  * background regardless of which of these two is on screen.
@@ -266,7 +266,7 @@ fun MainApp(onWebViewAttached: (WebView?) -> Unit = {}) {
                     title = { Text("Settings") },
                     navigationIcon = {
                         IconButton(onClick = { showSettings = false }) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "Back to Kharcha Book")
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Back to SpendTrack")
                         }
                     }
                 )

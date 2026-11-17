@@ -14,10 +14,10 @@ import kotlinx.coroutines.withContext
 
 /**
  * One-time-linked, otherwise invisible sync of resolved expenses into the same Supabase
- * `daily_expenses` table the Kharcha Book web app reads. SpendTrack does the detecting and
- * categorizing in the background; Kharcha Book stays the only app the user actually opens.
+ * `daily_expenses` table the SpendTrack web app reads. SpendTrack does the detecting and
+ * categorizing in the background; SpendTrack stays the only app the user actually opens.
  *
- * Signing in once (Settings -> Cloud Sync) with the Kharcha Book account's email/password scopes
+ * Signing in once (Settings -> Cloud Sync) with the SpendTrack account's email/password scopes
  * every write by Row Level Security, exactly like the web app.
  */
 class CloudSyncRepository(
@@ -72,7 +72,7 @@ class CloudSyncRepository(
                 val ref = gone.upiReference ?: gone.bankReference
                 if (ref.isNullOrBlank()) {
                     // No ref: remove it by the exact SMS text and time it was synced with. If that can't be
-                    // done (an older Kharcha Book without raw_sms), stop trying rather than retry forever.
+                    // done (an older SpendTrack without raw_sms), stop trying rather than retry forever.
                     var bySource = withContext(Dispatchers.IO) { syncClient.deleteBySource(token, gone) }
                     if (bySource.isFailure && isUnauthorized(bySource.exceptionOrNull())) {
                         token = refreshAccessToken() ?: return
@@ -109,7 +109,7 @@ class CloudSyncRepository(
                 )
             }
 
-            // v139: a payment pushed before it was answered that turned out not to count leaves Kharcha Book.
+            // v139: a payment pushed before it was answered that turned out not to count leaves SpendTrack.
             for (gone in transactionDao.getEarlyRowsToRemove()) {
                 val rowId = gone.cloudRowId ?: continue
                 var del = withContext(Dispatchers.IO) { syncClient.deleteById(token, rowId) }
@@ -120,7 +120,7 @@ class CloudSyncRepository(
                 if (del.isSuccess) transactionDao.setCloudRowId(gone.id, null)
             }
 
-            // v139: payments still waiting for their "Personal / Family / Trip?" answer go to Kharcha Book now,
+            // v139: payments still waiting for their "Personal / Family / Trip?" answer go to SpendTrack now,
             // as "⏳ <payee>". An ignored question no longer means a missing payment; answering updates the row.
             val now = System.currentTimeMillis()
             for (unsorted in transactionDao.getUnsortedToPush(now - com.spendtrack.app.core.sync.UnsortedSync.WINDOW_MS)) {
@@ -157,7 +157,7 @@ class CloudSyncRepository(
                     continue
                 }
 
-                // v139: it is already in Kharcha Book as "⏳ to sort": rewrite that row with the answer.
+                // v139: it is already in SpendTrack as "⏳ to sort": rewrite that row with the answer.
                 val rowId = transaction.cloudRowId
                 if (rowId != null) {
                     var upd = withContext(Dispatchers.IO) { syncClient.updateById(token, rowId, transaction) }
@@ -169,7 +169,7 @@ class CloudSyncRepository(
                     if (!clash) {
                         upd.fold(
                             onSuccess = {
-                                // Ok(false): the user deleted that row in Kharcha Book -- it stays deleted.
+                                // Ok(false): the user deleted that row in SpendTrack -- it stays deleted.
                                 transactionDao.markSynced(transaction.id)
                                 settingsManager.setCloudSyncLastSuccessAt(System.currentTimeMillis())
                                 settingsManager.setCloudSyncError(null)
@@ -195,7 +195,7 @@ class CloudSyncRepository(
                     continue
                 }
                 // A row created long after its payment is a re-read of an old message (catch-up after
-                // a reinstall/reset). If Kharcha Book already has that payment, its label is the user's
+                // a reinstall/reset). If SpendTrack already has that payment, its label is the user's
                 // -- take it, never overwrite it. (A re-read once replaced two weeks of labels.)
                 val ref = (transaction.upiReference ?: transaction.bankReference)?.takeIf { it.isNotBlank() }
                 if (ref != null && transaction.createdAt - transaction.dateTime > REREAD_AFTER_MS) {
@@ -285,7 +285,7 @@ class CloudSyncRepository(
     private val SCOPE_MARKS = listOf("🏠", "👤", "📈", "✈", "🔨", "🔁", "💼", "👵")
 
     /**
-     * The Kharcha Book row the user already entered by hand for this payment (same amount, within
+     * The SpendTrack row the user already entered by hand for this payment (same amount, within
      * 36 hours), or null. Rows that came from this phone (same bank/UPI ref) only count once the
      * user has moved them somewhere (Family / Trip / ...), because an untouched push is just the
      * phone's own copy. Hand rows already used by an earlier, answered payment of the same amount
@@ -311,7 +311,7 @@ class CloudSyncRepository(
         return token
     }
 
-    // ---- refunds applied straight to Kharcha Book (the phone may not remember older purchases) ----
+    // ---- refunds applied straight to SpendTrack (the phone may not remember older purchases) ----
 
     suspend fun refundCandidates(from: Long, to: Long): List<SupabaseSyncClient.RefundCandidate>? =
         if (!canSync()) null else withFreshToken { t -> syncClient.fetchRefundCandidates(t, from, to) }?.getOrNull()
@@ -322,7 +322,7 @@ class CloudSyncRepository(
     suspend fun deleteCloudRow(id: String): Boolean =
         withFreshToken { t -> syncClient.deleteById(t, id) }?.isSuccess == true
 
-    /** The user's Kharcha Book rows in [from, to), for automations (budgets, summaries, settle-up). */
+    /** The user's SpendTrack rows in [from, to), for automations (budgets, summaries, settle-up). */
     suspend fun fetchCloudRows(from: Long, to: Long): List<SupabaseSyncClient.CloudRow>? {
         val token = freshToken() ?: return null
         return withContext(Dispatchers.IO) { syncClient.fetchRows(token, from, to) }.getOrNull()
@@ -330,15 +330,15 @@ class CloudSyncRepository(
 
     private val authMutex = Mutex()
 
-    /** Is there any way to sync: Kharcha Book's own sign-in on this phone, or the older Cloud Sync login? */
+    /** Is there any way to sync: SpendTrack's own sign-in on this phone, or the older Cloud Sync login? */
     suspend fun canSync(): Boolean =
         SharedSession.current() != null ||
             (settingsManager.isCloudSyncEnabled.first() && settingsManager.cloudSyncAccessToken.first() != null)
 
     /**
-     * A usable access token. Kharcha Book's sign-in comes first -- signing in there is all the phone
+     * A usable access token. SpendTrack's sign-in comes first -- signing in there is all the phone
      * needs -- and it's renewed a couple of minutes before it expires. The separate Cloud Sync login
-     * is only a fallback for when Kharcha Book isn't signed in.
+     * is only a fallback for when SpendTrack isn't signed in.
      */
     private suspend fun currentToken(): String? {
         val shared = SharedSession.current()
@@ -358,7 +358,7 @@ class CloudSyncRepository(
     }
 
     /**
-     * Renews Kharcha Book's shared session and stores it where the page reads it. If the page renewed
+     * Renews SpendTrack's shared session and stores it where the page reads it. If the page renewed
      * it a moment ago, the stored session is already newer -- use that instead of renewing again.
      */
     private suspend fun refreshShared(seen: SharedSession.Session): String? {
@@ -372,13 +372,13 @@ class CloudSyncRepository(
         if (latest != null && latest.refreshToken != seen.refreshToken) return latest.accessToken // page renewed it first
         val signedOut = result.exceptionOrNull() is com.spendtrack.app.core.network.AuthRejectedException
         settingsManager.setCloudSyncError(
-            if (signedOut) "Signed out of Kharcha Book. Open Kharcha Book and sign in once; syncing resumes on its own."
-            else "Couldn't reach Kharcha Book (offline?). Will retry automatically."
+            if (signedOut) "Signed out of SpendTrack. Open SpendTrack and sign in once; syncing resumes on its own."
+            else "Couldn't reach SpendTrack (offline?). Will retry automatically."
         )
         if (signedOut && settingsManager.claimAlert("signedout|${System.currentTimeMillis() / (12L * 3600 * 1000)}")) {
             com.spendtrack.app.data.di.ServiceLocator.contextOrNull()?.let {
                 com.spendtrack.app.core.notification.ExpensePromptNotifier.showSyncProblem(
-                    it, "You are signed out, so new payments are NOT reaching Kharcha Book. Open Kharcha Book and sign in; that's all the phone needs."
+                    it, "You are signed out, so new payments are NOT reaching SpendTrack. Open SpendTrack and sign in; that's all the phone needs."
                 )
             }
         }
@@ -397,17 +397,17 @@ class CloudSyncRepository(
                 val signedOut = error is com.spendtrack.app.core.network.AuthRejectedException
                 settingsManager.setCloudSyncError(
                     if (signedOut)
-                        // Usually a sign-out from Kharcha Book on an old version, which signed out every device.
-                        "Signed out of Kharcha Book. Please sign in again here."
+                        // Usually a sign-out from SpendTrack on an old version, which signed out every device.
+                        "Signed out of SpendTrack. Please sign in again here."
                     else
-                        "Couldn't reach Kharcha Book (offline?). Will retry automatically."
+                        "Couldn't reach SpendTrack (offline?). Will retry automatically."
                 )
-                // Silence is the worst outcome: payments keep piling up on the phone but never reach Kharcha Book.
+                // Silence is the worst outcome: payments keep piling up on the phone but never reach SpendTrack.
                 // Say so loudly, at most twice a day.
                 if (signedOut && settingsManager.claimAlert("signedout|${System.currentTimeMillis() / (12L * 3600 * 1000)}")) {
                     com.spendtrack.app.data.di.ServiceLocator.contextOrNull()?.let {
                         com.spendtrack.app.core.notification.ExpensePromptNotifier.showSyncProblem(
-                            it, "You are signed out, so new payments are NOT reaching Kharcha Book. Open Kharcha Book and sign in; that's all the phone needs."
+                            it, "You are signed out, so new payments are NOT reaching SpendTrack. Open SpendTrack and sign in; that's all the phone needs."
                         )
                     }
                 }

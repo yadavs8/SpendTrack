@@ -1,4 +1,4 @@
-/* Kharcha Book: pure logic for (1) trip settle-up and (2) the lent / borrowed ledger.
+/* SpendTrack: pure logic for (1) trip settle-up and (2) the lent / borrowed ledger.
    No DOM and no Supabase in here, so it runs in the browser (window.KharchaLedger) and in Node tests. */
 (function (root, factory) {
   var api = factory();
@@ -245,7 +245,7 @@
 
   function upiPayLink(vpa, name, amount, note) {
     if (!vpa) return '';
-    return 'upi://pay?pa=' + encodeURIComponent(vpa.trim()) + '&pn=' + encodeURIComponent(name || 'Kharcha Book') +
+    return 'upi://pay?pa=' + encodeURIComponent(vpa.trim()) + '&pn=' + encodeURIComponent(name || 'SpendTrack') +
       '&am=' + Number(amount || 0).toFixed(2) + '&cu=INR&tn=' + encodeURIComponent(note || 'Settlement');
   }
 
@@ -904,7 +904,7 @@
   }
 
   /* ---------- duplicates ----------
-     The same payment can reach Kharcha Book twice: the bank SMS and the app notification, a second copy without the bank
+     The same payment can reach SpendTrack twice: the bank SMS and the app notification, a second copy without the bank
      reference, or two taps on Save. A "sure" duplicate is dropped automatically (preferring the user-scoped entry);
      a "maybe" (same amount and text a minute apart, nothing from the phone to prove it) is only suggested. */
   function isScopedDesc(desc) { return /^\s*[\u{1F3E0}\u{1F464}\u{1F4C8}\u{1F528}\u{1F501}✈]/u.test(desc || ''); }

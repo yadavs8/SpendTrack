@@ -69,12 +69,12 @@ fun OnboardingScreen(
 
             // App Title & Tagline
             Text(
-                text = "Welcome to Kharcha Book",
+                text = "Welcome to SpendTrack",
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.ExtraBold
             )
             Text(
-                text = "Real-time, zero-effort UPI expense tracking, automatically added to your Kharcha Book dashboard.",
+                text = "Real-time, zero-effort UPI expense tracking, automatically added to your SpendTrack dashboard.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -114,7 +114,7 @@ fun OnboardingScreen(
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "Kharcha Book requires Notification Access solely to detect outgoing payment notifications from your UPI and banking apps (e.g. Google Pay, PhonePe, Paytm, HDFC, SBI). Personal messages and chat notifications are completely ignored.",
+                        "SpendTrack requires Notification Access solely to detect outgoing payment notifications from your UPI and banking apps (e.g. Google Pay, PhonePe, Paytm, HDFC, SBI). Personal messages and chat notifications are completely ignored.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -157,10 +157,10 @@ fun OnboardingScreen(
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             "Android 13+ restricts Notification Access on apps installed outside Google Play. To unlock:\n" +
-                                    "1. Go to your phone's Settings -> Apps -> Kharcha Book.\n" +
+                                    "1. Go to your phone's Settings -> Apps -> SpendTrack.\n" +
                                     "2. Tap the ⋮ (three dots) in the top-right corner.\n" +
                                     "3. Tap 'Allow restricted settings' and confirm with fingerprint/PIN.\n" +
-                                    "4. Return to Kharcha Book and enable Notification Access.",
+                                    "4. Return to SpendTrack and enable Notification Access.",
                             style = MaterialTheme.typography.bodySmall
                         )
                     }

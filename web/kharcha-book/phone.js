@@ -1,4 +1,4 @@
-/* Kharcha Book v79: Phone connection screen (More > Phone connection). Shows whether bank messages are really arriving from the phone,
+/* SpendTrack v79: Phone connection screen (More > Phone connection). Shows whether bank messages are really arriving from the phone,
    and how to reach the phone settings (SMS access, Cloud Sync). Uses only what app.js exposes (window.__kharcha). */
 (function () {
   'use strict';
@@ -28,7 +28,7 @@
     } else if (last) {
       line(c1, '⚠️', 'Nothing new for a while', 'The latest bank message here is from ' + fmt.format(last.ts) + '. If you have had payments since, the phone app is not sending them. The most common cause: the phone app got signed out (for example after signing out on the web). Open the Android app > ⚙️ > Cloud Sync and sign in again; payments waiting on the phone are sent by themselves.');
     } else {
-      line(c1, '⚠️', 'No bank message has reached Kharcha Book yet', 'Bank messages are read by the Kharcha Book Android app and sent here. Check the steps below.');
+      line(c1, '⚠️', 'No bank message has reached SpendTrack yet', 'Bank messages are read by the SpendTrack Android app and sent here. Check the steps below.');
     }
     var who = el('div', 'wal-hint', 'Signed in as …'); c1.appendChild(who);
     try {
@@ -48,7 +48,7 @@
       go.addEventListener('click', function () { window.KharchaNative.openSettings(); });
       c2.appendChild(go);
     } else {
-      line(c2, 'ℹ️', 'You are in the web version', 'This copy runs in the browser, which cannot read SMS. The settings button lives in the Kharcha Book Android app (installed from the APK). Open that app and tap ⚙️ at the top right, or More > Phone settings.');
+      line(c2, 'ℹ️', 'You are in the web version', 'This copy runs in the browser, which cannot read SMS. The settings button lives in the SpendTrack Android app (installed from the APK). Open that app and tap ⚙️ at the top right, or More > Phone settings.');
       line(c2, '📲', 'No Android app on this phone?', 'Then nothing is reading your bank messages, and credits and debits will only appear when you type them in. Install the Android app (APK) and sign in with the same email.');
       var apkBtn = el('a', 'btn-primary', '⬇️ Download Kharcha-Book.apk');
       apkBtn.href = 'https://github.com/yadavs8/SpendTrack/releases/download/apk-latest/Kharcha-Book.apk';
@@ -60,9 +60,9 @@
 
     var c3 = el('div', 'wal-card');
     c3.appendChild(el('div', 'wal-name', '✅ Checklist so nothing goes silent'));
-    [['1', 'Android Settings > Apps > Kharcha Book > Permissions > SMS: Allow. Notifications: Allow.'],
-     ['2', 'Settings > Apps > Special app access > Notification access: turn Kharcha Book on.'],
-     ['3', 'Settings > Apps > Kharcha Book > Battery: Unrestricted (OnePlus: Don’t optimise). Otherwise Android stops the app while the phone sits idle.'],
+    [['1', 'Android Settings > Apps > SpendTrack > Permissions > SMS: Allow. Notifications: Allow.'],
+     ['2', 'Settings > Apps > Special app access > Notification access: turn SpendTrack on.'],
+     ['3', 'Settings > Apps > SpendTrack > Battery: Unrestricted (OnePlus: Don’t optimise). Otherwise Android stops the app while the phone sits idle.'],
      ['4', 'In the app: ⚙️ > Cloud Sync: sign in with the same email as here, and turn SMS detection on.']].forEach(function (s) { line(c3, s[0], s[1], ''); });
     root.appendChild(c3);
   }

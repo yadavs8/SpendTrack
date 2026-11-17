@@ -2,7 +2,7 @@ package com.spendtrack.app.core.automation
 
 import org.json.JSONObject
 
-/** The last 4 digits of the user's own bank accounts, from Kharcha Book's "My accounts and cards" (shared setting `kharcha_own`). */
+/** The last 4 digits of the user's own bank accounts, from SpendTrack's "My accounts and cards" (shared setting `kharcha_own`). */
 object OwnAccounts {
     const val SHARED_KEY = "kharcha_own"
 

@@ -1,6 +1,6 @@
 # SpendTrack - Commercial-Grade Real-Time UPI Expense Tracker for Android
 
-SpendTrack (the Kharcha Book phone app) is an Android application built with Jetpack Compose, Material 3, and Room that automatically detects and tracks outgoing expenses from UPI payments (Google Pay, PhonePe, Paytm, BHIM, CRED), bank debit notifications, and bank SMS messages.
+SpendTrack (formerly SpendTrack) is an Android application built with Jetpack Compose, Material 3, and Room that automatically detects and tracks outgoing expenses from UPI payments (Google Pay, PhonePe, Paytm, BHIM, CRED), bank debit notifications, and bank SMS messages.
 
 Designed for commercial distribution, Google Play Store compliance, and resilient execution across aggressive battery-killer Android devices (Xiaomi, Vivo, Oppo, Realme, Samsung, OnePlus).
 
@@ -88,10 +88,10 @@ When peers install the sideloaded APK directly (via WhatsApp, Google Drive, or T
 
 ## 🔒 Security & privacy — what leaves the phone
 
-- **Cloud sync (when you sign in):** every detected payment / income is saved to Kharcha Book's Supabase database
+- **Cloud sync (when you sign in):** every detected payment / income is saved to SpendTrack's Supabase database
   (table `daily_expenses`), so the web app and the phone show the same ledger. Each row holds the amount, description,
   date, payment method, bank, the card/account's **last 4 digits**, the bank reference number and **the first 500
-  characters of the original SMS or notification** (Kharcha Book reads bank balances, refunds and "not my account"
+  characters of the original SMS or notification** (SpendTrack reads bank balances, refunds and "not my account"
   from it). Settings (budgets, rules, your UPI ID) are saved too (`kharcha_settings`).
 - **Who can read it:** only your own sign-in — row-level security limits every row to its owner. The Supabase project
   is shared with the Studio5 business apps, so the project's administrators (and its service key) can see it.
