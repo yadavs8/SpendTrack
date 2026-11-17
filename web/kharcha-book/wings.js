@@ -64,12 +64,24 @@
   }
 
   // The right wing (the left one is drawn mirrored). Shoulder at the origin.
-  function wing(ctx, s, flap, pal) {
+  // A real wing beat: the downstroke is quicker than the upstroke (the wave is warped), the forearm and the hand
+  // follow the shoulder a moment later (a whip, not a hinge), and on the upstroke the wing flexes at the wrist
+  // and the tip feathers close up, then it opens fully for the next downstroke.
+  // Below level the stroke is shallower: a real downstroke ends a little under the body line, never hanging down.
+  function stroke(ph) { var w = Math.sin(ph + 0.42 * Math.sin(ph)); return w < 0 ? w * 0.62 : w; }
+  function wing(ctx, s, flap, pal, beat) {
     var spP = featherSprite(pal.f1, pal.f2, pal.edge, pal.shaft), spS = featherSprite(pal.f1, pal.f3, pal.edge, pal.shaft);
     var spC = featherSprite(pal.c1, pal.c2, pal.edge, pal.shaft), spL = featherSprite(pal.c1, pal.c2, pal.edge, 'rgba(0,0,0,0)');
-    var f = flap || 0;
+    var f1 = flap || 0, f2 = f1, f3 = f1;
+    if (beat && beat.amp) {
+      var A = beat.amp, ph = beat.phase, bias = beat.bias || 0;
+      f1 = bias + A * stroke(ph); f2 = bias + A * stroke(ph - 0.28); f3 = bias + A * stroke(ph - 0.62);
+      var rising = Math.max(0, Math.cos(ph - 0.3));             // upstroke: the wing folds in a little
+      s = s * (1 - 0.2 * rising * Math.min(1, A / 30));
+      f3 -= 8 * rising * Math.min(1, A / 30);                   // the hand bends down a little on the way up
+    }
     // Bone directions in degrees (0 = right, 90 = down). Folded: tucked down behind the body. Open: spread up and out.
-    var a1 = lerp(78, -34 - f * 0.9, s), a2 = lerp(208, -14 - f * 1.05, s), a3 = lerp(96, 16 - f * 1.25, s);
+    var a1 = lerp(78, -34 - f1 * 0.9, s), a2 = lerp(208, -14 - f2 * 1.05, s), a3 = lerp(96, 16 - f3 * 1.25, s);
     var k = lerp(0.42, 1, ease(s)) * 0.68;
     var L1 = 7 * k, L2 = 9 * k, L3 = 8.5 * k;
     var d1 = dir(a1), d2 = dir(a2), d3 = dir(a3);
@@ -168,7 +180,7 @@
     var s = clamp(st.spread || 0);
     if (s > 0.02) {
       [1, -1].forEach(function (side) {
-        ctx.save(); ctx.translate(side * 6.5, -5); ctx.scale(side, 1); wing(ctx, s, st.flap || 0, pal); ctx.restore();
+        ctx.save(); ctx.translate(side * 6.5, -5); ctx.scale(side, 1); wing(ctx, s, st.flap || 0, pal, st.beat); ctx.restore();
       });
     }
     var rs = rupeeSprite(pal, unit * Math.max(1, st.scale || 1));
@@ -179,39 +191,65 @@
   // One run. Times in ms.
   var RUN = { sit: 1600, unfold: 900, beat: 700, away: 1300, gone: 1100, back: 1300, fold: 750 };
   RUN.total = RUN.sit + RUN.unfold + RUN.beat + RUN.away + RUN.gone + RUN.back + RUN.fold;
-  var BEAT = 58;                                       // ms per radian of the wing-beat clock (~2.7 beats a second)
+  // The wing-beat clock. Each part of the flight beats at its own speed (quick on take-off, slow while gliding),
+  // and the clock is the running total, so the beat never jumps when the speed changes.
+  var SEG = ['sit', 'unfold', 'beat', 'away', 'gone', 'back', 'fold'];
+  var RATE = { sit: 1 / 80, unfold: 1 / 70, beat: 1 / 50, away: 1 / 44, gone: 1 / 44, back: 1 / 78, fold: 1 / 90 };   // radians per ms
+  function phaseAt(t) {
+    var ph = 0, t0 = 0;
+    for (var i = 0; i < SEG.length; i++) {
+      var d = RUN[SEG[i]], k = Math.min(Math.max(t - t0, 0), d);
+      ph += k * RATE[SEG[i]]; t0 += d;
+      if (t < t0) break;
+    }
+    return ph;
+  }
   function swing(t) {                                   // how far the wings beat (degrees), continuous over the whole run
     var a = RUN.sit, b = a + RUN.unfold, c = b + RUN.beat, d = c + RUN.away, e = d + RUN.gone, f = e + RUN.back;
     if (t < a) return 0;
-    if (t < b) return 12 * ease((t - a) / RUN.unfold);
-    if (t < c) return lerp(12, 34, ease((t - b) / RUN.beat));
-    if (t < d) return lerp(34, 40, ease((t - c) / RUN.away));
-    if (t < e) return 40;
-    if (t < f) return lerp(26, 8, ease((t - e) / RUN.back));    // fades in from invisible, so the step from 40 is never seen
-    return lerp(8, 0, ease((t - f) / RUN.fold));
+    if (t < b) return 14 * ease((t - a) / RUN.unfold);
+    if (t < c) return lerp(14, 36, ease((t - b) / RUN.beat));
+    if (t < d) return lerp(36, 42, ease((t - c) / RUN.away));
+    if (t < e) return 42;
+    if (t < f) return lerp(22, 9, ease((t - e) / RUN.back));    // fades in from invisible, so the step from 42 is never seen
+    return lerp(9, 0, ease((t - f) / RUN.fold));
   }
   function at(t, opts) {
     opts = opts || {};
-    var rise = opts.rise || 60, drift = opts.drift || 0;
-    var st = { x: 0, y: 0, scale: 1, alpha: 1, spread: 0, flap: 0, tilt: 0, bob: 0 };
+    var rise = opts.rise || 60, drift = opts.drift || 0, side = drift > 0 ? 1 : drift < 0 ? -1 : 0;
+    var st = { x: 0, y: 0, scale: 1, alpha: 1, spread: 0, flap: 0, tilt: 0, bob: 0, beat: null };
     var a = RUN.sit, b = a + RUN.unfold, c = b + RUN.beat, d = c + RUN.away, e = d + RUN.gone, f = e + RUN.back, g = f + RUN.fold;
+    var bias = 0;                                       // wings held up in a shallow V while gliding
     if (t < a) { st.bob = Math.sin(t / 420) * 0.5; }
-    else if (t < b) {                                   // wings open out from behind the ₹, a little shake to settle
+    else if (t < b) {                                   // wings open out from behind the ₹
       var k = (t - a) / RUN.unfold; st.spread = easeOut(k); st.y = -1.2 * ease(k);
-    } else if (t < c) {                                 // a few beats in place, lifting off the ground
-      var k2 = (t - b) / RUN.beat; st.spread = 1; st.y = -1.2 - 3 * ease(k2);
-    } else if (t < d) {                                 // flies up and away, getting smaller
-      var k3 = (t - c) / RUN.away; st.spread = 1;
-      st.y = -4.2 - rise * easeIn(k3); st.x = drift * easeIn(k3); st.scale = 1 - 0.55 * ease(k3); st.tilt = drift ? (drift > 0 ? 1 : -1) * 14 * ease(k3) : 0;
+    } else if (t < c) {                                 // a few strong beats in place, lifting off
+      var k2 = (t - b) / RUN.beat; st.spread = 1; st.y = -1.2 - 3.4 * ease(k2); st.tilt = -3 * side * ease(k2);
+    } else if (t < d) {                                 // flies up and away on a gentle curve, getting smaller
+      var k3 = (t - c) / RUN.away, up = easeIn(k3);
+      st.spread = 1;
+      st.y = -4.6 - rise * up;
+      st.x = drift * up + 1.6 * Math.sin(k3 * Math.PI) * (side || 1);
+      st.scale = 1 - 0.55 * ease(k3);
+      st.tilt = side * (-3 + 17 * ease(k3));            // banks into the turn
       st.alpha = 1 - ease((k3 - 0.55) / 0.45);
     } else if (t < e) { st.alpha = 0; }
-    else if (t < f) {                                   // glides back down from the top
-      var k4 = (t - e) / RUN.back; st.spread = 1;
-      st.y = -rise * (1 - easeOut(k4)); st.x = -drift * 0.4 * (1 - easeOut(k4)); st.scale = 0.5 + 0.5 * easeOut(k4); st.alpha = ease(k4 / 0.4);
-    } else if (t < g) {                                 // lands and tucks the wings away
+    else if (t < f) {                                   // glides back down, a few lazy beats, wings in a V
+      var k4 = (t - e) / RUN.back, inK = easeOut(k4);
+      st.spread = 1; bias = 10 * (1 - ease((k4 - 0.6) / 0.4));
+      st.y = -rise * (1 - inK); st.x = -drift * 0.4 * (1 - inK) + 0.8 * Math.sin(k4 * 5) * (1 - k4);
+      st.scale = 0.5 + 0.5 * inK; st.alpha = ease(k4 / 0.4); st.tilt = -side * 8 * (1 - inK);
+    } else if (t < g) {                                 // lands: a soft settle, then the wings tuck away
       var k5 = (t - f) / RUN.fold; st.spread = 1 - ease(k5);
+      st.y = 0.9 * Math.sin(Math.min(1, k5 / 0.55) * Math.PI) * (1 - k5);   // the knees give a little on touchdown
     }
-    if (st.spread > 0) st.flap = Math.sin(t / BEAT) * swing(t);
+    var amp = swing(t);
+    if (st.spread > 0 && (amp > 0 || bias)) {
+      var ph = phaseAt(t);
+      st.beat = { amp: amp, phase: ph, bias: bias };
+      st.flap = bias + amp * Math.sin(ph);
+      st.y += 1.1 * (amp / 40) * Math.cos(ph - 0.6);     // each downstroke lifts the body a little
+    }
     return st;
   }
 
