@@ -524,3 +524,18 @@ How it behaves:
   fingerprint prompt. The app then locks when it opens and after a minute away, without reloading the page.
 - The phone app's bridge to this page now trusts only `https://yadavs8.github.io/SpendTrack/web/kharcha-book/`
   exactly (it used to accept any address starting with `https://yadavs8.github.io`), and no other site can be framed in it.
+
+## AutoPay radar and Tax savings (v154, new APK for the failed-payment alert)
+- **More > AutoPay radar**: every payment the bank takes by itself (UPI AutoPay mandates, card standing
+  instructions, NACH/ACH), read from the bank SMS. Monthly cost of bills and EMIs (investments shown apart),
+  the next 10 days, and what needs a look: a **failed** debit, a price change, a ₹1 set-up check, one that stopped.
+  A failed debit that was logged as spending can be taken out with **Not spent** (renamed "🔁 Failed · …", not deleted).
+  One payee with several mandates (four SIPs on the 1st, 7th, 7th and 8th) is shown as separate mandates.
+- **Phone**: an SMS saying an automatic payment failed ("could not be processed", bounced, insufficient balance)
+  is no longer logged as spending, and raises its own "Automatic payment failed" notification.
+- **More > Tax savings**: the tax year's (1 April – 31 March) payments that can lower income tax, with section
+  numbers from the Income-tax Act, 2025 (in force from 1 April 2026) and the old numbers in brackets: life insurance,
+  ELSS SIPs you tick, PPF/NSC/tuition (Section 123, old 80C, ₹1,50,000), health insurance (Section 126, old 80D),
+  NPS, home-loan EMIs with the principal/interest split from the bank certificate. Asks old or new regime (these only
+  count under the old one), warns in Jan–Mar about unused 80C, and exports a proof list (CSV) for the CA.
+  A helper, not tax advice.

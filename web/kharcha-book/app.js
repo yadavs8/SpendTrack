@@ -1736,6 +1736,9 @@
       state.entries = state.entries.filter(function (x) { return x.id !== id; });
     }
   };
+  // window.__kharcha is built before `store` is assigned, so its `store` was undefined: pages that log or edit
+  // entries through it (smart.js "log it", the AutoPay radar's "Not spent") failed. Attach the real one now.
+  if (window.__kharcha) window.__kharcha.store = store;
 
   /* ---------- Scope Radio Pills in Form ---------- */
   function getSelectedScope() {
@@ -4254,6 +4257,8 @@
     var rulesSec = $('rules-sec');
     var insightsSec = $('insights-sec');
     var autopilotSec = $('autopilot-sec');
+    var autopaySec = $('autopay-sec');
+    var taxSec = $('tax-sec');
     var kitchenSec = $('kitchen-sec');
     var cardSec = $('card-sec');
     var phoneSec = $('phone-sec');
@@ -4273,6 +4278,8 @@
     if (rulesSec) rulesSec.hidden = (stream !== 'rules');
     if (insightsSec) insightsSec.hidden = (stream !== 'insights');
     if (autopilotSec) autopilotSec.hidden = (stream !== 'autopilot');
+    if (autopaySec) autopaySec.hidden = (stream !== 'autopay');
+    if (taxSec) taxSec.hidden = (stream !== 'tax');
     if (kitchenSec) kitchenSec.hidden = (stream !== 'kitchen');
     if (cardSec) cardSec.hidden = (stream !== 'card');
     if (phoneSec) phoneSec.hidden = (stream !== 'phone');
@@ -4280,6 +4287,8 @@
     if (stream === 'card') { try { document.dispatchEvent(new Event('kharcha:card')); } catch (e) {} }
     if (stream === 'insights') { try { document.dispatchEvent(new Event('kharcha:insights')); } catch (e) {} }
     if (stream === 'autopilot') { try { document.dispatchEvent(new Event('kharcha:autopilot')); } catch (e) {} }
+    if (stream === 'autopay') { try { document.dispatchEvent(new Event('kharcha:autopay')); } catch (e) {} }
+    if (stream === 'tax') { try { document.dispatchEvent(new Event('kharcha:tax')); } catch (e) {} }
     if (stream === 'kitchen') { try { document.dispatchEvent(new Event('kharcha:kitchen')); } catch (e) {} }
     if (stream === 'rules') renderRules();
     if (stream === 'bank') renderBank();
@@ -4287,7 +4296,7 @@
     if (stream === 'monthly') renderMonthly();
 
     var heroEl = $('st-hero');
-    var isDedicatedStream = ['trips', 'projects', 'investments', 'udhaar', 'wallet', 'bank', 'rules', 'monthly', 'insights', 'autopilot', 'kitchen', 'card', 'phone'].indexOf(stream) >= 0;
+    var isDedicatedStream = ['trips', 'projects', 'investments', 'udhaar', 'wallet', 'bank', 'rules', 'monthly', 'insights', 'autopilot', 'autopay', 'tax', 'kitchen', 'card', 'phone'].indexOf(stream) >= 0;
     if (heroEl) heroEl.hidden = isDedicatedStream;
     var stk = $('sticky-month-bar');
     if (stk) stk.style.display = isDedicatedStream ? 'none' : '';

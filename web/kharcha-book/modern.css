@@ -1084,3 +1084,34 @@ html.theme-fade, html.theme-fade body, html.theme-fade *, html.theme-fade *::bef
 :root[data-theme="glow"] .hero-amount-block .total, :root[data-theme="glow"] .hero-amount-block #total, :root[data-theme="glow"] .hero .hero-total { animation: none !important; filter: drop-shadow(0 0 14px rgba(110, 175, 255, 0.45)); }
 :root[data-theme="glow"] .th-banner { animation: none !important; background-position: 50% 50%; }
 @media (prefers-reduced-motion: reduce) { .cal-day.hot::after { animation: none; opacity: .5; } }
+
+/* v154: AutoPay radar and Tax savings pages */
+.rd-hero { padding: 18px 16px 14px; border-radius: 22px; background: var(--surface); border: 1px solid var(--line); margin: 0 0 12px; }
+.rd-hero h2 { margin: 0 0 6px; font-size: 1.1rem; }
+.rd-big { margin: 0; font-size: 1.9rem; font-weight: 800; letter-spacing: -0.01em; }
+.rd-sub { margin: 4px 0 0; color: var(--muted); font-size: 0.88rem; line-height: 1.4; }
+.rd-card { padding: 14px 14px 10px; border-radius: 18px; background: var(--surface); border: 1px solid var(--line); margin: 0 0 12px; }
+.rd-card h3 { margin: 0 0 8px; font-size: 0.98rem; }
+.rd-card .scope-pill { margin: 4px 6px 4px 0; }
+.rd-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); }
+.rd-card h3 + .rd-row, .rd-card .rd-sub + .rd-row { border-top: 0; }
+.rd-row.failed .rd-amt b { color: #ef4444; text-decoration: line-through; }
+.rd-mid { flex: 1 1 auto; min-width: 0; display: grid; gap: 2px; }
+.rd-mid b { font-size: 0.93rem; overflow-wrap: anywhere; }
+.rd-mid small { color: var(--muted); font-size: 0.78rem; }
+.rd-amt { text-align: right; display: grid; gap: 2px; flex: none; }
+.rd-amt small { color: var(--muted); font-size: 0.74rem; }
+.rd-flag { font-size: 0.8rem; line-height: 1.35; padding: 4px 8px; border-radius: 8px; margin-top: 3px; }
+.rd-flag.bad { background: rgba(239, 68, 68, 0.14); color: #ef4444; }
+.rd-flag.warn { background: rgba(245, 158, 11, 0.15); color: #d97706; }
+.rd-flag.good { background: rgba(34, 197, 94, 0.14); color: #16a34a; }
+.rd-flag.info { background: rgba(59, 130, 246, 0.12); color: var(--accent, #0284C7); }
+.rd-alerts { border-color: rgba(239, 68, 68, 0.45); }
+.rd-alert { display: grid; gap: 2px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 0.86rem; }
+.rd-alert span { color: var(--muted); }
+.rd-alert.bad b { color: #ef4444; }
+.rd-fix { flex: none; }
+.rd-note { color: var(--muted); font-size: 0.78rem; line-height: 1.45; margin: 6px 4px 18px; }
+.tx-bar { height: 10px; border-radius: 6px; background: var(--line); overflow: hidden; margin: 10px 0 8px; }
+.tx-fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, #22c55e, #f5b70a); }
+.tx-proof { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0 3px 26px; color: var(--muted); font-size: 0.8rem; }

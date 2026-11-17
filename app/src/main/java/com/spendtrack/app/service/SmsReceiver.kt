@@ -66,6 +66,8 @@ class SmsReceiver : BroadcastReceiver() {
                     timestamp = timestamp
                 )
                 if (parsed == null) {
+                    // A failed automatic payment: no money moved, but say so (it would otherwise go unnoticed).
+                    if (com.spendtrack.app.core.automation.MandateAlerts.notifyIfFailed(context.applicationContext, fullText)) return@launch
                     // Money moved but the parser could not read it: never stay silent about that.
                     com.spendtrack.app.core.notification.MissedMessages.noteIfMoney(context.applicationContext, sender, fullText, timestamp)
                     return@launch
