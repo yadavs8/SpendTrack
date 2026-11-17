@@ -163,3 +163,10 @@ body[data-stream="incomings"] #sticky-month-bar, body[data-stream="settlement"] 
 :root[data-theme="glow"] .th-banner { background-size: 200% 200%; animation: gl-flow 10s ease-in-out infinite alternate; }
 @keyframes gl-flow { from { background-position: 0% 50%; } to { background-position: 100% 50%; } }
 @media (prefers-reduced-motion: reduce) { :root[data-theme="glow"] .hero::before, :root[data-theme="glow"] .th-banner, :root[data-theme="glow"] .hero .hero-total, :root[data-theme="glow"] .hero-amount-block #total { animation: none !important; } }
+
+/* v153: smooth frames. The aurora lights were radial gradients PLUS filter: blur(70px / 28px). Blurring big moving
+   layers costs the phone's GPU every frame. The gradients alone, with a longer fade, look just as soft. */
+:root[data-theme="glow"] body::before, :root[data-theme="glow"] body::after { filter: none; }
+:root[data-theme="glow"] body::before { background: radial-gradient(circle, color-mix(in srgb, var(--glow-a) 85%, transparent) 0%, color-mix(in srgb, var(--glow-a) 35%, transparent) 30%, transparent 70%); }
+:root[data-theme="glow"] body::after { background: radial-gradient(circle, color-mix(in srgb, var(--glow-b) 85%, transparent) 0%, color-mix(in srgb, var(--glow-b) 35%, transparent) 30%, transparent 70%); }
+:root[data-theme="glow"] .hero::before { filter: none !important; will-change: transform; background: radial-gradient(circle at 30% 30%, color-mix(in srgb, var(--glow-a) 80%, transparent), transparent 50%), radial-gradient(circle at 72% 68%, color-mix(in srgb, var(--glow-b) 80%, transparent), transparent 48%), radial-gradient(circle at 60% 20%, color-mix(in srgb, var(--glow-c, #c084fc) 80%, transparent), transparent 44%); }
