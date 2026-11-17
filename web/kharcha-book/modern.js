@@ -963,11 +963,12 @@
   function snapLogo() {
     var img = document.querySelector('.top .logo'), KW = window.KharchaWings;
     if (!img || !img.parentNode || !KW) return;
-    var W = 64, H = 100, DPR = Math.min(3, window.devicePixelRatio || 2), cv = el('canvas', 'logo snap-logo');
+    var W = 64, H = 100, DPR = Math.min(2, window.devicePixelRatio || 2), cv = el('canvas', 'logo snap-logo');   // 2x is sharp at 64 px wide; 3x only costs frames
     cv.width = W * DPR; cv.height = H * DPR; cv.setAttribute('aria-hidden', 'true'); cv.title = 'Tap';
     var ctx = cv.getContext('2d'); if (!ctx) return;
     var running = false, t0 = 0, timer = 0, flight = { rise: 58, drift: 10 };
     function still() { KW.draw(ctx, DPR, W, H, KW.at(0, flight)); }
+    KW.warm(DPR);
     function frame(now) {
       if (!t0) t0 = now;
       var t = now - t0;
@@ -986,7 +987,7 @@
     img.parentNode.insertBefore(cv, img);
     cv.addEventListener('click', go);
     document.addEventListener('visibilitychange', function () { if (!document.hidden && !running) { clearTimeout(timer); timer = setTimeout(go, 2500); } });
-    var themeWatch = new MutationObserver(function () { if (!running) still(); });   // gold-on-dark vs gold-on-light outline
+    var themeWatch = new MutationObserver(function () { KW.warm(DPR); if (!running) still(); });   // gold-on-dark vs gold-on-light outline
     themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
     timer = setTimeout(go, 1200);
   }
@@ -1001,6 +1002,7 @@
     sp.addEventListener('click', leave);                              // tap to skip
     if (reduceMotion || !cv || !KW) { leave(); return; }
     var W = 64, H = 100, unit = cv.width / W, ctx = cv.getContext('2d'), t0 = 0;
+    KW.warm(unit);
     var start = KW.RUN.sit - 700, end = KW.RUN.sit + KW.RUN.unfold + KW.RUN.beat + KW.RUN.away;   // a short sit, then up and away
     function frame(now) {
       if (!t0) t0 = now;

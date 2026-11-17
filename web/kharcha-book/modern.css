@@ -1075,3 +1075,12 @@ html { overscroll-behavior-y: none; }
 html.theme-fade, html.theme-fade body, html.theme-fade *, html.theme-fade *::before, html.theme-fade *::after { transition: background-color 1.2s ease, color 1.2s ease, border-color 1.2s ease, box-shadow 1.2s ease, fill 1.2s ease !important; }
 /* v151: the logo is a gold ₹ with no tile behind it */
 .top .logo { background: transparent; }
+
+/* v153: smooth frames. Infinite animations of box-shadow / filter / background-position repaint the element on
+   every frame (the app stuttered). Same looks, but now only opacity animates, which the GPU does on its own. */
+.cal-day.hot { animation: cdPop .35s cubic-bezier(.2,.9,.3,1.2) both; box-shadow: 0 0 8px rgba(239, 68, 68, .35); }
+.cal-day.hot::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; box-shadow: 0 0 20px rgba(249, 115, 22, .7); opacity: 0; will-change: opacity; animation: hotGlowO 1.6s ease-in-out .4s infinite alternate; }
+@keyframes hotGlowO { from { opacity: 0; } to { opacity: 1; } }
+:root[data-theme="glow"] .hero-amount-block .total, :root[data-theme="glow"] .hero-amount-block #total, :root[data-theme="glow"] .hero .hero-total { animation: none !important; filter: drop-shadow(0 0 14px rgba(110, 175, 255, 0.45)); }
+:root[data-theme="glow"] .th-banner { animation: none !important; background-position: 50% 50%; }
+@media (prefers-reduced-motion: reduce) { .cal-day.hot::after { animation: none; opacity: .5; } }
