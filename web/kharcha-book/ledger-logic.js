@@ -375,6 +375,23 @@
     if (/\btowards\s+axio\b/i.test(raw) || /\bamazon\s*pay\s*later\b/i.test(raw)) return '\u{1F501} Amazon Pay Later bill (Axio)';
     return null;
   }
+  /* ---------- v155: Amazon Pay top-ups still waiting for their purchase ----------
+     A card charge "on AMAZON PAY WALL" moves money into the wallet; the Blinkit / Amazon order it paid for is the
+     spending, and its own message (Amazon's email) often never reaches the phone. A top-up is "waiting" when no
+     wallet purchase is logged from 15 minutes before it to 6 hours after, and you have not said it stays in the wallet. */
+  function waitingTopups(entries, nowMs, keptIds, days) {
+    var since = nowMs - (days || 30) * 864e5, kept = {};
+    (keptIds || []).forEach(function (id) { kept[id] = 1; });
+    var list = (entries || []).filter(function (e) { return e && !e.synthetic; });
+    var spends = list.filter(function (e) { var w = parseWalletDesc(e.desc); return w && w.kind === 'spend'; });
+    return list.filter(function (e) {
+      if (e.ts < since || e.ts > nowMs || kept[e.id]) return false;
+      var w = parseWalletDesc(e.desc);
+      if (!w || w.kind !== 'topup' || !/card|upi/i.test(w.note + ' ' + (e.raw || ''))) return false;   // cashback / adjustments are not top-ups to explain
+      return !spends.some(function (s) { return s.ts >= e.ts - 15 * 60000 && s.ts <= e.ts + 6 * 3600000; });
+    }).sort(function (a, b) { return b.ts - a.ts; });
+  }
+
   /* ---------- v142: smarter by itself ---------- */
   // Bank SMS carry the balance after each payment. Between two of them, the logged ins and outs must add up;
   // when they don't, money moved that is not in the book ("₹177 left ICICI between 5 and 10 Nov").
@@ -1859,7 +1876,7 @@
     tripItemCategory: tripItemCategory, tripCategoriesSummary: tripCategoriesSummary, TRIP_CATEGORY_DEFS: TRIP_CATEGORY_DEFS,
     cleanName: cleanName, nameKey: nameKey, parseLoans: parseLoans, repaid: repaid, outstanding: outstanding,
     addPayment: addPayment, editLoan: editLoan, editPayment: editPayment, summarize: summarize,
-    walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, parseWalletDesc: parseWalletDesc, autoMoneyMove: autoMoneyMove, billsToPay: billsToPay, smsBalance: smsBalance, balanceGaps: balanceGaps, creditName: creditName, incomeKind: incomeKind, learnedScope: learnedScope, payeeCore: payeeCore,
+    walletTopupDesc: walletTopupDesc, walletSpendDesc: walletSpendDesc, waitingTopups: waitingTopups, parseWalletDesc: parseWalletDesc, autoMoneyMove: autoMoneyMove, billsToPay: billsToPay, smsBalance: smsBalance, balanceGaps: balanceGaps, creditName: creditName, incomeKind: incomeKind, learnedScope: learnedScope, payeeCore: payeeCore,
     parseWallets: parseWallets, walletState: walletState, walletReconcile: walletReconcile,
     smartSearch: smartSearch, smsAccounts: smsAccounts, searchInsights: searchInsights, payeeName: payeeName, tripDiaryLabel: tripDiaryLabel, placeIn: placeIn, categoryOf: categoryOf, personOf: personOf, findPaybacks: findPaybacks, peopleLedger: peopleLedger, cleanBankAccounts: cleanBankAccounts, smsSourceBank: smsSourceBank, findRefunds: findRefunds, isRefundText: isRefundText, looksLikeCardBill: looksLikeCardBill, KITCHEN_SEED: KITCHEN_SEED, parseOrderText: parseOrderText, vendorOf: vendorOf, vendorKind: vendorKind, learnVendor: learnVendor, vendorGuess: vendorGuess, kitchenItemFor: kitchenItemFor, parseItemsText: parseItemsText, itemsFromPattern: itemsFromPattern, summarizeItems: summarizeItems, refundShop: refundShop, recurringSeries: recurringSeries, safeToSpend: safeToSpend, creepingSpends: creepingSpends, seriesKey: seriesKey, askQuery: askQuery, forecastMonth: forecastMonth, unusualSpends: unusualSpends,
     payCycles: payCycles, lastWorkingDay: lastWorkingDay, nextPayday: nextPayday, parseBank: parseBank, parseAvlBalance: parseAvlBalance, balanceFromSms: balanceFromSms, bankEstimate: bankEstimate, parseTransfers: parseTransfers

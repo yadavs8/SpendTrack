@@ -137,6 +137,8 @@ class SpendTrackNotificationListener : NotificationListenerService() {
                 withTimeoutOrNull(2500) { runCatching { ServiceLocator.cloudSyncRepository.refreshSharedSettings() } }
 
                 val result = ServiceLocator.transactionRepository.ingestTransaction(parsed)
+                // An Amazon Pay top-up: ask what was bought if the order itself does not show up (v155)
+                com.spendtrack.app.core.automation.WalletPrompt.onLogged(applicationContext, fullText, parsed.amount, sbn.postTime)
 
                 PromptReconciler.clearPaired(applicationContext)
                 when (result) {

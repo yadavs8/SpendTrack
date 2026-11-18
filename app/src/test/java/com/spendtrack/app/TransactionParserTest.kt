@@ -295,4 +295,13 @@ class TransactionParserTest {
         assertNull(TransactionParser.parse("JX-HDFCBK-S", nach, "com.android.mms"))
         assertNotNull(com.spendtrack.app.core.automation.MandateAlerts.failedMandate(nach))
     }
+
+    @Test
+    fun amazonPayWalletCardPayment_isRecognisedAsTopup() {
+        val sms = "INR 2,089.90 spent using ICICI Bank Card XX1014 on 18-Nov-26 on AMAZON PAY WALL. Avl Limit: INR 52,156.85. If not you, call 1800 2662/SMS BLOCK 1014 to 9215676766."
+        assertTrue(com.spendtrack.app.core.automation.WalletPrompt.isAmazonPayTopup(sms))
+        assertTrue(com.spendtrack.app.core.automation.WalletPrompt.isAmazonPayTopup("... on AMAZON PAY WAL. Avl Limit"))   // truncated SMS
+        assertFalse(com.spendtrack.app.core.automation.WalletPrompt.isAmazonPayTopup("INR 2,452.90 spent using ICICI Bank Card XX1014 on 17-Nov-26 on AMAZON. Avl Limit"))
+        assertEquals(2089.90, TransactionParser.parse("BP-ICICIT-S", sms, "com.android.mms")!!.amount, 0.01)
+    }
 }

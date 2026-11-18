@@ -46,6 +46,25 @@ class MainActivity : FragmentActivity() {
 
     private var activeWebView: WebView? = null
 
+    // v155: "What did you buy?" from the Amazon Pay notification: handed to the page once it is ready.
+    private var pendingWalletJs: String? = null
+    private val walletHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private fun deliverWalletPrompt(attempt: Int = 0) {
+        val js = pendingWalletJs ?: return
+        val wv = activeWebView
+        if (wv == null) { if (attempt < 30) walletHandler.postDelayed({ deliverWalletPrompt(attempt + 1) }, 1000); return }
+        wv.evaluateJavascript(js) { res ->
+            if (res == "true") pendingWalletJs = null
+            else if (attempt < 30) walletHandler.postDelayed({ deliverWalletPrompt(attempt + 1) }, 1000)
+        }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        com.spendtrack.app.core.automation.WalletPrompt.jsFor(intent)?.let { pendingWalletJs = it; deliverWalletPrompt() }
+    }
+
     // Fingerprint lock: asked when the app opens and again after a minute away. Kept here (not in
     // Compose) so onStart can lock again; the page underneath stays loaded while the lock is shown.
     private var isUnlocked by mutableStateOf(false)
@@ -66,6 +85,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onResume() {
         super.onResume()
+        deliverWalletPrompt()
         // If app comes to foreground, tell the web view to reload recent data instantly
         activeWebView?.evaluateJavascript(
             "if (typeof refreshData === 'function') { refreshData(); }",
@@ -107,6 +127,7 @@ class MainActivity : FragmentActivity() {
             return
         }
         enableEdgeToEdge()
+        pendingWalletJs = com.spendtrack.app.core.automation.WalletPrompt.jsFor(intent)
 
         setContent {
             SpendTrackTheme {

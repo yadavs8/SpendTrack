@@ -529,6 +529,27 @@ t('tripSettlement: full settlement payment of 30,000 at once settles everyone sq
   assert.strictEqual(r.transfers.length, 0);
 });
 
+t('v155: Amazon Pay top-ups waiting for their purchase (real history, 18 Nov)', () => {
+  const T = (d) => Date.parse(d + '+05:30'), card = 'BP-ICICIT-S INR x spent using ICICI Bank Card XX1014 on AMAZON PAY WALL.';
+  const rows = [
+    { id: 'a1', ts: T('2026-10-20T16:18:43'), amount: 734, desc: '👛➕ Amazon Pay · ICICI card ··1014', raw: card },
+    { id: 'a2', ts: T('2026-10-20T16:18:39'), amount: 734, desc: '👛 Amazon Pay · 🏠 Blinkit' },
+    { id: 'b1', ts: T('2026-11-02T11:06:18'), amount: 1387.88, desc: '👛➕ Amazon Pay · ICICI card ··1014', raw: card },
+    { id: 'b2', ts: T('2026-11-02T12:29:26'), amount: 1412, desc: '👛 Amazon Pay · 🏠 Blinkit grocery expenses' },
+    { id: 'c1', ts: T('2026-11-09T14:13:45'), amount: 148, desc: '👛➕ Amazon Pay · ICICI card ··1014', raw: card },
+    { id: 'c2', ts: T('2026-11-09T14:13:46'), amount: 318, desc: '👛 Amazon Pay · Blinkit' },
+    { id: 'd1', ts: T('2026-11-09T19:10:19'), amount: 144, desc: '👛➕ Amazon Pay · ICICI card ··1014', raw: card },
+    { id: 'd2', ts: T('2026-11-09T19:10:16'), amount: 144, desc: '👛 Amazon Pay · Blinkit' },
+    { id: 'e1', ts: T('2026-11-18T08:48:31'), amount: 2089.9, desc: '👛➕ Amazon Pay · ICICI card ··1014', raw: card },
+    { id: 'f1', ts: T('2026-11-15T10:00:00'), amount: 25, desc: '👛➕ Amazon Pay · Cashback / adjustment' }
+  ];
+  const now = T('2026-11-18T12:00:00');
+  assert.deepStrictEqual(L.waitingTopups(rows, now).map((e) => e.id), ['e1']);
+  assert.deepStrictEqual(L.waitingTopups(rows, now, ['e1']).map((e) => e.id), []);
+  rows.push({ id: 'e2', ts: T('2026-11-18T12:05:00'), amount: 2294, desc: '👛 Amazon Pay · Blinkit' });
+  assert.deepStrictEqual(L.waitingTopups(rows, T('2026-11-18T12:10:00')).map((e) => e.id), []);
+});
+
 console.log(n + ' tests passed');
 
 
