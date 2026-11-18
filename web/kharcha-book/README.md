@@ -539,3 +539,13 @@ How it behaves:
   NPS, home-loan EMIs with the principal/interest split from the bank certificate. Asks old or new regime (these only
   count under the old one), warns in Jan–Mar about unused 80C, and exports a proof list (CSV) for the CA.
   A helper, not tax advice.
+
+## Amazon Pay orders no longer slip through (v155, new APK for the notification)
+A card payment "on AMAZON PAY WALL" only loads the Amazon Pay balance, so it is not spending; the Blinkit / Amazon
+order it paid for is, and Amazon's own message about it (an email) usually never reached the phone. Now:
+- **Phone:** 10 minutes after such a top-up, if no Amazon Pay purchase was logged, a notification asks
+  "₹2,089.90 went into Amazon Pay. What did you buy?" with **Blinkit / Amazon / Other**.
+- **Form:** shop and the **full order amount** (part may come from the balance: the 18 Nov Blinkit order was ₹2,294,
+  the card paid ₹2,089.90). Logs "👛 Amazon Pay · <shop>", which counts as spending; the top-up still does not.
+- **Home** shows a card for top-ups of the last 3 days still waiting; the **Wallet** page lists all of the last 30
+  days, with "Kept in wallet" for money that stays in the balance.

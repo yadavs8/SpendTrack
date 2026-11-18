@@ -75,6 +75,8 @@ class SmsReceiver : BroadcastReceiver() {
 
                 SafeLogger.i("Parsed transaction from SMS ($sender): Amount=${parsed.amount}, Type=${parsed.transactionType}")
                 val result = ServiceLocator.transactionRepository.ingestTransaction(parsed)
+                // An Amazon Pay top-up: ask what was bought if the order itself does not show up (v155)
+                com.spendtrack.app.core.automation.WalletPrompt.onLogged(context.applicationContext, fullText, parsed.amount, timestamp)
                 PromptReconciler.clearPaired(context.applicationContext)
                 if (result is DeduplicationEngine.DeduplicationResult.NewTransaction) {
                     val txn = result.transaction

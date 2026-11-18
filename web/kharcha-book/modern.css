@@ -1115,3 +1115,9 @@ html.theme-fade, html.theme-fade body, html.theme-fade *, html.theme-fade *::bef
 .tx-bar { height: 10px; border-radius: 6px; background: var(--line); overflow: hidden; margin: 10px 0 8px; }
 .tx-fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, #22c55e, #f5b70a); }
 .tx-proof { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0 3px 26px; color: var(--muted); font-size: 0.8rem; }
+
+/* v155: Amazon Pay top-ups waiting for their purchase */
+.wp-card { border-color: rgba(245, 183, 10, 0.55); }
+.wp-row { display: grid; gap: 6px; padding: 9px 0; border-top: 1px solid var(--line); }
+.wp-acts { display: flex; flex-wrap: wrap; gap: 6px; }
+.wp-acts .scope-pill { margin: 0; }
