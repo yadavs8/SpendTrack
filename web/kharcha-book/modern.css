@@ -1131,13 +1131,16 @@ html.theme-fade, html.theme-fade body, html.theme-fade *, html.theme-fade *::bef
 .th-sheet-b.danger b { color: var(--danger, #dc2626); }
 .th-sheet-b:active { background: var(--bg); }
 
+/* v158: the pop-up background is pinned to all four screen edges. v156 sized it with 100dvh, which some Android
+   WebViews compute far too small: the background became a strip at the top, clipping the box to just its title
+   ("Save this?" with no Yes button), so Save looked like it did nothing. */
 /* v156: every pop-up fits the screen.
    - Pop-ups sit above the More sheet, the side menu and the other sheets (they were under them at z-index 100,
      so one opened from those showed only partly). The confirm box stays on top of everything.
    - A tall pop-up (many fields, a long list, large phone text, a short or landscape screen) no longer runs off
      the top and bottom: it is limited to the screen, keeps clear of the notch and the navigation bar, and scrolls.
    - Its parts keep their size instead of being squeezed together. */
-.modal-backdrop { z-index: 100400; height: 100%; height: 100dvh; bottom: auto; box-sizing: border-box; overflow: hidden;
+.modal-backdrop { z-index: 100400; top: 0; right: 0; bottom: 0; left: 0; height: auto; box-sizing: border-box;
   padding: max(16px, env(safe-area-inset-top, 0px)) 16px max(16px, env(safe-area-inset-bottom, 0px)); }
 .modal-card, .modal-box { max-height: 100%; min-height: 0; box-sizing: border-box; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 .modal-card > *, .modal-box > * { flex-shrink: 0; }
