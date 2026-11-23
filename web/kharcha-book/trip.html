@@ -6,7 +6,7 @@
 <title>SpendTrack — Shared Trip</title>
 <meta name="description" content="View and add to a shared trip's spending, no account needed.">
 <link rel="icon" href="icon-192.png" type="image/png">
-<link rel="apple-touch-icon" href="apple-touch-icon.png?v=158">
+<link rel="apple-touch-icon" href="apple-touch-icon.png?v=159">
 <meta name="theme-color" content="#0284C7">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -118,6 +118,10 @@
   .modal-backdrop { box-sizing:border-box; top:0; right:0; bottom:0; left:0; height:auto; padding:max(16px, env(safe-area-inset-top, 0px)) 16px max(16px, env(safe-area-inset-bottom, 0px)); }
   .modal-box { box-sizing:border-box; max-height:100%; min-height:0; overflow-y:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; }
   .modal-box > * { flex-shrink:0; }
+  /* v159: the see-through <dialog> that keeps pop-ups in front (toplayer.js) */
+  #kb-top { position:fixed; inset:0; width:100%; height:100%; max-width:none; max-height:none; margin:0; padding:0; border:0; background:transparent; color:inherit; overflow:visible; }
+  #kb-top:not([open]) { display:none; }
+  #kb-top::backdrop { background:transparent; }
   @keyframes modalPop { from { opacity:0; transform:scale(0.95); } to { opacity:1; transform:scale(1); } }
   .modal-title { font-weight:700; font-size:1.2rem; margin:0; }
   .modal-sub { color:var(--muted); font-size:0.88rem; margin:-4px 0 0; }
@@ -131,8 +135,9 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
-<script src="config.js?v=158" onerror="void 0"></script>
-<script src="ledger-logic.js?v=158"></script>
-<script src="trip.js?v=158"></script>
+<script src="config.js?v=159" onerror="void 0"></script>
+<script src="ledger-logic.js?v=159"></script>
+<script src="trip.js?v=159"></script>
+<script src="toplayer.js?v=159"></script>
 </body>
 </html>
