@@ -278,7 +278,9 @@ fun MainApp(onWebViewAttached: (WebView?) -> Unit = {}) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFFF0F4F8)) // the page's own background: no flash before it paints
+                // the page's own background (light or night): no flash before it paints, and the strip behind the
+                // navigation bar matches the page
+                .background(if (androidx.compose.foundation.isSystemInDarkTheme()) Color(0xFF0B1120) else Color(0xFFF0F4F8))
         ) {
             KharchaWebViewScreen(
                 webViewRef = {
@@ -297,7 +299,9 @@ fun MainApp(onWebViewAttached: (WebView?) -> Unit = {}) {
                         }
                     }
                 },
-                modifier = Modifier.statusBarsPadding()
+                // Keep the page clear of the status bar AND the navigation bar: edge-to-edge drew the page under the
+                // navigation bar, which hid the bottom of pop-ups and sheets (most WebViews report no safe-area inset).
+                modifier = Modifier.statusBarsPadding().navigationBarsPadding()
             )
             // Native Settings button: ALWAYS present, never removed or hidden by web page events.
             IconButton(

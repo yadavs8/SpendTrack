@@ -544,3 +544,9 @@ How it behaves:
 Trip mode logs every payment the phone sees, so everyday spends (groceries, bills) can end up on a trip.
 - **Tap a spend** in the trip's Day by day list: **👤 Move to Personal**, **🏠 Move to Family** or **🗑️ Delete spend**. A moved spend leaves the trip and the friends' shared link, the split is worked out again, and **Undo** puts it back on the trip.
 - **☑️ Select** (next to Day by day) picks several spends at once (or **All**), then Personal, Family or Delete. Spends a friend added from the trip link can only be deleted, not moved, because they are not yours.
+
+## Pop-ups fit the screen (v156, new APK for the navigation bar)
+- Every pop-up stays inside the screen. A tall one (many fields, a long list, large phone text, a short or sideways screen) scrolls instead of running off the top and bottom, and its buttons are no longer squeezed.
+- Pop-ups open on top of the More sheet, the side menu and the other sheets instead of partly behind them.
+- The trip **Select** bar sticks below the phone app's ⚙️ button instead of under it.
+- Phone app: the page now stops above Android's navigation bar (it used to run underneath it and hide the bottom of sheets and pop-ups). The strip behind the bar matches light or night mode.
