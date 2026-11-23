@@ -1132,11 +1132,3 @@ html.theme-fade, html.theme-fade body, html.theme-fade *, html.theme-fade *::bef
 .th-fix .th-acts .th-act { padding: 9px 10px; font-size: 0.84rem; }
 /* In the phone app its ⚙️ button floats over the top right of the page: the trip Select bar sticks below it. */
 .th-selbar.native { top: 58px; }
-
-/* v159: the <dialog> that keeps pop-ups in front (toplayer.js). It is invisible itself: a full-screen, see-through
-   frame in the browser's top layer; the pop-up inside keeps its own dimmed background and card. */
-#kb-top { position: fixed; inset: 0; top: 0; right: 0; bottom: 0; left: 0; width: 100%; height: 100%; max-width: none; max-height: none;
-  margin: 0; padding: 0; border: 0; background: transparent; color: inherit; overflow: visible; }
-#kb-top:not([open]) { display: none; }
-#kb-top::backdrop { background: transparent; }
-#kb-top > .modal-backdrop { position: fixed; }
