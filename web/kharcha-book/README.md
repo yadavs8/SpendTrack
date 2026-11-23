@@ -555,3 +555,6 @@ Trip mode logs every payment the phone sees, so everyday spends (groceries, bill
 - **Move to Personal / Save sometimes did nothing.** Two causes, both fixed:
   - The trip page was rebuilt on every background refresh (each load asked the server for the trip a dozen times, and every answer redrew the page), so a tap that landed mid-rebuild hit a button that had just been replaced. The page now redraws only when what it shows changed, and the trip and friends' spends are fetched once at a time.
   - Pull-down-to-close started at 2px of finger movement, so an ordinary tap that drifted slightly was taken as a pull and its click thrown away. A pull now has to move more than 12px.
+
+## "Save this?" was hidden on some phones (v158)
+On some Android phones, tapping **Save** in an entry's edit form (for example 👤 Personal → Save) seemed to do nothing. The "Save this?" box did open, but only its title showed, as a strip at the top of the screen, and its **Yes, save** button was cut off. v156 had sized pop-up backgrounds with `100dvh`, which some Android WebViews compute far too small. Pop-up backgrounds are now pinned to the four screen edges and never clip their box.
