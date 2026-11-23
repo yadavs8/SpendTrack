@@ -8,7 +8,7 @@
   function $(id) { return document.getElementById(id); }
   function el(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
   function money(v) { return K.money(Math.round(v * 100) / 100); }
-  var ui = { trip: null, tools: false, sel: null };
+  var ui = { trip: null, tools: false, sel: null, open: null };
   var dayF = new Intl.DateTimeFormat('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
   var shortF = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short' });
 
@@ -106,7 +106,7 @@
     render();
   }
   function closeTrip() {
-    ui.trip = null; ui.tools = false; ui.sel = null;
+    ui.trip = null; ui.tools = false; ui.sel = null; ui.open = null;
     if (tripBack && window.KharchaBack) { var f = tripBack; tripBack = null; window.KharchaBack.done(f); }
     render(); window.scrollTo({ top: 0 });
   }
@@ -382,9 +382,9 @@
     var fh = el('div', 'th-card-h'); fh.appendChild(el('span', null, '🗓️ Day by day'));
     if (st.items.length) {
       var fr = el('div', 'th-fh-r');
-      if (!selecting) fr.appendChild(el('small', 'th-muted', 'Tap a spend to fix it'));
+      if (!selecting) fr.appendChild(el('small', 'th-muted', 'Tap a spend to move it'));
       var selB = el('button', 'th-sel-b', selecting ? 'Done' : '☑️ Select'); selB.type = 'button';
-      selB.addEventListener('click', function () { ui.sel = selecting ? null : { trip: trip, ids: {} }; render(); });
+      selB.addEventListener('click', function () { ui.sel = selecting ? null : { trip: trip, ids: {} }; ui.open = null; render(); });
       fr.appendChild(selB); fh.appendChild(fr);
     }
     fc.appendChild(fh);
@@ -420,9 +420,12 @@
           if (picked[e.id]) r.classList.add('picked');
           r.addEventListener('click', function () { if (picked[e.id]) delete picked[e.id]; else picked[e.id] = e; render(); });
         } else {
-          r.addEventListener('click', function () { spendSheet(trip, e, who, nice || own); });
+          if (ui.open === e.id) r.classList.add('open');
+          r.setAttribute('aria-expanded', ui.open === e.id ? 'true' : 'false');
+          r.addEventListener('click', function () { ui.open = ui.open === e.id ? null : e.id; render(); });
         }
         day.appendChild(r);
+        if (!selecting && ui.open === e.id) day.appendChild(fixRow(trip, e, who));
       });
       fc.appendChild(day);
     });
@@ -436,36 +439,27 @@
   /* ---------- v155: fix spends that are not part of the trip ----------
      Trip mode logs every payment the phone sees, so a normal bill or a grocery run can land on the trip.
      Tap a spend: move it to Personal or Family (it leaves the split), or delete it. "Select" does many at once. */
-  function sheet(title, sub, actions) {
-    var back = el('div', 'modal-backdrop th-sheet-back'), card = el('div', 'modal-card th-sheet');
-    var head = el('div', 'modal-head'); head.appendChild(el('h3', null, title));
-    var x = el('button', 'close-btn', '×'); x.type = 'button'; x.setAttribute('aria-label', 'Close'); head.appendChild(x);
-    card.appendChild(head);
-    if (sub) card.appendChild(el('p', 'modal-intro', sub));
-    function close() { back.remove(); document.removeEventListener('keydown', onKey); }
-    function onKey(ev) { if (ev.key === 'Escape') close(); }
-    actions.forEach(function (a) {
-      var b = el('button', 'th-sheet-b' + (a.cls ? ' ' + a.cls : ''));
-      b.type = 'button'; b.appendChild(el('b', null, a.text)); if (a.hint) b.appendChild(el('span', null, a.hint));
-      if (a.disabled) b.disabled = true;
-      b.addEventListener('click', function () { close(); a.fn(); });
-      card.appendChild(b);
-    });
-    x.addEventListener('click', close);
-    back.addEventListener('click', function (ev) { if (ev.target === back) close(); });
-    document.addEventListener('keydown', onKey);
-    back.appendChild(card); document.body.appendChild(back);
-  }
-  function spendSheet(trip, e, who, name) {
+  // v160: the choices open right under the spend, in the list. No pop-up: on some phones pop-ups were drawn
+  // behind the page, so their buttons could not be reached. Moves happen at once and can be undone.
+  function fixRow(trip, e, who) {
     var api = K.tripsApi, movable = api.canMove ? api.canMove(e) : !e.isGuestEntry;
-    var sub = (who === 'Me' ? 'You paid' : who + ' paid') + ' on ' + dayF.format(new Date(e.ts)) + '. Not part of ' + trip + '? Move it out of the trip, or delete it. You can undo.';
-    var acts = [];
-    if (movable && api.moveSpends) {
-      acts.push({ text: '👤 Move to Personal', hint: 'Counts as your own spend, not split', fn: function () { api.moveSpends([e], 'personal'); } });
-      acts.push({ text: '🏠 Move to Family', hint: 'Counts as family spend, not split', fn: function () { api.moveSpends([e], 'family'); } });
+    var box = el('div', 'th-fix');
+    box.appendChild(el('div', 'th-fix-q', (who === 'Me' ? 'You paid' : who + ' paid') + ' on ' + dayF.format(new Date(e.ts)) + '. Not part of ' + trip + '?' + (movable ? ' Move it out of the trip (you can undo):' : ' A friend added it from the trip link, so it can only be deleted.')));
+    var acts = el('div', 'th-acts');
+    function btn(txt, cls, fn, selfConfirm) {
+      var b = el('button', 'th-act ' + cls, txt); b.type = 'button';
+      if (selfConfirm) b.setAttribute('data-self-confirm', '');   // Undo covers it; no extra pop-up
+      b.addEventListener('click', function (ev) { ev.stopPropagation(); ui.open = null; fn(); });
+      acts.appendChild(b);
     }
-    acts.push({ text: '🗑️ Delete spend', cls: 'danger', hint: e.isGuestEntry ? 'Added from the trip link, so it goes for everyone' : 'Removes it everywhere', fn: function () { api.deleteSpend(e); } });
-    sheet(name + ' · ' + money(e.amount), sub, acts);
+    if (movable && api.moveSpends) {
+      btn('👤 Personal', 'primary', function () { api.moveSpends([e], 'personal'); }, true);
+      btn('🏠 Family', '', function () { api.moveSpends([e], 'family'); }, true);
+    }
+    btn('🗑️ Delete', 'danger', function () { api.deleteSpend(e); }, !e.isGuestEntry);   // a friend's spend cannot be undone: that one still asks
+    btn('Cancel', 'ghost', function () { render(); }, true);
+    box.appendChild(acts);
+    return box;
   }
   function selectBar(trip, items, picked) {
     var api = K.tripsApi, bar = el('div', 'th-selbar' + (window.KharchaNative ? ' native' : ''));
@@ -485,20 +479,17 @@
     var movable = list.filter(function (e) { return api.canMove ? api.canMove(e) : !e.isGuestEntry; });
     function done() { ui.sel = null; render(); }
     function btn(txt, cls, enabled, fn) { var b = el('button', 'th-act ' + cls, txt); b.type = 'button'; b.disabled = !enabled; b.addEventListener('click', fn); acts.appendChild(b); }
-    function mv(scope, where) {
-      var skip = list.length - movable.length;
-      K.confirmBox({ title: 'Move ' + movable.length + (movable.length === 1 ? ' spend' : ' spends') + ' to ' + where + '?',
-        message: 'They leave ' + trip + ' and the split is worked out again.' + (skip ? ' ' + skip + ' added by friends from the trip link stay (those can only be deleted).' : '') + ' You can undo.',
-        confirmText: 'Move to ' + where, onConfirm: function () { api.moveSpends(movable, scope); done(); } });
-    }
-    btn('👤 Personal', 'primary', movable.length > 0, function () { mv('personal', 'Personal'); });
-    btn('🏠 Family', '', movable.length > 0, function () { mv('family', 'Family'); });
+    // v160: no confirm pop-up (it could be hidden behind the page on some phones): it happens at once, with Undo.
+    btn('👤 Personal', 'primary', movable.length > 0, function () { api.moveSpends(movable, 'personal'); done(); });
+    btn('🏠 Family', '', movable.length > 0, function () { api.moveSpends(movable, 'family'); done(); });
+    var guests = list.filter(function (e) { return e.isGuestEntry; }).length;
     btn('🗑️ Delete', 'danger', list.length > 0, function () {
-      var g = list.filter(function (e) { return e.isGuestEntry; }).length;
-      K.confirmBox({ title: 'Delete ' + list.length + (list.length === 1 ? ' spend' : ' spends') + '?', isDanger: true,
-        message: money(tot) + ' comes off ' + trip + '.' + (g ? ' ' + g + ' added from the trip link go for everyone and cannot be undone.' : ' You can undo.'),
-        confirmText: 'Delete', onConfirm: function () { api.deleteSpends ? api.deleteSpends(list) : list.forEach(api.deleteSpend); done(); } });
+      var go = function () { api.deleteSpends ? api.deleteSpends(list) : list.forEach(api.deleteSpend); done(); };
+      if (!guests) { go(); return; }   // your own spends: Undo brings them back
+      K.confirmBox({ title: 'Delete ' + list.length + ' spends?', isDanger: true, message: guests + ' of them were added by friends from the trip link: those go for everyone and cannot be undone.', confirmText: 'Delete', onConfirm: go });
     });
+    if (!guests) acts.lastChild.setAttribute('data-self-confirm', '');
+    if (list.length > movable.length) bar.appendChild(el('small', 'th-muted', (list.length - movable.length) + ' added by friends from the trip link can only be deleted.'));
     bar.appendChild(acts);
     return bar;
   }

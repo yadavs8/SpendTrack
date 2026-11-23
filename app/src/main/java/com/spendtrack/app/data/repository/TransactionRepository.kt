@@ -244,6 +244,14 @@ class TransactionRepository(
         val merchantKey = (txn.merchantName?.takeUnless { isPlaceholderMerchant(it) }) ?: txn.merchantVpa
         val rule = if (!merchantKey.isNullOrBlank()) merchantRuleRepository.findMatchingRule(merchantKey) else null
 
+        // v160: trip mode no longer swallows payments that are clearly not trip spends (a card bill via CRED, a
+        // ₹5 lakh transfer, a subscription, a payee you always file as Personal/Family): those are asked about,
+        // or filed where you always file them. Everything else still goes to the trip by itself.
+        val tripAsk = if (effectiveTrip != null) com.spendtrack.app.core.model.TripFilingGuard.reasonToAsk(
+            txn.merchantName, txn.merchantVpa, raw, txn.amount, rule?.scope, rule?.scopeConfirmations ?: 0, AUTO_FILE_AFTER_ANSWERS
+        ) else null
+        val tripForAuto = if (tripAsk == null) effectiveTrip else null
+
         val knownPayee = KnownPayees.match(
             txn.merchantName, txn.merchantVpa, raw, txn.amount, txn.dateTime,
             KnownPayees.parse(runCatching { settingsManager?.sharedValueFlow(KNOWN_PAYEES_KEY)?.first() }.getOrNull())
@@ -279,13 +287,18 @@ class TransactionRepository(
             )
             // If BOTH Trip and Project/Function are simultaneously active and not paused,
             // neither should blindly hijack the payment. Leave needsReview = true so the user is prompted to choose!
-            effectiveTrip != null && effectiveProject != null -> txn.copy(
+            tripForAuto != null && effectiveProject != null -> txn.copy(
+                needsReview = true,
+                updatedAt = now
+            )
+            // Trip mode is on but this is not a trip spend (card bill, large transfer, subscription): ask.
+            tripAsk != null && !tripAsk.startsWith("learned:") -> txn.copy(
                 needsReview = true,
                 updatedAt = now
             )
             // Trip mode active & not paused: auto-log to trip
-            effectiveTrip != null -> txn.copy(
-                description = ExpenseScope.describe(txn.merchantName, txn.description, txn.isEdited, ExpenseScope.TRIP, effectiveTrip),
+            tripForAuto != null -> txn.copy(
+                description = ExpenseScope.describe(txn.merchantName, txn.description, txn.isEdited, ExpenseScope.TRIP, tripForAuto),
                 needsReview = false,
                 isEdited = true,
                 updatedAt = now
