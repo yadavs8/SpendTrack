@@ -5315,26 +5315,40 @@
      whole trip's history, not just what gets added from today onward. Entries already mirrored
      (tracked in the map) are skipped, so this is safe to call every time "Invite" is tapped, not
      just the first time. */
+  // v160: one copy run per trip at a time (two at once each saw "not shared yet" and both added a copy, which left
+  // the friends' ledger with duplicate Airbnb rows), and each run also tidies your own rows there: a duplicate, or a
+  // row whose spend has changed or left the trip, is removed. Friends' rows (member_id set) are never touched, and
+  // nothing is removed unless all your entries are loaded.
+  var tripBackfillRunning = {};
   function backfillTripExpensesToShared(tripName) {
-    if (!tripName || !sb) return;
+    if (!tripName || !sb || tripBackfillRunning[tripName]) return;
+    tripBackfillRunning[tripName] = true;
     ensureTripRow(tripName).then(function (trip) {
       if (!trip || !trip.invite_token) return;
       return sb.rpc('trip_summary', { p_invite_token: trip.invite_token }).then(function (res) {
+        if (res && res.error) return;
         var existingShared = (res && res.data && res.data[0] && res.data[0].expenses) || [];
-        var localEntries = getTripSummary(state.entries, tripName, []).entries;
+        var localEntries = getTripSummary(state.entries, tripName, []).entries.filter(function (e) { return !isTripSettlementEntry(e); });
         var map = loadTripMirrorMap();
+        var mine = existingShared.filter(function (se) { return !se.member_id && !isTripSettlementEntry({ desc: se.description }); });
+        var used = {};
+        function sameSpend(se, e) {
+          return Math.abs(Number(se.amount) - Number(e.amount)) < 0.01 && Math.abs(new Date(se.spent_at).getTime() - new Date(e.ts).getTime()) < 5000;
+        }
         localEntries.forEach(function (e) {
-          if (map[e.id]) return;
-          var isAlreadyShared = existingShared.some(function (se) {
-            return !se.member_id && Math.abs(Number(se.amount) - Number(e.amount)) < 0.01 &&
-                   Math.abs(new Date(se.spent_at).getTime() - new Date(e.ts).getTime()) < 5000;
-          });
-          if (isAlreadyShared) return;
+          var match = mine.filter(function (se) { return !used[se.id] && (map[e.id] === se.id || sameSpend(se, e)); })[0];
+          if (match) { used[match.id] = true; return; }
+          if (map[e.id]) return;   // this device already copied it; the row is not in the summary yet
           mirrorOwnerTripExpense(tripName, e.amount, cleanScopePrefix(e.desc), new Date(e.ts).toISOString(), e.id, parseTripSplit(e.desc));
         });
+        if (state.mode !== 'db') return;
+        var stale = mine.filter(function (se) { return !used[se.id]; });
+        stale.forEach(function (se) { sb.from('trip_expenses').delete().eq('id', se.id).then(function () {}, function () {}); });
+        if (stale.length) { delete tripGuestEntriesCache[tripName]; }
       });
-    }).catch(function () {});
+    }).catch(function () {}).then(function () { delete tripBackfillRunning[tripName]; });
   }
+
 
   /** Renders the invite status row (or hides it) for whichever trip is currently being viewed. */
   // Guest-added expenses, converted to the exact shape every other trip calculation already
