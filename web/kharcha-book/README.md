@@ -550,3 +550,8 @@ Trip mode logs every payment the phone sees, so everyday spends (groceries, bill
 - Pop-ups open on top of the More sheet, the side menu and the other sheets instead of partly behind them.
 - The trip **Select** bar sticks below the phone app's ⚙️ button instead of under it.
 - Phone app: the page now stops above Android's navigation bar (it used to run underneath it and hide the bottom of sheets and pop-ups). The strip behind the bar matches light or night mode.
+
+## Taps that did nothing (v157)
+- **Move to Personal / Save sometimes did nothing.** Two causes, both fixed:
+  - The trip page was rebuilt on every background refresh (each load asked the server for the trip a dozen times, and every answer redrew the page), so a tap that landed mid-rebuild hit a button that had just been replaced. The page now redraws only when what it shows changed, and the trip and friends' spends are fetched once at a time.
+  - Pull-down-to-close started at 2px of finger movement, so an ordinary tap that drifted slightly was taken as a pull and its click thrown away. A pull now has to move more than 12px.

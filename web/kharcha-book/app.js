@@ -5211,15 +5211,22 @@
   }
 
   /** Looks up (and caches) this trip's row from Supabase, creating it if it never had one. */
-  async function ensureTripRow(tripName) {
-    if (tripInviteCache[tripName]) return tripInviteCache[tripName];
-    if (!sb) return null;
-    var res = await sb.rpc('trip_get_or_create', { p_name: tripName });
-    console.log('Kharcha: trip_get_or_create ->', res);
-    if (res.error) throw res.error;
-    if (!res.data) return null;
-    tripInviteCache[tripName] = res.data;
-    return res.data;
+  // v157: every render asked the server for each trip again until the first answer came back (a dozen calls per
+  // load, each answer re-rendering the page). Callers now share the one request in flight.
+  var tripRowPending = {};
+  function ensureTripRow(tripName) {
+    if (tripInviteCache[tripName]) return Promise.resolve(tripInviteCache[tripName]);
+    if (!sb) return Promise.resolve(null);
+    if (tripRowPending[tripName]) return tripRowPending[tripName];
+    var pr = sb.rpc('trip_get_or_create', { p_name: tripName }).then(function (res) {
+      delete tripRowPending[tripName];
+      if (res.error) throw res.error;
+      if (!res.data) return null;
+      tripInviteCache[tripName] = res.data;
+      return res.data;
+    }, function (err) { delete tripRowPending[tripName]; throw err; });
+    tripRowPending[tripName] = pr;
+    return pr;
   }
 
   /** Fire-and-forget copy of the owner's own trip spend into the shared ledger, if this trip has
@@ -5355,8 +5362,10 @@
     }).catch(function () { toast('Could not delete. Check your connection.'); });
   }
 
+  var guestFetchPending = {};
   function fetchGuestTripEntries(tripName) {
-    if (!tripName || !sb || tripGuestEntriesCache[tripName] !== undefined) return;
+    if (!tripName || !sb || tripGuestEntriesCache[tripName] !== undefined || guestFetchPending[tripName]) return;
+    guestFetchPending[tripName] = true;   // v157: one fetch at a time, not one per render
     ensureTripRow(tripName).then(function (trip) {
       if (!trip || !trip.invite_token) { tripGuestEntriesCache[tripName] = []; return; }
       // Friends' own UPI ids (entered on the trip link) prefill Pay UPI; never overwrite one already saved here.
@@ -5385,7 +5394,8 @@
         tripGuestEntriesCache[tripName] = synth;
         render(); // now that friends' contributions are known, redo totals/categories/balances with them
       });
-    }).catch(function () { tripGuestEntriesCache[tripName] = []; });
+    }).catch(function () { tripGuestEntriesCache[tripName] = []; })
+      .then(function () { delete guestFetchPending[tripName]; });
   }
 
   function renderTripInviteRow(tripName) {
