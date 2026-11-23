@@ -503,13 +503,21 @@
     return bar;
   }
 
+  var lastHtml = null;
   function render() {
     var sec = $('trips-sec'); if (!sec || !K.tripsApi) return;
     var root = $('trips-home');
-    if (!root) { root = el('div', 'trips-home'); root.id = 'trips-home'; sec.insertBefore(root, sec.firstChild); }
+    if (!root) { root = el('div', 'trips-home'); root.id = 'trips-home'; sec.insertBefore(root, sec.firstChild); lastHtml = null; }
     if (ui.trip && K.tripsApi.list().indexOf(ui.trip) < 0) ui.trip = null;
-    root.textContent = '';
-    if (ui.trip) renderTrip(root, ui.trip); else renderList(root);
+    // v157: the app re-renders often (each background refresh). Rebuilding the page every time replaced the
+    // buttons under your finger, so a tap that landed mid-rebuild did nothing. Swap only when something changed.
+    var fresh = el('div');
+    if (ui.trip) renderTrip(fresh, ui.trip); else renderList(fresh);
+    var html = fresh.innerHTML;
+    if (html !== lastHtml || !root.firstChild) {
+      lastHtml = html; root.textContent = '';
+      while (fresh.firstChild) root.appendChild(fresh.firstChild);
+    }
     sec.classList.toggle('th-on', true);
     sec.classList.toggle('th-tools-open', !!(ui.trip && ui.tools));
   }

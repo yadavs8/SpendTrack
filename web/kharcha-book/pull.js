@@ -60,7 +60,7 @@
   // Pulling feels heavier the further it goes.
   function rubber(dy, max) { return dy <= 0 ? 0 : max * (1 - Math.exp(-dy / max)); }
 
-  var g = null, hint = null, suppressClickUntil = 0;
+  var g = null, hint = null, suppressClickUntil = 0, SLOP = 12;   // px a tap may wander before it counts as a pull
   function pageEls() { return [document.getElementById('main'), document.querySelector('.backbar')].filter(Boolean); }
   function showHint(ready) {
     if (!hint) { hint = document.createElement('div'); hint.className = 'pull-hint'; document.body.appendChild(hint); }
@@ -100,8 +100,10 @@
     if (!g || e.touches.length !== 1) return;
     var dy = e.touches[0].clientY - g.y0, dx = e.touches[0].clientX - g.x0;
     if (!g.on) {
-      if (dy < -2 || Math.abs(dx) > 10) { g = null; return; }     // scrolling up or swiping sideways: not ours
-      if (dy > 2 && dy > Math.abs(dx) * 1.2) g.on = true; else return;
+      if (dy < -SLOP || Math.abs(dx) > SLOP) { g = null; return; }     // scrolling up or swiping sideways: not ours
+      // v157: a finger drifts a few pixels during an ordinary tap. Starting the pull at 2px swallowed that tap
+      // (its click was suppressed on lift), so buttons like Save or Move to Personal sometimes did nothing.
+      if (dy > SLOP && dy > Math.abs(dx) * 1.2) g.on = true; else return;
     }
     if (e.cancelable) e.preventDefault();
     g.dy = dy;
