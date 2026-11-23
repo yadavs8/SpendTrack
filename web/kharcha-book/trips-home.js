@@ -468,7 +468,7 @@
     sheet(name + ' · ' + money(e.amount), sub, acts);
   }
   function selectBar(trip, items, picked) {
-    var api = K.tripsApi, bar = el('div', 'th-selbar');
+    var api = K.tripsApi, bar = el('div', 'th-selbar' + (window.KharchaNative ? ' native' : ''));
     var list = items.filter(function (e) { return picked[e.id]; });
     var tot = list.reduce(function (s, e) { return s + Math.round(e.amount * 100); }, 0) / 100;
     var top = el('div', 'th-selbar-t');
