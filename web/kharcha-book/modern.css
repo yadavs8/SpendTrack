@@ -1115,3 +1115,18 @@ html.theme-fade, html.theme-fade body, html.theme-fade *, html.theme-fade *::bef
 .tx-bar { height: 10px; border-radius: 6px; background: var(--line); overflow: hidden; margin: 10px 0 8px; }
 .tx-fill { height: 100%; border-radius: 6px; background: linear-gradient(90deg, #22c55e, #f5b70a); }
 .tx-proof { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0 3px 26px; color: var(--muted); font-size: 0.8rem; }
+
+/* v155: move or delete spends that are not part of the trip */
+.th-fh-r { display: flex; align-items: center; gap: 8px; }
+.th-sel-b { border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px; background: var(--surface); color: var(--accent, #0284c7); font: inherit; font-size: 0.78rem; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.th-selbar { position: sticky; top: 8px; z-index: 5; display: grid; gap: 8px; margin: 0 0 10px; padding: 10px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); box-shadow: 0 6px 20px rgba(15, 23, 42, .12); }
+.th-selbar-t { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.86rem; }
+.th-selbar .th-act { padding: 9px 10px; font-size: 0.84rem; }
+.th-act:disabled { opacity: .45; cursor: default; }
+.th-cb { flex: none; width: 20px; height: 20px; margin: 0; accent-color: var(--accent, #0284c7); pointer-events: none; }
+.th-item.picked { background: color-mix(in srgb, var(--accent, #0284c7) 10%, transparent); }
+.th-sheet { max-height: 88vh; overflow-y: auto; }
+.th-sheet-b { flex: none; height: auto; min-height: 0; display: grid; gap: 2px; text-align: left; width: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink); font: inherit; cursor: pointer; }
+.th-sheet-b b { font-size: 0.95rem; } .th-sheet-b span { font-size: 0.76rem; color: var(--muted); }
+.th-sheet-b.danger b { color: var(--danger, #dc2626); }
+.th-sheet-b:active { background: var(--bg); }
