@@ -8,7 +8,7 @@
   function $(id) { return document.getElementById(id); }
   function el(tag, cls, text) { var n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
   function money(v) { return K.money(Math.round(v * 100) / 100); }
-  var ui = { trip: null, tools: false };
+  var ui = { trip: null, tools: false, sel: null };
   var dayF = new Intl.DateTimeFormat('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
   var shortF = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short' });
 
@@ -106,7 +106,7 @@
     render();
   }
   function closeTrip() {
-    ui.trip = null; ui.tools = false;
+    ui.trip = null; ui.tools = false; ui.sel = null;
     if (tripBack && window.KharchaBack) { var f = tripBack; tripBack = null; window.KharchaBack.done(f); }
     render(); window.scrollTo({ top: 0 });
   }
@@ -378,7 +378,17 @@
 
     // day-by-day flow
     var fc = el('section', 'th-card');
-    var fh = el('div', 'th-card-h'); fh.appendChild(el('span', null, '🗓️ Day by day')); if (st.items.length) fh.appendChild(el('small', 'th-muted', 'Tap a spend to delete it')); fc.appendChild(fh);
+    var selecting = ui.sel && ui.sel.trip === trip, picked = selecting ? ui.sel.ids : {};
+    var fh = el('div', 'th-card-h'); fh.appendChild(el('span', null, '🗓️ Day by day'));
+    if (st.items.length) {
+      var fr = el('div', 'th-fh-r');
+      if (!selecting) fr.appendChild(el('small', 'th-muted', 'Tap a spend to fix it'));
+      var selB = el('button', 'th-sel-b', selecting ? 'Done' : '☑️ Select'); selB.type = 'button';
+      selB.addEventListener('click', function () { ui.sel = selecting ? null : { trip: trip, ids: {} }; render(); });
+      fr.appendChild(selB); fh.appendChild(fr);
+    }
+    fc.appendChild(fh);
+    if (selecting) fc.appendChild(selectBar(trip, st.items, picked));
     if (!st.items.length) fc.appendChild(el('p', 'th-muted', 'No spends yet. Tap “Add spend”, or friends can add from the trip link.'));
     var byDay = {}, order = [];
     var diary = diaryTitles(st.items, trip);
@@ -404,10 +414,14 @@
         var who = api.payer(e.desc); t.appendChild(el('span', null, (who === 'Me' ? 'You paid' : who + ' paid') + ' · ' + (nice ? own : c.label) + ' · ' + new Intl.DateTimeFormat('en-IN', { hour: 'numeric', minute: '2-digit' }).format(new Date(e.ts))));
         r.appendChild(t); r.appendChild(el('b', 'th-it-a', money(e.amount)));
         r.setAttribute('role', 'button'); r.tabIndex = 0; r.classList.add('tap');
-        r.addEventListener('click', function () {
-          K.confirmBox({ title: (label(e.desc) || 'Spend') + ' · ' + money(e.amount), message: (who === 'Me' ? 'You paid' : who + ' paid') + ' on ' + dayF.format(new Date(e.ts)) + '. Delete it? You can undo.' + (e.isGuestEntry ? ' It was added from the trip link, so it goes for everyone.' : ''), confirmText: 'Delete spend',
-            onConfirm: function () { api.deleteSpend(e); } });
-        });
+        if (selecting) {
+          var cb = el('input', 'th-cb'); cb.type = 'checkbox'; cb.checked = !!picked[e.id]; cb.tabIndex = -1; cb.setAttribute('aria-label', 'Select ' + (nice || own));
+          r.insertBefore(cb, r.firstChild);
+          if (picked[e.id]) r.classList.add('picked');
+          r.addEventListener('click', function () { if (picked[e.id]) delete picked[e.id]; else picked[e.id] = e; render(); });
+        } else {
+          r.addEventListener('click', function () { spendSheet(trip, e, who, nice || own); });
+        }
         day.appendChild(r);
       });
       fc.appendChild(day);
@@ -417,6 +431,76 @@
     var more = el('button', 'th-tools', ui.tools ? 'Hide trip tools ▴' : 'More trip tools: budget, categories, add & settle ▾'); more.type = 'button';
     more.addEventListener('click', function () { ui.tools = !ui.tools; render(); });
     root.appendChild(more);
+  }
+
+  /* ---------- v155: fix spends that are not part of the trip ----------
+     Trip mode logs every payment the phone sees, so a normal bill or a grocery run can land on the trip.
+     Tap a spend: move it to Personal or Family (it leaves the split), or delete it. "Select" does many at once. */
+  function sheet(title, sub, actions) {
+    var back = el('div', 'modal-backdrop th-sheet-back'), card = el('div', 'modal-card th-sheet');
+    var head = el('div', 'modal-head'); head.appendChild(el('h3', null, title));
+    var x = el('button', 'close-btn', '×'); x.type = 'button'; x.setAttribute('aria-label', 'Close'); head.appendChild(x);
+    card.appendChild(head);
+    if (sub) card.appendChild(el('p', 'modal-intro', sub));
+    function close() { back.remove(); document.removeEventListener('keydown', onKey); }
+    function onKey(ev) { if (ev.key === 'Escape') close(); }
+    actions.forEach(function (a) {
+      var b = el('button', 'th-sheet-b' + (a.cls ? ' ' + a.cls : ''));
+      b.type = 'button'; b.appendChild(el('b', null, a.text)); if (a.hint) b.appendChild(el('span', null, a.hint));
+      if (a.disabled) b.disabled = true;
+      b.addEventListener('click', function () { close(); a.fn(); });
+      card.appendChild(b);
+    });
+    x.addEventListener('click', close);
+    back.addEventListener('click', function (ev) { if (ev.target === back) close(); });
+    document.addEventListener('keydown', onKey);
+    back.appendChild(card); document.body.appendChild(back);
+  }
+  function spendSheet(trip, e, who, name) {
+    var api = K.tripsApi, movable = api.canMove ? api.canMove(e) : !e.isGuestEntry;
+    var sub = (who === 'Me' ? 'You paid' : who + ' paid') + ' on ' + dayF.format(new Date(e.ts)) + '. Not part of ' + trip + '? Move it out of the trip, or delete it. You can undo.';
+    var acts = [];
+    if (movable && api.moveSpends) {
+      acts.push({ text: '👤 Move to Personal', hint: 'Counts as your own spend, not split', fn: function () { api.moveSpends([e], 'personal'); } });
+      acts.push({ text: '🏠 Move to Family', hint: 'Counts as family spend, not split', fn: function () { api.moveSpends([e], 'family'); } });
+    }
+    acts.push({ text: '🗑️ Delete spend', cls: 'danger', hint: e.isGuestEntry ? 'Added from the trip link, so it goes for everyone' : 'Removes it everywhere', fn: function () { api.deleteSpend(e); } });
+    sheet(name + ' · ' + money(e.amount), sub, acts);
+  }
+  function selectBar(trip, items, picked) {
+    var api = K.tripsApi, bar = el('div', 'th-selbar');
+    var list = items.filter(function (e) { return picked[e.id]; });
+    var tot = list.reduce(function (s, e) { return s + Math.round(e.amount * 100); }, 0) / 100;
+    var top = el('div', 'th-selbar-t');
+    top.appendChild(el('b', null, list.length ? list.length + ' selected · ' + money(tot) : 'Tap the spends that are not part of the trip'));
+    var all = el('button', 'th-sel-b', list.length === items.length ? 'Clear' : 'All'); all.type = 'button';
+    all.addEventListener('click', function () {
+      var clear = list.length === items.length;
+      Object.keys(picked).forEach(function (k) { delete picked[k]; });
+      if (!clear) items.forEach(function (e) { picked[e.id] = e; });
+      render();
+    });
+    top.appendChild(all); bar.appendChild(top);
+    var acts = el('div', 'th-acts');
+    var movable = list.filter(function (e) { return api.canMove ? api.canMove(e) : !e.isGuestEntry; });
+    function done() { ui.sel = null; render(); }
+    function btn(txt, cls, enabled, fn) { var b = el('button', 'th-act ' + cls, txt); b.type = 'button'; b.disabled = !enabled; b.addEventListener('click', fn); acts.appendChild(b); }
+    function mv(scope, where) {
+      var skip = list.length - movable.length;
+      K.confirmBox({ title: 'Move ' + movable.length + (movable.length === 1 ? ' spend' : ' spends') + ' to ' + where + '?',
+        message: 'They leave ' + trip + ' and the split is worked out again.' + (skip ? ' ' + skip + ' added by friends from the trip link stay (those can only be deleted).' : '') + ' You can undo.',
+        confirmText: 'Move to ' + where, onConfirm: function () { api.moveSpends(movable, scope); done(); } });
+    }
+    btn('👤 Personal', 'primary', movable.length > 0, function () { mv('personal', 'Personal'); });
+    btn('🏠 Family', '', movable.length > 0, function () { mv('family', 'Family'); });
+    btn('🗑️ Delete', 'danger', list.length > 0, function () {
+      var g = list.filter(function (e) { return e.isGuestEntry; }).length;
+      K.confirmBox({ title: 'Delete ' + list.length + (list.length === 1 ? ' spend' : ' spends') + '?', isDanger: true,
+        message: money(tot) + ' comes off ' + trip + '.' + (g ? ' ' + g + ' added from the trip link go for everyone and cannot be undone.' : ' You can undo.'),
+        confirmText: 'Delete', onConfirm: function () { api.deleteSpends ? api.deleteSpends(list) : list.forEach(api.deleteSpend); done(); } });
+    });
+    bar.appendChild(acts);
+    return bar;
   }
 
   function render() {

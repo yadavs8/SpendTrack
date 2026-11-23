@@ -539,3 +539,8 @@ How it behaves:
   NPS, home-loan EMIs with the principal/interest split from the bank certificate. Asks old or new regime (these only
   count under the old one), warns in Jan–Mar about unused 80C, and exports a proof list (CSV) for the CA.
   A helper, not tax advice.
+
+## Move spends out of a trip (v155)
+Trip mode logs every payment the phone sees, so everyday spends (groceries, bills) can end up on a trip.
+- **Tap a spend** in the trip's Day by day list: **👤 Move to Personal**, **🏠 Move to Family** or **🗑️ Delete spend**. A moved spend leaves the trip and the friends' shared link, the split is worked out again, and **Undo** puts it back on the trip.
+- **☑️ Select** (next to Day by day) picks several spends at once (or **All**), then Personal, Family or Delete. Spends a friend added from the trip link can only be deleted, not moved, because they are not yours.

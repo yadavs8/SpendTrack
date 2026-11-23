@@ -6270,6 +6270,58 @@
         });
       }).catch(function () { toast('Could not delete. Try again.'); });
     },
+    // v155: a spend that landed on a trip by mistake (trip mode was on for a normal payment) goes back to
+    // Personal or Family. It leaves the friends' shared ledger too, so the split is worked out again. Undo puts it back.
+    // A friend's spend from the trip link is not yours to move; those can only be deleted.
+    canMove: function (e) { return !!e && !e.isGuestEntry && !e.synthetic && !!e.id; },
+    moveSpends: function (list, scope) {
+      var items = (list || []).filter(tripsApi.canMove);
+      if (!items.length) { toast('Friends\' spends from the trip link can only be deleted.'); return Promise.resolve(); }
+      var target = scope === 'family' ? 'family' : 'personal', where = target === 'family' ? 'Family' : 'Personal';
+      var olds = items.map(function (e) { return { id: e.id, amount: e.amount, desc: e.desc, ts: e.ts, method: e.method, tripName: extractTripNameFromDesc(e.desc) }; });
+      var total = items.reduce(function (s, e) { return s + paise(e.amount); }, 0) / 100;
+      return Promise.all(items.map(function (e) {
+        return store.update(e.id, { amount: e.amount, desc: shiftScopeDesc(e.desc, target), spent_at: new Date(e.ts).toISOString() })
+          .then(function () { deleteTripMirrorIfAny(e.id); return true; }, function () { return false; });
+      })).then(function (res) {
+        var ok = res.filter(Boolean).length;
+        render(); refreshData();
+        if (!ok) { toast('Could not move. Check your connection and try again.'); return; }
+        var moved = olds.filter(function (o, i) { return res[i]; });
+        toast((ok === 1 ? 'Moved ' + money(total) : 'Moved ' + ok + ' spends') + ' to ' + where + (ok < items.length ? ' (' + (items.length - ok) + ' failed)' : ''), function () {
+          Promise.all(moved.map(function (o) {
+            return store.update(o.id, { amount: o.amount, desc: o.desc, spent_at: new Date(o.ts).toISOString(), method: o.method || null })
+              .then(function () { if (o.tripName) mirrorOwnerTripExpense(o.tripName, o.amount, cleanScopePrefix(o.desc), new Date(o.ts).toISOString(), o.id, parseTripSplit(o.desc)); });
+          })).then(function () { render(); refreshData(); toast('Back on the trip'); }, function () { toast('Could not undo. Try again.'); });
+        });
+      });
+    },
+    // v155: delete several trip spends at once (yours, and friends' from the trip link). Undo restores yours.
+    deleteSpends: function (list) {
+      var items = (list || []).filter(Boolean);
+      if (items.length === 1) { tripsApi.deleteSpend(items[0]); return Promise.resolve(); }
+      var mine = items.filter(function (e) { return !e.isGuestEntry; });
+      var guests = items.filter(function (e) { return e.isGuestEntry && e.tripExpenseId; });
+      if (guests.length && !sb) { toast('Sign in to delete a friend\'s spend.'); return Promise.resolve(); }
+      return Promise.all(mine.map(function (e) {
+        return store.remove(e.id).then(function () { if (isTripEntry(e)) deleteTripMirrorIfAny(e.id); return true; }, function () { return false; });
+      }).concat(guests.map(function (e) {
+        return sb.from('trip_expenses').delete().eq('id', e.tripExpenseId).then(function (r) { return !r.error; }, function () { return false; });
+      }))).then(function (res) {
+        for (var k in tripGuestEntriesCache) delete tripGuestEntriesCache[k];
+        var ok = res.filter(Boolean).length, gone = mine.filter(function (e, i) { return res[i]; });
+        render();
+        if (!ok) { toast('Could not delete. Try again.'); return; }
+        var msg = 'Deleted ' + ok + ' spends' + (ok < items.length ? ' (' + (items.length - ok) + ' failed)' : '');
+        if (!gone.length) { toast(msg); return; }
+        toast(msg, function () {
+          Promise.all(gone.map(function (e) {
+            return store.add({ amount: e.amount, desc: e.desc, spent_at: new Date(e.ts).toISOString(), method: e.method || undefined, kind: e.kind || undefined })
+              .then(function (ne) { if (ne && isTripEntry(e)) mirrorOwnerTripExpense(extractTripNameFromDesc(e.desc), e.amount, cleanScopePrefix(e.desc), new Date(e.ts).toISOString(), ne.id, parseTripSplit(e.desc)); });
+          })).then(function () { render(); toast('Restored'); }, function () { toast('Could not undo. Try again.'); });
+        });
+      });
+    },
     rename: function (name) { tripsApi.select(name); var b = $('trip-rename-btn'); if (b) b.click(); },
     // v127: one-tap settle. Pay opens your UPI app with their UPI ID and the amount filled in (their ID comes from
     // the trip link, or you type it once); Ask sends a WhatsApp with your UPI ID and a pay link. Both then let you record it.
