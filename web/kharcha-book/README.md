@@ -558,3 +558,6 @@ Trip mode logs every payment the phone sees, so everyday spends (groceries, bill
 
 ## "Save this?" was hidden on some phones (v158)
 On some Android phones, tapping **Save** in an entry's edit form (for example 👤 Personal → Save) seemed to do nothing. The "Save this?" box did open, but only its title showed, as a strip at the top of the screen, and its **Yes, save** button was cut off. v156 had sized pop-up backgrounds with `100dvh`, which some Android WebViews compute far too small. Pop-up backgrounds are now pinned to the four screen edges and never clip their box.
+
+## Pop-ups always in front (v159)
+On some Android phones a pop-up ("Save this?", the trip spend choices) was drawn behind the page, so Save or Move to Personal could not be reached. `toplayer.js` now moves every pop-up that is on screen into a native `<dialog>` opened with `showModal()`, the browser's top layer, which nothing on the page can cover whatever its CSS. Pop-ups keep their own look and buttons; Escape or the back gesture closes the newest one. Browsers without `<dialog>` are unaffected.
